@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and focus progress tracking",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "name": { "type": "string", "maxLength": 100 },
+        "avatarUrl": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "targetUniversity": { "type": "string", "maxLength": 150 },
+        "targetDepartment": { "type": "string", "maxLength": 150 },
+        "targetExam": { "type": "string", "maxLength": 100 },
+        "studyTrack": { "type": "string", "maxLength": 100 },
+        "dailyGoalHours": { "type": "number" },
+        "streakDays": { "type": "number" },
+        "totalFocusMinutes": { "type": "number" },
+        "todayTotalMinutes": { "type": "number" },
+        "hasCompletedOnboarding": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["studying", "idle", "break"] },
+        "currentSubject": { "type": "string" },
+        "currentMode": { "type": "string" },
+        "cheersReceived": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "email"]
+    },
+    "FocusSession": {
+      "title": "FocusSession",
+      "description": "Logged focus study session matching YPT timeline requirements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "mode": { "type": "string", "enum": ["forest", "climb", "flight", "dive"] },
+        "subjectId": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "subjectColor": { "type": "string" },
+        "plannedMinutes": { "type": "number" },
+        "completedSeconds": { "type": "number" },
+        "breakSeconds": { "type": "number" },
+        "completed": { "type": "boolean" },
+        "dateString": { "type": "string" },
+        "startTimeString": { "type": "string" },
+        "endTimeString": { "type": "string" },
+        "note": { "type": "string", "maxLength": 500 },
+        "tasksCompleted": { "type": "number" },
+        "totalTasks": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "mode", "subjectName", "completedSeconds", "dateString"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Student focus task or flight ticket mission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "subjectName": { "type": "string" },
+        "subjectColor": { "type": "string" },
+        "plannedMinutes": { "type": "number" },
+        "isCompleted": { "type": "boolean" },
+        "flightOrigin": { "type": "string" },
+        "flightDestination": { "type": "string" },
+        "flightCode": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "plannedMinutes"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": "FocusSession",
+      "description": "User completed and active focus sessions"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "User tasks and flight boarding tickets"
+    },
+    "/study_rooms/{roomId}": {
+      "schema": "StudyRoom",
+      "description": "Collaborative study rooms created by students"
+    },
+    "/study_rooms/{roomId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Real-time room chat messages"
+    }
+  }
+}

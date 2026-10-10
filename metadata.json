@@ -1,0 +1,6 @@
+{
+  "name": "FOKUS - Premium Focus & YPT Öğrenci Takip Sistemi",
+  "description": "Forest, Climb, Focus Flight ve Deep Dive modlarıyla zenginleştirilmiş, YPT tarzı 24 saatlik zaman çizelgeli ve istatistikli premium odaklanma platformu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
