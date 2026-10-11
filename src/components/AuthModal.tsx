@@ -30,19 +30,27 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: any;
+  initialMode?: 'login' | 'register';
+  onRegistrationSuccess?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   currentUser,
+  initialMode = 'login',
+  onRegistrationSuccess,
 }) => {
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    setIsRegisterMode(initialMode === 'register');
+  }, [initialMode, isOpen]);
 
   if (!isOpen) return null;
 
@@ -108,6 +116,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           });
         } catch (err) {
           handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+        }
+        if (onRegistrationSuccess) {
+          onRegistrationSuccess();
         }
       } else {
         await signInWithEmailAndPassword(auth, email, password);

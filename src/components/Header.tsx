@@ -13,13 +13,14 @@ import {
   LogOut,
   ChevronDown,
   GraduationCap,
-  Trophy
+  Trophy,
+  DoorOpen
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface HeaderProps {
-  currentTab: 'focus' | 'tasks' | 'stats' | 'students';
-  onSelectTab: (tab: 'focus' | 'tasks' | 'stats' | 'students') => void;
+  currentTab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students';
+  onSelectTab: (tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => void;
   profile: UserProfile;
   currentUser: any;
   onOpenProfile: () => void;
@@ -64,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'focus', label: 'Odaklan', icon: Clock },
     { id: 'tasks', label: 'Görevler', icon: ListTodo },
     { id: 'stats', label: 'İstatistikler', icon: BarChart3 },
+    { id: 'rooms', label: 'Odalar', icon: DoorOpen },
     { id: 'students', label: 'Öğrenciler', icon: Users },
   ] as const;
 
@@ -98,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Center Navigation Tabs */}
-      <nav className="flex items-center gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner">
+      <nav className="flex items-center gap-0.5 sm:gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner max-w-full overflow-x-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -107,14 +109,14 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer shrink-0 ${
                 isActive
                   ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
                   : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
               }`}
             >
               <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff5500]' : 'text-neutral-400'}`} />
-              <span className="hidden sm:inline">{item.label}</span>
+              <span className="hidden md:inline">{item.label}</span>
             </button>
           );
         })}

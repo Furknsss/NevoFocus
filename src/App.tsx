@@ -56,11 +56,12 @@ import { MarketModal } from './components/MarketModal';
 import { AchievementsModal } from './components/AchievementsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { AuthModal } from './components/AuthModal';
+import { LandingPage } from './components/LandingPage';
 import { CinematicTransitionCurtain } from './components/visuals/CinematicTransitionCurtain';
 import { Flame, X } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'students'>('focus');
+  const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
 
   // Dedicated Mode Architecture
   const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType | null>(null);
@@ -69,6 +70,7 @@ export default function App() {
   // Firebase auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
 
   // Persistence data
   const [sessions, setSessions] = useState<FocusSession[]>([]);
@@ -141,7 +143,7 @@ export default function App() {
       setCurrentUser(user);
 
       if (user) {
-        // Fetch user document from Firestore to check onboarding status
+        // Fetch user document from Firestore to sync profile
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userDocRef);
@@ -159,20 +161,31 @@ export default function App() {
               targetExam: data.targetExam || 'YKS 2026 Sayısal',
               studyTrack: data.studyTrack || 'Sayısal',
               dailyGoalHours: data.dailyGoalHours || 6,
-              hasCompletedOnboarding: data.hasCompletedOnboarding ?? true,
+              hasCompletedOnboarding: true,
             });
             setProfile(mergedProfile);
-
-            if (!data.hasCompletedOnboarding) {
-              setIsOnboardingOpen(true);
-            } else {
-              setIsOnboardingOpen(false);
-            }
           } else {
-            setIsOnboardingOpen(true);
+            // Document doesn't exist yet for this logged in user, create default safely
+            const defaultUserData = {
+              userId: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || user.email?.split('@')[0] || 'Öğrenci',
+              name: user.displayName || user.email?.split('@')[0] || 'Öğrenci',
+              targetExam: 'YKS 2026 Sayısal',
+              studyTrack: 'Sayısal',
+              dailyGoalHours: 6,
+              streakDays: 1,
+              totalFocusMinutes: 0,
+              hasCompletedOnboarding: true,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            await setDoc(userDocRef, defaultUserData, { merge: true });
+            const mergedProfile = updateStoredProfile(defaultUserData);
+            setProfile(mergedProfile);
           }
-        } catch {
-          // fallback
+        } catch (err) {
+          console.warn('User profile fetch notice:', err);
         }
 
         // Attach Firestore listener for user's private sessions
@@ -241,10 +254,8 @@ export default function App() {
           unsubCheers();
         };
       } else {
-        const local = getStoredProfile();
-        if (!local.hasCompletedOnboarding) {
-          setIsOnboardingOpen(true);
-        }
+        // Visitor is not logged in: Never show onboarding! Show landing page instead.
+        setIsOnboardingOpen(false);
       }
     });
 
@@ -264,19 +275,23 @@ export default function App() {
     todayTotalMinutes: todayMinutes,
   };
 
-  // Sync user status to Firestore for real community visibility
+  // Sync user status to Firestore for real community visibility (safe setDoc)
   const updateCloudStatus = async (status: 'studying' | 'idle' | 'break', subjectName?: string) => {
     if (!currentUser) return;
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        status,
-        currentSubject: subjectName || '',
-        currentMode: currentActiveMode || 'forest',
-        todayTotalMinutes: todayMinutes,
-        streakDays: realStreak,
-        lastActiveAt: Date.now(),
-      });
+      await setDoc(
+        userDocRef,
+        {
+          status,
+          currentSubject: subjectName || '',
+          currentMode: currentActiveMode || 'forest',
+          todayTotalMinutes: todayMinutes,
+          streakDays: realStreak,
+          lastActiveAt: Date.now(),
+        },
+        { merge: true }
+      );
     } catch {
       // ignore
     }
@@ -319,16 +334,20 @@ export default function App() {
           userId: currentUser.uid,
         });
 
-        // Update user's aggregate stats in Firestore
+        // Update user's aggregate stats in Firestore (safe setDoc)
         const userDocRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userDocRef, {
-          status: 'idle',
-          currentSubject: '',
-          todayTotalMinutes: todayMinutes + Math.round(newSession.completedSeconds / 60),
-          totalFocusMinutes: Math.round(realTotalHours * 60 + newSession.completedSeconds / 60),
-          streakDays: calculateRealStreak([newSession, ...sessions]),
-          lastActiveAt: Date.now(),
-        });
+        await setDoc(
+          userDocRef,
+          {
+            status: 'idle',
+            currentSubject: '',
+            todayTotalMinutes: todayMinutes + Math.round(newSession.completedSeconds / 60),
+            totalFocusMinutes: Math.round(realTotalHours * 60 + newSession.completedSeconds / 60),
+            streakDays: calculateRealStreak([newSession, ...sessions]),
+            lastActiveAt: Date.now(),
+          },
+          { merge: true }
+        );
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/sessions/${newSession.id}`);
       }
@@ -499,6 +518,46 @@ export default function App() {
       ? 'bg-[#0d081f]'
       : 'bg-[#0b0c10]';
 
+  // YENİ TARAYICIDA / İLK KEZ SİTEYE GİRİLDİĞİNDE:
+  // Onboarding ASLA açılmaz; sağ üstte Giriş Yap ve Kaydol butonları olan Tanıtım Sayfası (LandingPage) gösterilir!
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] flex flex-col font-sans">
+        <LandingPage
+          onOpenLogin={() => {
+            soundEngine.playClick();
+            setAuthInitialMode('login');
+            setIsAuthModalOpen(true);
+          }}
+          onOpenRegister={() => {
+            soundEngine.playClick();
+            setAuthInitialMode('register');
+            setIsAuthModalOpen(true);
+          }}
+        />
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          currentUser={currentUser}
+          initialMode={authInitialMode}
+          onRegistrationSuccess={() => {
+            setIsOnboardingOpen(true);
+          }}
+        />
+
+        {isOnboardingOpen && (
+          <OnboardingModal
+            isOpen={isOnboardingOpen}
+            initialProfile={dynamicProfile}
+            userEmail={undefined}
+            onComplete={handleCompleteOnboarding}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${themeBackground} text-[#f1f5f9] flex flex-col font-sans selection:bg-[#ff5500]/30 selection:text-white transition-colors duration-300`}>
       {/* Top Header */}
@@ -635,6 +694,18 @@ export default function App() {
               <StatisticsView sessions={sessions} profile={dynamicProfile} />
             )}
 
+            {currentTab === 'rooms' && (
+              <StudentsView
+                peers={peers}
+                profile={dynamicProfile}
+                currentUser={currentUser}
+                onCheerPeer={handleCheerPeer}
+                isCurrentUserStudying={isSessionActive}
+                activeViewTab="rooms"
+                onSwitchTab={(tab) => setCurrentTab(tab)}
+              />
+            )}
+
             {currentTab === 'students' && (
               <StudentsView
                 peers={peers}
@@ -642,6 +713,8 @@ export default function App() {
                 currentUser={currentUser}
                 onCheerPeer={handleCheerPeer}
                 isCurrentUserStudying={isSessionActive}
+                activeViewTab="students"
+                onSwitchTab={(tab) => setCurrentTab(tab)}
               />
             )}
           </>
@@ -704,6 +777,10 @@ export default function App() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         currentUser={currentUser}
+        initialMode={authInitialMode}
+        onRegistrationSuccess={() => {
+          setIsOnboardingOpen(true);
+        }}
       />
     </div>
   );

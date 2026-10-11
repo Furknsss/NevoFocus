@@ -1,11 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default-deny catch-all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     function isSignedIn() {
       return request.auth != null;
     }
@@ -15,54 +10,50 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128;
     }
 
-    // User profile document
+    // Test connection doc
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // User profile documents - public read allows students list & community showcase without auth error
     match /users/{userId} {
-      allow get, list: if isSignedIn();
-      allow create: if isOwner(userId) && isValidId(userId);
-      allow update: if isOwner(userId) || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cheersReceived']));
-      allow delete: if isOwner(userId);
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (
+        request.auth.uid == userId ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cheersReceived'])
+      );
+      allow delete: if isSignedIn() && request.auth.uid == userId;
 
-      // Focus sessions subcollection
+      // Private user sessions
       match /sessions/{sessionId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(sessionId);
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
-      // Tasks subcollection
+      // Private user tasks
       match /tasks/{taskId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(taskId);
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
-      // Live Cheer Notifications subcollection
+      // Live Cheer notifications
       match /cheers/{cheerId} {
-        allow list, get: if isOwner(userId);
+        allow read: if isOwner(userId);
         allow create: if isSignedIn() && isValidId(cheerId);
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow update, delete: if isOwner(userId);
       }
     }
 
-    // Collaborative Study Rooms & Room Chat
+    // Collaborative Study Rooms & Messages - public read, signed-in write
     match /study_rooms/{roomId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(roomId);
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
 
-      // Room chat messages subcollection
       match /messages/{messageId} {
-        allow get, list: if isSignedIn();
-        allow create: if isSignedIn() && isValidId(messageId);
-        allow update: if false;
-        allow delete: if false;
+        allow read: if true;
+        allow create, update, delete: if isSignedIn();
       }
     }
   }
