@@ -174,6 +174,7 @@ export interface UserProfile {
   currentStreakDays: number;
   totalFocusHours: number;
   hasCompletedOnboarding?: boolean;
+  hasPassword?: boolean;
   cheersReceived?: number;
   status?: 'studying' | 'break' | 'idle';
   currentSubject?: string;
@@ -183,4 +184,5 @@ export interface UserProfile {
   soundNotifications?: boolean;
   breakReminders?: boolean;
   desktopNotifications?: boolean;
+  liveNotifications?: boolean;
 }

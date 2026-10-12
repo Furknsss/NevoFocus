@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, type User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, setDoc, getDocs, onSnapshot, query, where, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -66,3 +66,36 @@ export async function testConnection() {
   }
 }
 testConnection();
+
+/**
+ * Deeply sanitizes any payload before sending to Firestore.
+ * Strips all `undefined` values that cause Firestore SDK crashes ("Unsupported field value: undefined").
+ */
+export function cleanFirestoreData<T extends Record<string, any>>(obj: T): any {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => (typeof item === 'object' && item !== null ? cleanFirestoreData(item) : item));
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+        cleaned[key] = cleanFirestoreData(val);
+      } else {
+        cleaned[key] = val;
+      }
+    }
+  }
+  return cleaned;
+}
+
+/**
+ * Safe wrapper for setDoc that guarantees no undefined field will cause an error
+ */
+export async function safeSetDoc(docRef: any, data: any, options?: { merge?: boolean }) {
+  const cleaned = cleanFirestoreData(data);
+  return options ? setDoc(docRef, cleaned, options) : setDoc(docRef, cleaned);
+}

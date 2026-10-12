@@ -401,25 +401,48 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
         ctx.arc(summitX + 12 * dpr, summitY - 23 * dpr + flagWave * 0.4, 2.5 * dpr, 0, Math.PI * 2);
         ctx.fill();
 
-        // Celebration Banner at Summit
+        // Celebration Banner at Summit (Clean bottom center positioning)
         ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        const bannerW = 320 * dpr;
-        const bannerH = 48 * dpr;
-        ctx.roundRect((w - bannerW) * 0.5, h * 0.12, bannerW, bannerH, 14 * dpr);
+        ctx.fillStyle = 'rgba(15, 10, 25, 0.88)';
+        const bannerW = 340 * dpr;
+        const bannerH = 46 * dpr;
+        ctx.roundRect((w - bannerW) * 0.5, h * 0.84, bannerW, bannerH, 23 * dpr);
         ctx.fill();
         ctx.strokeStyle = '#f97316';
-        ctx.lineWidth = 2 * dpr;
+        ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
 
         ctx.fillStyle = '#fef08a';
         ctx.font = `bold ${12 * dpr}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText('🏔️ ZİRVEYE ULAŞILDI! (3,937m) 🏔️', w * 0.5, h * 0.12 + 20 * dpr);
+        ctx.fillText('🏔️ ZİRVEYE ULAŞILDI! (3,937m) 🏔️', w * 0.5, h * 0.84 + 19 * dpr);
 
         ctx.fillStyle = '#fdba74';
-        ctx.font = `${10 * dpr}px monospace`;
-        ctx.fillText('Kaçkar Zirvesi Fethedildi · Zafer Bayrağı Dikildi', w * 0.5, h * 0.12 + 36 * dpr);
+        ctx.font = `600 ${10 * dpr}px sans-serif`;
+        ctx.fillText('Kaçkar Zirvesi Fethedildi · Zafer Bayrağı Dikildi', w * 0.5, h * 0.84 + 34 * dpr);
+        ctx.restore();
+      }
+
+      // Camp Active Cinematic Checkpoint Banner
+      if (camping) {
+        ctx.save();
+        const campBannerW = 350 * dpr;
+        const campBannerH = 44 * dpr;
+        ctx.fillStyle = 'rgba(24, 10, 34, 0.9)';
+        ctx.strokeStyle = '#ea580c';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.roundRect((w - campBannerW) * 0.5, h * 0.84, campBannerW, campBannerH, 22 * dpr);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = `bold ${12 * dpr}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('⛺ İLERİ KAMP KURULDU · 2,850m', w * 0.5, h * 0.84 + 18 * dpr);
+
+        ctx.fillStyle = '#fed7aa';
+        ctx.font = `600 ${10 * dpr}px sans-serif`;
+        ctx.fillText('Sıcak Çay & Kamp Ateşi Molası · Enerji Toplanıyor', w * 0.5, h * 0.84 + 33 * dpr);
         ctx.restore();
       }
 

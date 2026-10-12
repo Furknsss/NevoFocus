@@ -3,12 +3,16 @@ import {
   X,
   Mail,
   Lock,
-  User,
+  User as UserIcon,
   ArrowRight,
   Sparkles,
   AlertCircle,
   LogIn,
-  UserPlus
+  UserPlus,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  KeyRound
 } from 'lucide-react';
 import {
   auth,
@@ -16,12 +20,17 @@ import {
   db,
   handleFirestoreError,
   OperationType,
+  safeSetDoc,
 } from '../firebase';
 import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  updatePassword,
+  EmailAuthProvider,
+  linkWithCredential,
+  type User,
 } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
@@ -48,8 +57,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Google Sign-In Password Creation Step
+  const [googleStepActive, setGoogleStepActive] = useState(false);
+  const [googleUserForPassword, setGoogleUserForPassword] = useState<User | null>(null);
+  const [googleNewPassword, setGoogleNewPassword] = useState('');
+  const [googleConfirmPassword, setGoogleConfirmPassword] = useState('');
+  const [showGooglePassword, setShowGooglePassword] = useState(false);
+  const [googlePasswordError, setGooglePasswordError] = useState<string | null>(null);
+
   React.useEffect(() => {
     setIsRegisterMode(initialMode === 'register');
+    setGoogleStepActive(false);
+    setGoogleUserForPassword(null);
+    setGoogleNewPassword('');
+    setGoogleConfirmPassword('');
+    setGooglePasswordError(null);
   }, [initialMode, isOpen]);
 
   if (!isOpen) return null;
@@ -65,13 +87,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       // Sync user profile to Firestore
       const userRef = doc(db, 'users', user.uid);
       try {
-        await setDoc(
+        await safeSetDoc(
           userRef,
           {
             userId: user.uid,
             email: user.email || '',
             displayName: user.displayName || 'Öğrenci',
-            updatedAt: new Date().toISOString(),
+            updatedAt: Date.now(),
           },
           { merge: true }
         );
@@ -79,12 +101,103 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
       }
 
-      onClose();
+      // Check if user already has a password set on this account
+      const hasPassword = user.providerData.some((p) => p.providerId === 'password');
+      if (!hasPassword) {
+        // Prompt user to set a password so they can login with email & password later!
+        setGoogleUserForPassword(user);
+        setGoogleStepActive(true);
+      } else {
+        onClose();
+        if (isRegisterMode && onRegistrationSuccess) {
+          onRegistrationSuccess();
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || 'Google ile giriş yapılırken hata oluştu.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveGooglePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleUserForPassword) return;
+
+    if (googleNewPassword.length < 6) {
+      setGooglePasswordError('Parola en az 6 karakter uzunluğunda olmalıdır.');
+      return;
+    }
+    if (googleNewPassword !== googleConfirmPassword) {
+      setGooglePasswordError('Girdiğiniz parolalar birbiriyle eşleşmiyor.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setGooglePasswordError(null);
+      soundEngine.playClick();
+
+      // Properly link Email/Password provider credential to the Google account
+      const cred = EmailAuthProvider.credential(googleUserForPassword.email!, googleNewPassword);
+      try {
+        await linkWithCredential(googleUserForPassword, cred);
+      } catch (linkErr: any) {
+        if (
+          linkErr.code === 'auth/provider-already-linked' ||
+          linkErr.code === 'auth/credential-already-in-use' ||
+          linkErr.code === 'auth/email-already-in-use'
+        ) {
+          await updatePassword(googleUserForPassword, googleNewPassword);
+        } else {
+          // Fallback to direct password update
+          await updatePassword(googleUserForPassword, googleNewPassword);
+        }
+      }
+
+      // Save flag in Firestore
+      try {
+        const userRef = doc(db, 'users', googleUserForPassword.uid);
+        await safeSetDoc(
+          userRef,
+          {
+            hasPassword: true,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
+      } catch {
+        // ignore
+      }
+
+      soundEngine.playCompletionBell();
+      setGoogleStepActive(false);
+      setGoogleUserForPassword(null);
+      onClose();
+
+      if (isRegisterMode && onRegistrationSuccess) {
+        onRegistrationSuccess();
+      }
+    } catch (err: any) {
+      console.error('Save Google password error', err);
+      if (err.code === 'auth/weak-password') {
+        setGooglePasswordError('Belirlediğiniz parola çok zayıf. Lütfen daha güçlü bir parola seçin.');
+      } else {
+        setGooglePasswordError(err.message || 'Parola kaydedilirken bir hata oluştu.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkipGooglePassword = () => {
+    soundEngine.playClick();
+    setGoogleStepActive(false);
+    setGoogleUserForPassword(null);
+    onClose();
+    if (isRegisterMode && onRegistrationSuccess) {
+      onRegistrationSuccess();
     }
   };
 
@@ -103,17 +216,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         const userRef = doc(db, 'users', user.uid);
         try {
-          await setDoc(userRef, {
-            userId: user.uid,
-            email: user.email || '',
-            displayName: displayName.trim() || email.split('@')[0],
-            dailyGoalHours: 6,
-            streakDays: 1,
-            totalFocusMinutes: 0,
-            targetExam: 'YKS 2026',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
+          await safeSetDoc(
+            userRef,
+            {
+              userId: user.uid,
+              email: user.email || '',
+              displayName: displayName.trim() || email.split('@')[0],
+              hasPassword: true,
+              dailyGoalHours: 6,
+              streakDays: 1,
+              totalFocusMinutes: 0,
+              targetExam: 'YKS 2026',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
         } catch (err) {
           handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
         }
@@ -128,8 +246,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (err: any) {
       console.error(err);
       let msg = err.message;
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        msg = 'Hatalı e-posta veya şifre girdiniz.';
+      if (
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-credential'
+      ) {
+        msg =
+          'Hatalı e-posta veya şifre girdiniz. Daha önce Google ile kayıt olduysanız lütfen "Google ile Giriş Yap" butonunu kullanın.';
       } else if (err.code === 'auth/email-already-in-use') {
         msg = 'Bu e-posta adresi ile zaten bir hesap var.';
       } else if (err.code === 'auth/weak-password') {
@@ -156,10 +279,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
           <div>
             <h3 className="text-base font-bold text-white">
-              {currentUser ? 'Hesap Bilgileri' : isRegisterMode ? 'Fokus Hesabı Oluştur' : 'Fokus\'a Giriş Yap'}
+              {googleStepActive
+                ? 'Parola Belirle'
+                : currentUser
+                ? 'Hesap Bilgileri'
+                : isRegisterMode
+                ? 'Fokus Hesabı Oluştur'
+                : "Fokus'a Giriş Yap"}
             </h3>
             <p className="text-xs text-neutral-400">
-              {currentUser ? 'Firestore senkronizasyonu aktif' : 'YPT istatistiklerini ve verilerini bulutta sakla'}
+              {googleStepActive
+                ? 'E-posta ve parola ile giriş yapabilmek için şifre oluşturun'
+                : currentUser
+                ? 'Firestore senkronizasyonu aktif'
+                : 'YPT istatistiklerini ve verilerini bulutta sakla'}
             </p>
           </div>
           <button
@@ -170,7 +303,103 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        {currentUser ? (
+        {googleStepActive && googleUserForPassword ? (
+          <div className="py-4 space-y-4">
+            <div className="p-3.5 rounded-xl bg-[#ff5500]/10 border border-[#ff5500]/30 flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-[#ff5500]/20 text-[#ff5500] shrink-0 mt-0.5">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                  E-posta Girişi İçin Parola Belirleyin
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                </h4>
+                <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                  Google hesabınızla başarıyla bağlandınız! İleride Google olmadan sadece{' '}
+                  <span className="font-semibold text-white">{googleUserForPassword.email}</span> e-postanız ve
+                  şifrenizle giriş yapabilmek için şimdi bir parola belirleyin.
+                </p>
+              </div>
+            </div>
+
+            {googlePasswordError && (
+              <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{googlePasswordError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveGooglePassword} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-400 mb-1">
+                  Yeni Parola (en az 6 karakter)
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                  <input
+                    type={showGooglePassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    placeholder="En az 6 karakter"
+                    value={googleNewPassword}
+                    onChange={(e) => setGoogleNewPassword(e.target.value)}
+                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGooglePassword(!showGooglePassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
+                  >
+                    {showGooglePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-400 mb-1">
+                  Parolayı Doğrula
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                  <input
+                    type={showGooglePassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    placeholder="Parolanızı tekrar yazın"
+                    value={googleConfirmPassword}
+                    onChange={(e) => setGoogleConfirmPassword(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 space-y-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <span>Kaydediliyor...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Parolayı Oluştur ve Hesaba Bağla</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSkipGooglePassword}
+                  className="w-full py-2 rounded-xl text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 text-xs transition-colors cursor-pointer text-center"
+                >
+                  Şimdilik Atla (Daha Sonra Ayarlardan Belirle)
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : currentUser ? (
           <div className="py-6 space-y-4">
             <div className="flex items-center gap-3 p-4 rounded-xl bg-neutral-900 border border-neutral-800">
               <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-lg font-bold text-white">
@@ -245,7 +474,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Ad Soyad
                   </label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                     <input
                       type="text"
                       required

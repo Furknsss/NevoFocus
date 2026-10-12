@@ -78,7 +78,7 @@ export const BoardingPassCard: React.FC<BoardingPassCardProps> = ({
                   Passenger Name
                 </span>
                 <span className="text-sm sm:text-base font-extrabold text-slate-800 uppercase tracking-tight block">
-                  {passengerName || 'JOHN SMITH'}
+                  {passengerName || 'YOLCU'}
                 </span>
               </div>
               <div>
@@ -200,7 +200,7 @@ export const BoardingPassCard: React.FC<BoardingPassCardProps> = ({
               <div>
                 <span className="text-[9px] uppercase font-bold text-slate-400 block">Passenger Name</span>
                 <span className="text-xs font-bold text-slate-800 uppercase truncate block">
-                  {passengerName || 'JOHN SMITH'}
+                  {passengerName || 'YOLCU'}
                 </span>
               </div>
 

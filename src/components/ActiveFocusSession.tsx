@@ -23,13 +23,13 @@ import {
   Trees,
   Bell
 } from 'lucide-react';
-import { FocusModeType, FocusSession, SubjectItem, FlightAirport } from '../types';
+import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
 import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
-import { ActiveFlightCanvas } from './visuals/ActiveFlightCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
-import { RealisticEarthGlobe } from './visuals/RealisticEarthGlobe';
+import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
+import { MyForestModal } from './forest/MyForestModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
 
@@ -42,10 +42,13 @@ interface ActiveFocusSessionProps {
   selectedTaskId?: string;
   selectedTaskTitle?: string;
   timerType?: 'countdown' | 'stopwatch';
+  tasksList?: FocusTask[];
+  onToggleTaskDone?: (taskId: string) => void;
   onSessionComplete: (session: FocusSession) => void;
-  onAbandonSession: () => void;
+  onAbandonSession: (partialSession?: FocusSession) => void;
   onToggleAudioModal: () => void;
   isAudioPlaying: boolean;
+  desktopNotificationsEnabled?: boolean;
 }
 
 const MOTIVATIONAL_QUOTES = [
@@ -66,10 +69,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   selectedTaskId,
   selectedTaskTitle,
   timerType = 'countdown',
+  tasksList = [],
+  onToggleTaskDone,
   onSessionComplete,
   onAbandonSession,
   onToggleAudioModal,
   isAudioPlaying,
+  desktopNotificationsEnabled = true,
 }) => {
   const totalSeconds = plannedMinutes * 60;
   const [currentTimerType, setCurrentTimerType] = useState<'countdown' | 'stopwatch'>(timerType);
@@ -92,15 +98,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   // FLIGHT 3D GLOBE / COCKPIT TOGGLE
   const [flightViewMode, setFlightViewMode] = useState<'cockpit' | 'globe'>('globe');
+  const [isMyForestOpen, setIsMyForestOpen] = useState(false);
 
-  // Mini task checklist
+  // Mini task checklist: ONLY when stopwatch is active
   const [showTasksPanel, setShowTasksPanel] = useState(false);
-  const [tasks, setTasks] = useState<{ id: string; text: string; done: boolean }[]>([
-    { id: '1', text: selectedTaskTitle || 'Konu özetini tara ve temel formülleri yaz', done: false },
-    { id: '2', text: 'Nitelikli soru çözümü ve uygulama', done: false },
-    { id: '3', text: 'Yapılamayan soruların analizini yap', done: false },
-  ]);
-  const [newTaskText, setNewTaskText] = useState('');
 
   const quoteRef = useRef(
     MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
@@ -357,22 +358,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           />
         )}
         {mode === 'flight' && (
-          <>
-            {flightViewMode === 'globe' ? (
-              <RealisticEarthGlobe
-                origin={originAirport}
-                destination={destAirport}
-                progress={progress}
-                isFlightActive={!isPaused}
-              />
-            ) : (
-              <ActiveFlightCanvas
-                progress={progress}
-                isPaused={isPaused}
-                elapsedSeconds={elapsedSeconds}
-              />
-            )}
-          </>
+          <WorldMap2DFlight
+            origin={originAirport}
+            destination={destAirport}
+            progress={progress}
+            isFlightActive={!isPaused}
+          />
         )}
         {mode === 'dive' && (
           <ActiveDiveCanvas
@@ -383,16 +374,18 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         )}
       </div>
 
-      {/* Top Floating Info Bar */}
-      <div className="relative z-10 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex items-center justify-between pointer-events-auto">
-        {/* Left: Mode Title & Subject Badge */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
+      {/* Top Floating Info Bar (Clean Non-Overlapping Header) */}
+      <div className="relative z-10 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+        {/* Left: Mode Title & Subject Badge & My Forest Button */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
             {mode === 'forest' && <Trees className="w-4 h-4 text-emerald-400" />}
             {mode === 'climb' && <Mountain className="w-4 h-4 text-orange-400" />}
             {mode === 'flight' && <Plane className="w-4 h-4 text-sky-400" />}
             {mode === 'dive' && <Waves className="w-4 h-4 text-teal-400" />}
-            <span className="capitalize">{mode === 'forest' ? 'Kadim Orman' : mode === 'climb' ? 'Dağcı Kampı' : mode === 'flight' ? 'Kokpit Uçuş' : 'Derin Dalış'}</span>
+            <span className="capitalize">
+              {mode === 'forest' ? 'Kadim Orman' : mode === 'climb' ? 'Dağcı Kampı' : mode === 'flight' ? 'Focus Flight 2D' : 'Derin Dalış'}
+            </span>
           </div>
 
           <div
@@ -402,31 +395,41 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />
             <span>{subject.name}</span>
           </div>
-        </div>
 
-        {/* Right: Quick Action Controls (Notification Preview, Audio, Tasks, Fullscreen) */}
-        <div className="flex items-center gap-2">
-          {/* Siteden Çıkınca Arka Plan Canlı Bildirim Önizleme Butonu */}
-          <button
-            onClick={() => setIsNotificationPreviewOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 border border-white/15 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-black/85 backdrop-blur-md transition-all cursor-pointer shadow-md"
-            title="Arka Plan Bildirim Önizlemesi (Tam Siyah Ekran)"
-          >
-            <Bell className="w-3.5 h-3.5 text-[#ff5500]" />
-            <span className="hidden sm:inline">Canlı Bildirim</span>
-          </button>
-
-          {/* Flight 3D Globe / Cockpit Toggle */}
-          {mode === 'flight' && (
+          {/* Ormanım Button for Forest Mode */}
+          {mode === 'forest' && (
             <button
-              onClick={() => setFlightViewMode((prev) => (prev === 'globe' ? 'cockpit' : 'globe'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 border border-white/10 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-black/80 backdrop-blur-md transition-all cursor-pointer"
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                setIsMyForestOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-lg transition-all cursor-pointer"
             >
-              {flightViewMode === 'globe' ? <Compass className="w-3.5 h-3.5 text-sky-400" /> : <Globe2 className="w-3.5 h-3.5 text-sky-400" />}
-              <span className="hidden sm:inline">{flightViewMode === 'globe' ? 'Kokpit Görünümü' : '3D Dünya Küresi'}</span>
+              <Trees className="w-3.5 h-3.5 text-emerald-400" />
+              <span>🌳 Ormanım</span>
             </button>
           )}
 
+          {/* Camp break button for Climb Mode */}
+          {mode === 'climb' && (
+            <button
+              type="button"
+              onClick={toggleCampBreak}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer ${
+                isCampActive
+                  ? 'bg-orange-500 text-black border border-orange-400 animate-pulse'
+                  : 'bg-black/75 hover:bg-black/90 border border-orange-500/40 text-orange-300'
+              }`}
+            >
+              <Tent className="w-3.5 h-3.5" />
+              <span>{isCampActive ? '⛺ Kamptan Ayrıl & Devam Et' : '⛺ Kamp Ateşi Molası Ver'}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right: Quick Action Controls (Audio & Fullscreen only - zero clutter) */}
+        <div className="flex items-center gap-2">
           {/* Audio trigger */}
           <button
             onClick={onToggleAudioModal}
@@ -438,19 +441,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             title="Zen Ortam Sesi"
           >
             <Volume2 className="w-4 h-4" />
-          </button>
-
-          {/* Mini Tasks Button */}
-          <button
-            onClick={() => setShowTasksPanel(!showTasksPanel)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all cursor-pointer ${
-              showTasksPanel
-                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                : 'bg-black/50 border-white/10 text-neutral-300 hover:text-white'
-            }`}
-          >
-            <CheckSquare className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Görevler</span>
           </button>
 
           {/* Fullscreen */}
@@ -728,6 +718,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         permissionState={permissionState}
         currentRemainingFormatted={timeFormatted}
         currentSubject={subject.name}
+      />
+
+      {/* Kişisel Ormanım Modal */}
+      <MyForestModal
+        isOpen={isMyForestOpen}
+        onClose={() => setIsMyForestOpen(false)}
       />
     </div>
   );

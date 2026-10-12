@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { StudentPeer, StudyRoom, UserProfile, RoomChatMessage } from '../types';
 import { soundEngine } from '../utils/audio';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
 import { DEFAULT_ROOMS } from '../utils/storage';
 import {
   collection,
@@ -89,12 +89,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       const cached = localStorage.getItem(ROOMS_CACHE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as StudyRoom[];
-        if (parsed.length > 0) return parsed;
+        const filtered = parsed.filter(
+          (r) => !['room-yks-say', 'room-yks-ea', 'room-kpss', 'room-kod', 'room-yks-sayisal'].includes(r.id)
+        );
+        return filtered;
       }
     } catch {
       // ignore
     }
-    return DEFAULT_ROOMS;
+    return [];
   });
 
   // Track user-created rooms in current device/account
@@ -314,23 +317,27 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       description: editDesc.trim() || 'Birlikte odaklanıp hedeflerimize ulaşıyoruz.',
       isPrivate: editIsPrivate,
       hasPassword: editIsPrivate,
-      password: editIsPrivate ? editPassword.trim() : undefined,
+      password: editIsPrivate ? editPassword.trim() : null as any,
     };
 
-    // Update in Firestore
+    // Update in Firestore safely
     if (currentUser) {
       try {
         const roomRef = doc(db, 'study_rooms', editingRoom.id);
-        await updateDoc(roomRef, {
-          name: updatedRoom.name,
-          category: updatedRoom.category,
-          targetExam: updatedRoom.targetExam,
-          description: updatedRoom.description,
-          isPrivate: updatedRoom.isPrivate,
-          hasPassword: updatedRoom.hasPassword,
-          password: updatedRoom.password || null,
-          updatedAt: Date.now(),
-        });
+        await safeSetDoc(
+          roomRef,
+          {
+            name: updatedRoom.name,
+            category: updatedRoom.category,
+            targetExam: updatedRoom.targetExam,
+            description: updatedRoom.description,
+            isPrivate: updatedRoom.isPrivate,
+            hasPassword: updatedRoom.hasPassword,
+            password: updatedRoom.password || null,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
       } catch (err) {
         console.warn('Edit room firestore update notice:', err);
       }
@@ -404,6 +411,34 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setRoomToDelete(null);
     setCheerToast({
       message: `"${targetName}" odası başarıyla silindi.`,
+      type: 'success',
+    });
+  };
+
+  // User requested: "şuanki odaları sil" -> clear all existing rooms
+  const handleClearAllRooms = async () => {
+    soundEngine.playClick();
+    if (!window.confirm('Mevcut tüm odaları silmek istediğinize emin misiniz?')) return;
+
+    for (const r of rooms) {
+      try {
+        await deleteDoc(doc(db, 'study_rooms', r.id));
+      } catch {
+        // ignore
+      }
+    }
+
+    setRooms([]);
+    try {
+      localStorage.removeItem(ROOMS_CACHE_KEY);
+      localStorage.removeItem(ACTIVE_ROOM_KEY);
+    } catch {
+      // ignore
+    }
+    setActiveChatRoom(null);
+    setSelectedRoomId('room-all');
+    setCheerToast({
+      message: 'Mevcut odalar başarıyla temizlendi.',
       type: 'success',
     });
   };
@@ -625,7 +660,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     try {
       const peerRef = doc(db, 'users', peer.id);
-      await setDoc(
+      await safeSetDoc(
         peerRef,
         {
           cheersReceived: increment(1),
@@ -635,10 +670,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
       const cheerId = `cheer-${now}`;
       const cheerRef = doc(db, 'users', peer.id, 'cheers', cheerId);
-      await setDoc(cheerRef, {
+      await safeSetDoc(cheerRef, {
         id: cheerId,
         fromUserId: currentUser?.uid || 'guest',
-        fromUserName: profile.name,
+        fromUserName: profile.name || 'Öğrenci',
         fromUserAvatarUrl: profile.avatarUrl || '',
         toUserId: peer.id,
         createdAt: now,
@@ -672,19 +707,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       description: newRoomDesc.trim() || 'Birlikte odaklanıp hedeflerimize ulaşıyoruz.',
       targetExam: newRoomCategory,
       createdBy: myUid,
-      createdByName: profile.name,
+      createdByName: profile.name || 'Öğrenci',
       createdAt: Date.now(),
       isPrivate: isPrivateRoom,
       hasPassword: isPrivateRoom,
-      password: isPrivateRoom ? newRoomPassword.trim() : undefined,
+      password: isPrivateRoom ? newRoomPassword.trim() : null as any,
       memberCount: 1,
       onlineCount: 1,
       participants: [myUid],
     };
 
-    // Save to Firestore
+    // Save to Firestore safely
     try {
-      await setDoc(doc(db, 'study_rooms', roomId), newRoom);
+      await safeSetDoc(doc(db, 'study_rooms', roomId), newRoom);
     } catch (err) {
       console.error('Room create error', err);
     }
@@ -790,7 +825,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     if (currentUser) {
       try {
         const roomDocRef = doc(db, 'study_rooms', targetRoomId);
-        await setDoc(
+        await safeSetDoc(
           roomDocRef,
           {
             participants: arrayUnion(currentUser.uid),
@@ -833,16 +868,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       id: msgId,
       roomId: activeChatRoom.id,
       userId: currentUser?.uid || 'guest',
-      userName: profile.name,
-      userAvatarUrl: profile.avatarUrl,
-      userAvatarColor: profile.avatarColor,
+      userName: profile.name || 'Öğrenci',
+      userAvatarUrl: profile.avatarUrl || '',
+      userAvatarColor: profile.avatarColor || '#ff5500',
       text,
       createdAt: Date.now(),
     };
 
     try {
       const msgRef = doc(db, 'study_rooms', activeChatRoom.id, 'messages', msgId);
-      await setDoc(msgRef, newMsg);
+      await safeSetDoc(msgRef, newMsg);
     } catch (err) {
       console.error('Failed to send message', err);
     }
@@ -1025,6 +1060,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <Plus className="w-4 h-4" />
                 <span>Oda Kur</span>
               </button>
+
+              {rooms.length > 0 && (
+                <button
+                  onClick={handleClearAllRooms}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-900 hover:bg-rose-950/60 text-neutral-400 hover:text-rose-400 border border-neutral-800 hover:border-rose-900/60 text-xs font-bold transition-all cursor-pointer shrink-0"
+                  title="Mevcut Odaları Sil"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="hidden sm:inline">Odaları Sil</span>
+                </button>
+              )}
             </div>
           </div>
 

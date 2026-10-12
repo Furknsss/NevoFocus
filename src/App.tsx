@@ -28,8 +28,9 @@ import {
   db,
   handleFirestoreError,
   OperationType,
+  safeSetDoc,
 } from './firebase';
-import { onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { onAuthStateChanged, type User, signOut } from 'firebase/auth';
 import {
   doc,
   setDoc,
@@ -180,7 +181,7 @@ export default function App() {
               createdAt: Date.now(),
               updatedAt: Date.now(),
             };
-            await setDoc(userDocRef, defaultUserData, { merge: true });
+            await safeSetDoc(userDocRef, defaultUserData, { merge: true });
             const mergedProfile = updateStoredProfile(defaultUserData);
             setProfile(mergedProfile);
           }
@@ -280,7 +281,7 @@ export default function App() {
     if (!currentUser) return;
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
-      await setDoc(
+      await safeSetDoc(
         userDocRef,
         {
           status,
@@ -329,14 +330,16 @@ export default function App() {
     if (currentUser) {
       try {
         const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', newSession.id);
-        await setDoc(sessionDocRef, {
+        await safeSetDoc(sessionDocRef, {
           ...newSession,
+          note: newSession.note || '',
+          taskId: newSession.taskId || null,
           userId: currentUser.uid,
         });
 
         // Update user's aggregate stats in Firestore (safe setDoc)
         const userDocRef = doc(db, 'users', currentUser.uid);
-        await setDoc(
+        await safeSetDoc(
           userDocRef,
           {
             status: 'idle',
@@ -366,7 +369,45 @@ export default function App() {
     setCurrentTab('stats');
   };
 
-  const handleAbandonSession = () => {
+  const handleAbandonSession = async (partialSession?: FocusSession) => {
+    if (partialSession && partialSession.completedSeconds >= 5) {
+      const updated = saveSession(partialSession);
+      setSessions(updated);
+
+      if (currentUser) {
+        try {
+          const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', partialSession.id);
+          await safeSetDoc(sessionDocRef, {
+            ...partialSession,
+            note: partialSession.note || '',
+            taskId: partialSession.taskId || null,
+            userId: currentUser.uid,
+          });
+
+          // Update user's aggregate stats in Firestore
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          await safeSetDoc(
+            userDocRef,
+            {
+              status: 'idle',
+              currentSubject: '',
+              todayTotalMinutes: todayMinutes + Math.round(partialSession.completedSeconds / 60),
+              totalFocusMinutes: Math.round(realTotalHours * 60 + partialSession.completedSeconds / 60),
+              lastActiveAt: Date.now(),
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          console.warn('Abandon save session notice:', err);
+        }
+      }
+
+      const updatedProfile = updateStoredProfile({
+        totalFocusHours: calculateTotalFocusHours([partialSession, ...sessions]),
+      });
+      setProfile(updatedProfile);
+    }
+
     setIsSessionActive(false);
     updateCloudStatus('idle');
   };
@@ -384,7 +425,7 @@ export default function App() {
     if (currentUser) {
       try {
         const taskDocRef = doc(db, 'users', currentUser.uid, 'tasks', newTask.id);
-        await setDoc(taskDocRef, newTask);
+        await safeSetDoc(taskDocRef, newTask);
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/tasks/${newTask.id}`);
       }
@@ -400,9 +441,14 @@ export default function App() {
     if (currentUser && changed) {
       try {
         const taskDocRef = doc(db, 'users', currentUser.uid, 'tasks', taskId);
-        await updateDoc(taskDocRef, {
-          isCompleted: changed.isCompleted,
-        });
+        await safeSetDoc(
+          taskDocRef,
+          {
+            isCompleted: changed.isCompleted,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}/tasks/${taskId}`);
       }
@@ -448,10 +494,14 @@ export default function App() {
     if (currentUser) {
       try {
         const userDocRef = doc(db, 'users', currentUser.uid);
-        await updateDoc(userDocRef, {
-          ...updatedData,
-          updatedAt: Date.now(),
-        });
+        await safeSetDoc(
+          userDocRef,
+          {
+            ...updatedData,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
       }
@@ -470,7 +520,7 @@ export default function App() {
     if (currentUser) {
       try {
         const userDocRef = doc(db, 'users', currentUser.uid);
-        await setDoc(
+        await safeSetDoc(
           userDocRef,
           {
             ...completeProfileData,
@@ -480,6 +530,7 @@ export default function App() {
             status: 'idle',
             todayTotalMinutes: 0,
             streakDays: 1,
+            updatedAt: Date.now(),
           },
           { merge: true }
         );
@@ -630,10 +681,14 @@ export default function App() {
             selectedTaskId={selectedTask?.id}
             selectedTaskTitle={selectedTask?.title}
             timerType={timerType}
+            tasksList={tasks}
+            onToggleTaskDone={handleToggleTask}
             onSessionComplete={handleSessionComplete}
             onAbandonSession={handleAbandonSession}
             onToggleAudioModal={() => setIsAudioModalOpen(true)}
             isAudioPlaying={Boolean(currentAmbientTrack)}
+            desktopNotificationsEnabled={Boolean(dynamicProfile.desktopNotifications)}
+            liveNotificationsEnabled={Boolean(dynamicProfile.liveNotifications)}
           />
         ) : (
           <>

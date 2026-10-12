@@ -53,48 +53,7 @@ export const DEFAULT_SUBJECTS: SubjectItem[] = [
   { id: 'sub-ayt-biyo', name: 'AYT Biyoloji', color: '#65a30d' },
 ];
 
-export const DEFAULT_ROOMS: StudyRoom[] = [
-  {
-    id: 'room-yks-say',
-    code: '102938',
-    name: 'YKS 2026 Sayısal Odası',
-    category: 'Üniversite Hazırlık',
-    memberCount: 0,
-    onlineCount: 0,
-    description: 'Günde minimum 6 saat hedefi olan disiplinli YKS sayısal çalışma grubu.',
-    targetExam: 'YKS Sayısal',
-  },
-  {
-    id: 'room-yks-ea',
-    code: '293847',
-    name: 'YKS 2026 Eşit Ağırlık Masası',
-    category: 'Üniversite Hazırlık',
-    memberCount: 0,
-    onlineCount: 0,
-    description: 'Matematik, Türkçe, Edebiyat ve Coğrafya odaklı eşit ağırlık çalışma salonu.',
-    targetExam: 'YKS Eşit Ağırlık',
-  },
-  {
-    id: 'room-kpss',
-    code: '584920',
-    name: 'KPSS & Kamu Sınavları Kütüphanesi',
-    category: 'Kamu Sınavları',
-    memberCount: 0,
-    onlineCount: 0,
-    description: 'GY-GK ve Alan Bilgisi düzenli haftalık deneme ve soru çözüm takibi.',
-    targetExam: 'KPSS',
-  },
-  {
-    id: 'room-kod',
-    code: '904812',
-    name: 'Yazılım & Algoritma Odası',
-    category: 'Kariyer & Kod',
-    memberCount: 0,
-    onlineCount: 0,
-    description: 'Yazılım mühendisliği, LeetCode, web ve mobil mimari üzerinde odaklananlar.',
-    targetExam: 'Yazılım',
-  },
-];
+export const DEFAULT_ROOMS: StudyRoom[] = [];
 
 const STORAGE_KEYS = {
   SESSIONS: 'fokus_sessions_v4',
@@ -228,6 +187,7 @@ export function getStoredProfile(): UserProfile {
     soundNotifications: true,
     breakReminders: true,
     desktopNotifications: false,
+    liveNotifications: false,
     theme: 'dark',
   };
 

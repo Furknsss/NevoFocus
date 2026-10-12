@@ -19,11 +19,12 @@ import {
 } from 'lucide-react';
 import { FocusModeType, SubjectItem, FocusTask, FlightAirport, UserProfile } from '../types';
 import { ALL_AIRPORTS, TURKEY_AIRPORTS, WORLD_AIRPORTS } from '../utils/airports';
-import { RealisticEarthGlobe } from './visuals/RealisticEarthGlobe';
+import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
 import { BoardingPassCard } from './flight/BoardingPassCard';
+import { MyForestModal } from './forest/MyForestModal';
 import { soundEngine } from '../utils/audio';
 
 interface DedicatedModeScreenProps {
@@ -69,6 +70,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 }) => {
   const [selectedPeak, setSelectedPeak] = useState('Kaçkar Zirvesi (3,937m)');
   const [selectedTreeSpecies, setSelectedTreeSpecies] = useState('Mistik Zümrüt Bonsai');
+  const [isMyForestOpen, setIsMyForestOpen] = useState(false);
 
   const peaks = [
     { name: 'Kaçkar Zirvesi (3,937m)', diff: 'Orta', region: 'Rize / Karadeniz' },
@@ -251,26 +253,26 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
         </div>
       </div>
 
-      {/* 1. FOCUS FLIGHT: 3D GOOGLE EARTH & AIRLINE BOARDING PASS */}
+      {/* 1. FOCUS FLIGHT: 2D WORLD MAP & AIRLINE BOARDING PASS */}
       {mode === 'flight' && (
         <div className="space-y-6">
           <div className="text-center max-w-2xl mx-auto mb-2">
             <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Focus Flight Terminali</h1>
             <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-              Google Earth 3D küresi üzerinde kalkış ve varış rotanı belirle, uçak biletini al.
+              Yüksek kaliteli 2D dünya haritası üzerinde ülkeler, kesikli uçuş rotası ve kalkış-varış havalimanları.
             </p>
           </div>
 
-          {/* 3D Google Earth Interactive Globe & Airport Selectors */}
+          {/* 2D World Map & Airport Selectors */}
           <div className="rounded-3xl border border-sky-900/60 bg-gradient-to-b from-[#0a1829] to-[#040912] p-5 sm:p-7 shadow-2xl">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              {/* Three.js 3D Globe with orbit controls */}
-              <div className="lg:col-span-6 w-full aspect-square max-w-[420px] mx-auto rounded-2xl overflow-hidden bg-black/70 border border-sky-900/50 shadow-inner">
-                <RealisticEarthGlobe origin={originAirport} destination={destAirport} progress={0.1} />
+              {/* 2D International Flight Radar Map */}
+              <div className="lg:col-span-7 w-full aspect-video rounded-2xl overflow-hidden bg-black/80 border border-sky-900/50 shadow-2xl">
+                <WorldMap2DFlight origin={originAirport} destination={destAirport} progress={0.15} />
               </div>
 
               {/* Airport Selection Controls */}
-              <div className="lg:col-span-6 space-y-4">
+              <div className="lg:col-span-5 space-y-4">
                 <div className="p-4 rounded-2xl bg-sky-950/30 border border-sky-900/40">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-sky-400 uppercase tracking-wider">Uçuş Güzergahı</span>
@@ -450,19 +452,34 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
       {/* 4. FOREST: SEED TO ANCIENT TREE */}
       {mode === 'forest' && (
         <div className="space-y-6 max-w-4xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto">
-            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Forest Kadim Orman Alanı</h1>
-            <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-              Toprağa altın bir tohum ek, odaklandıkça dallanıp çiçek açsın ve kalıcı Sanal Ormanına eklensin.
-            </p>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-2 border-b border-emerald-950/60">
+            <div>
+              <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Forest Kadim Orman Alanı</h1>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+                Toprağa altın bir tohum ek, odaklandıkça dallanıp çiçek açsın ve kalıcı Sanal Ormanına eklensin.
+              </p>
+            </div>
+
+            {/* Ormanım Button at Top */}
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                setIsMyForestOpen(true);
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 text-black font-black text-xs sm:text-sm shadow-xl shadow-emerald-950/40 hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0"
+            >
+              <Trees className="w-4 h-4" />
+              <span>🌳 Ormanım (Korum)</span>
+            </button>
           </div>
 
-          {/* Live Flowing Forest Tree Canvas */}
-          <div className="w-full h-56 sm:h-64 rounded-3xl overflow-hidden border border-emerald-900/40 relative shadow-2xl bg-black">
-            <ActiveForestCanvas progress={0.55} isPaused={false} elapsedSeconds={120} />
+          {/* Live Flowing Forest Tree Canvas (Forest Focus Style) */}
+          <div className="w-full h-64 sm:h-72 rounded-3xl overflow-hidden border border-emerald-900/40 relative shadow-2xl bg-black">
+            <ActiveForestCanvas progress={0.65} isPaused={false} elapsedSeconds={120} />
             <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-emerald-500/30 text-[11px] font-mono text-emerald-400 flex items-center gap-1.5 shadow-lg">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Canlı Orman Büyüme Akışı</span>
+              <span>Forest Odak Büyüme Önizlemesi</span>
             </div>
           </div>
 
@@ -497,6 +514,13 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           )}
         </div>
       )}
+
+      {/* Kişisel Ormanım Modal */}
+      <MyForestModal
+        isOpen={isMyForestOpen}
+        onClose={() => setIsMyForestOpen(false)}
+        onStartSession={handleStart}
+      />
     </div>
   );
 };

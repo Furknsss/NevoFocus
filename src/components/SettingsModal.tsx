@@ -10,12 +10,24 @@ import {
   KeyRound,
   Check,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import { UserProfile } from '../types';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
-import { sendPasswordResetEmail, deleteUser, updateEmail } from 'firebase/auth';
-import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
+import {
+  sendPasswordResetEmail,
+  deleteUser,
+  updateEmail,
+  updatePassword,
+  EmailAuthProvider,
+  linkWithCredential,
+} from 'firebase/auth';
+import { doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
 
 interface SettingsModalProps {
@@ -41,6 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [soundNotifications, setSoundNotifications] = useState(profile.soundNotifications ?? true);
   const [breakReminders, setBreakReminders] = useState(profile.breakReminders ?? true);
   const [desktopNotifications, setDesktopNotifications] = useState(profile.desktopNotifications ?? false);
+  const [liveNotifications, setLiveNotifications] = useState(profile.liveNotifications ?? false);
 
   // Theme
   const [currentTheme, setCurrentTheme] = useState(profile.theme || 'dark');
@@ -50,6 +63,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [passwordResetSent, setPasswordResetSent] = useState(false);
   const [securityMsg, setSecurityMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Direct Password Set / Update (Google and Email accounts)
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordSuccessMsg, setPasswordSuccessMsg] = useState<string | null>(null);
+  const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
+
+  // Check if current user already has password credentials
+  const hasPasswordProvider =
+    currentUser?.providerData?.some((p: any) => p.providerId === 'password') ||
+    Boolean(profile.hasPassword);
 
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -84,6 +110,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateProfile({ breakReminders: val });
   };
 
+  const handleToggleLiveNotif = async () => {
+    if (!liveNotifications) {
+      if ('Notification' in window) {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          setLiveNotifications(true);
+          onUpdateProfile({ liveNotifications: true });
+        } else {
+          alert('Canlı bildirimler için tarayıcı bildirim izni verilmedi.');
+        }
+      } else {
+        setLiveNotifications(true);
+        onUpdateProfile({ liveNotifications: true });
+      }
+    } else {
+      setLiveNotifications(false);
+      onUpdateProfile({ liveNotifications: false });
+    }
+  };
+
   const handleSelectTheme = (themeId: string) => {
     soundEngine.playClick();
     setCurrentTheme(themeId);
@@ -115,10 +161,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSecurityMsg(null);
       await updateEmail(currentUser, newEmail.trim());
 
-      // Update in Firestore
-      await updateDoc(doc(db, 'users', currentUser.uid), {
-        email: newEmail.trim(),
-      });
+      // Update safely in Firestore
+      await setDoc(
+        doc(db, 'users', currentUser.uid),
+        {
+          email: newEmail.trim(),
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
 
       onUpdateProfile({ email: newEmail.trim() });
       setSecurityMsg({ type: 'success', text: 'E-posta adresiniz başarıyla güncellendi.' });
@@ -132,6 +183,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       });
     } finally {
       setIsUpdatingEmail(false);
+    }
+  };
+
+  const handleUpdateOrSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setPasswordSuccessMsg(null);
+    setPasswordErrorMsg(null);
+
+    if (newPasswordInput.length < 6) {
+      setPasswordErrorMsg('Parola en az 6 karakter uzunluğunda olmalıdır.');
+      return;
+    }
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordErrorMsg('Girdiğiniz parolalar birbiriyle eşleşmiyor.');
+      return;
+    }
+
+    try {
+      setIsUpdatingPassword(true);
+      soundEngine.playClick();
+
+      // Properly link or update credential
+      const cred = EmailAuthProvider.credential(currentUser.email!, newPasswordInput);
+      try {
+        await linkWithCredential(currentUser, cred);
+      } catch (linkErr: any) {
+        if (
+          linkErr.code === 'auth/provider-already-linked' ||
+          linkErr.code === 'auth/credential-already-in-use' ||
+          linkErr.code === 'auth/email-already-in-use'
+        ) {
+          await updatePassword(currentUser, newPasswordInput);
+        } else {
+          // Fallback to updatePassword
+          await updatePassword(currentUser, newPasswordInput);
+        }
+      }
+
+      // Record in Firestore user profile safely
+      try {
+        await safeSetDoc(
+          doc(db, 'users', currentUser.uid),
+          {
+            hasPassword: true,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
+      } catch {
+        // ignore
+      }
+
+      soundEngine.playCompletionBell();
+      setPasswordSuccessMsg(
+        hasPasswordProvider
+          ? 'Parolanız başarıyla güncellendi!'
+          : 'Hesabınıza parola başarıyla eklendi ve bağlandı! Artık hem Google hem de e-posta ve bu şifrenizle doğrudan giriş yapabilirsiniz.'
+      );
+      setNewPasswordInput('');
+      setConfirmPasswordInput('');
+      onUpdateProfile({ hasPassword: true });
+    } catch (err: any) {
+      console.error('Password update error', err);
+      if (err.code === 'auth/requires-recent-login') {
+        setPasswordErrorMsg('Güvenlik nedeniyle parola işleminden önce lütfen çıkış yapıp tekrar giriş yapın.');
+      } else if (err.code === 'auth/weak-password') {
+        setPasswordErrorMsg('Belirlediğiniz parola çok zayıf. Lütfen en az 6 karakterli güçlü bir parola girin.');
+      } else {
+        setPasswordErrorMsg(err.message || 'Parola güncellenirken bir hata oluştu.');
+      }
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -277,6 +401,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-5 h-5 accent-sky-500 cursor-pointer"
               />
             </div>
+
+            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Canlı Odaklanma Bildirimleri</span>
+                </p>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Arka planda veya kilit ekranında canlı seans ilerleme kartı gösterilsin.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={liveNotifications}
+                onChange={handleToggleLiveNotif}
+                className="w-5 h-5 accent-amber-500 cursor-pointer"
+              />
+            </div>
           </div>
         )}
 
@@ -365,15 +507,110 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            {/* Password Reset */}
+            {/* Direct Password Management (Parola Koy / Parola Değiştir) */}
+            {currentUser && (
+              <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-[#ff5500]" />
+                      <span>{hasPasswordProvider ? 'Parolayı Değiştir' : 'Hesabına Parola Belirle'}</span>
+                    </p>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      {hasPasswordProvider
+                        ? 'Hesabınızın giriş parolasını buradan güncelleyebilirsiniz.'
+                        : 'Google hesabınıza bir parola tanımlayarak daha sonra e-posta ve şifrenizle de giriş yapabilirsiniz.'}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      hasPasswordProvider
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    }`}
+                  >
+                    {hasPasswordProvider ? 'Parolalı Hesap' : 'Parola Yok (Google)'}
+                  </span>
+                </div>
+
+                {passwordSuccessMsg && (
+                  <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800 text-xs text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <span>{passwordSuccessMsg}</span>
+                  </div>
+                )}
+
+                {passwordErrorMsg && (
+                  <div className="p-3 rounded-xl bg-red-950/40 border border-red-800 text-xs text-red-300 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+                    <span>{passwordErrorMsg}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleUpdateOrSetPassword} className="space-y-2.5 pt-1">
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      placeholder={hasPasswordProvider ? 'Yeni Parola (en az 6 karakter)...' : 'Belirlemek istediğiniz parola (en az 6 karakter)...'}
+                      value={newPasswordInput}
+                      onChange={(e) => setNewPasswordInput(e.target.value)}
+                      className="w-full pl-3 pr-10 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
+                    >
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      placeholder="Yeni Parola Tekrar..."
+                      value={confirmPasswordInput}
+                      onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                      className="w-full pl-3 pr-10 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isUpdatingPassword}
+                      className="px-4 py-2 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white text-xs font-bold transition-all shadow-md shadow-[#ff5500]/20 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {isUpdatingPassword ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Kaydediliyor...</span>
+                        </>
+                      ) : (
+                        <>
+                          <KeyRound className="w-3.5 h-3.5" />
+                          <span>{hasPasswordProvider ? 'Parolayı Güncelle' : 'Parolayı Oluştur'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Password Reset Via Email Link */}
             <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-white flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Şifre Sıfırlama & Değiştirme</span>
+                  <span>Şifre Sıfırlama E-postası</span>
                 </p>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  E-postanıza güvenli şifre sıfırlama bağlantısı gönderir.
+                  E-posta adresinize güvenli şifre sıfırlama bağlantısı gönderir.
                 </p>
               </div>
               <button
