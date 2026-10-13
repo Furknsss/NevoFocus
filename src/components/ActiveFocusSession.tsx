@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Play,
@@ -49,6 +49,7 @@ interface ActiveFocusSessionProps {
   onToggleAudioModal: () => void;
   isAudioPlaying: boolean;
   desktopNotificationsEnabled?: boolean;
+  liveNotificationsEnabled?: boolean;
 }
 
 const MOTIVATIONAL_QUOTES = [
@@ -76,11 +77,24 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   onToggleAudioModal,
   isAudioPlaying,
   desktopNotificationsEnabled = true,
+  liveNotificationsEnabled = false,
 }) => {
   const totalSeconds = plannedMinutes * 60;
   const [currentTimerType, setCurrentTimerType] = useState<'countdown' | 'stopwatch'>(timerType);
   const [secondsRemaining, setSecondsRemaining] = useState(totalSeconds);
   const [elapsedCountUp, setElapsedCountUp] = useState<number>(0);
+
+  // Today's formatted date (YYYY-MM-DD)
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }, []);
+
+  // Today's tasks from user task list
+  const todayTasks = useMemo(() => {
+    return tasksList.filter((t) => !t.dateString || t.dateString === todayStr);
+  }, [tasksList, todayStr]);
   const [isPaused, setIsPaused] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAbandonModal, setShowAbandonModal] = useState(false);
@@ -203,8 +217,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           }
         }
       } else {
-        // Tab went to background: if notification granted, show sleek pure-black style alert
-        if ('Notification' in window && Notification.permission === 'granted' && !isPaused) {
+        // Tab went to background: if notification enabled in settings and permission granted
+        if (
+          (liveNotificationsEnabled || desktopNotificationsEnabled) &&
+          'Notification' in window &&
+          Notification.permission === 'granted' &&
+          !isPaused
+        ) {
           try {
             new Notification('Fokus Premium · Odaklanma Devam Ediyor ⏳', {
               body: `${subject.name} seansı (${timeFormatted} kaldı) arka planda aktif tutuluyor.`,
@@ -307,6 +326,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           : undefined,
     };
 
+    // When naturally finished, if a task was attached to this session, mark it completed!
+    if (isCompletedNaturally && selectedTaskId && onToggleTaskDone) {
+      const target = tasksList.find((t) => t.id === selectedTaskId);
+      if (target && !target.isCompleted) {
+        onToggleTaskDone(selectedTaskId);
+      }
+    }
+
     setCompletedSessionData(session);
     setShowCompletionModal(true);
   };
@@ -321,20 +348,73 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     }
   };
 
-  const toggleTask = (taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t))
-    );
+  const handleToggleTodayTask = (taskId: string) => {
+    soundEngine.playClick();
+    if (onToggleTaskDone) {
+      onToggleTaskDone(taskId);
+    }
   };
 
-  const addTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskText.trim()) return;
-    setTasks((prev) => [
-      ...prev,
-      { id: Date.now().toString(), text: newTaskText.trim(), done: false },
-    ]);
-    setNewTaskText('');
+  const handleConfirmAbandon = () => {
+    soundEngine.playClick();
+    setShowAbandonModal(false);
+
+    const now = new Date();
+    const startD = new Date(startTimeRef.current);
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    // Save actual worked seconds accurately without faking full completion
+    const partialSession: FocusSession = {
+      id: `session-${Date.now()}`,
+      mode,
+      subjectId: subject.id,
+      subjectName: subject.name,
+      subjectColor: subject.color,
+      plannedMinutes,
+      completedSeconds: elapsedSeconds,
+      breakSeconds,
+      completed: false, // Incomplete session saved accurately
+      timestamp: Date.now(),
+      dateString: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
+      endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+      note: selectedTaskTitle || `${subject.name} seansı (Vazgeçildi: ${Math.round(elapsedSeconds / 60)} dk)`,
+      taskId: selectedTaskId,
+      taskTitle: selectedTaskTitle,
+      flightInfo:
+        mode === 'flight'
+          ? {
+              origin: `${originAirport.city} (${originAirport.code})`,
+              destination: `${destAirport.city} (${destAirport.code})`,
+              flightCode: `TK-101`,
+              seat: '12A',
+            }
+          : undefined,
+      climbInfo:
+        mode === 'climb'
+          ? {
+              peakName: 'Kaçkar Zirvesi (3,937m)',
+              campsSet: breakCount > 0 ? breakCount : isCampActive ? 1 : 0,
+              flagPlanted: false,
+            }
+          : undefined,
+      diveInfo:
+        mode === 'dive'
+          ? {
+              fishCityReached: false,
+              depthMeters: Math.round(1000 * progress),
+            }
+          : undefined,
+      forestInfo:
+        mode === 'forest'
+          ? {
+              treeSpecies: 'Mistik Zümrüt Bonsai',
+              treeLevel: Math.max(1, Math.floor(progress * 5)),
+            }
+          : undefined,
+    };
+
+    onAbandonSession(partialSession);
   };
 
   return (
@@ -363,6 +443,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             destination={destAirport}
             progress={progress}
             isFlightActive={!isPaused}
+            onCompleteLanding={() => handleFinish(true)}
           />
         )}
         {mode === 'dive' && (
@@ -520,51 +601,40 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           <div className="flex items-center justify-between pb-2 mb-3 border-b border-white/10">
             <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
               <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Seans Görev Listesi</span>
+              <span>Günün Görevleri</span>
             </h4>
             <span className="text-[10px] text-neutral-400 font-mono">
-              {tasks.filter((t) => t.done).length}/{tasks.length} tamamlandı
+              {todayTasks.filter((t) => t.isCompleted).length}/{todayTasks.length} tamamlandı
             </span>
           </div>
 
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 mb-3">
-            {tasks.map((task) => (
-              <button
-                key={task.id}
-                onClick={() => toggleTask(task.id)}
-                className={`w-full p-2 rounded-xl text-left text-xs transition-all flex items-center gap-2 cursor-pointer ${
-                  task.done
-                    ? 'bg-emerald-950/30 text-emerald-400 line-through border border-emerald-900/40'
-                    : 'bg-neutral-900/60 text-neutral-200 hover:bg-neutral-800 border border-white/5'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
-                    task.done ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-neutral-600'
+          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {todayTasks.length === 0 ? (
+              <p className="text-xs text-neutral-500 text-center py-4">Bugün için görev bulunmuyor.</p>
+            ) : (
+              todayTasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onToggleTaskDone && onToggleTaskDone(task.id)}
+                  className={`w-full p-2 rounded-xl text-left text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                    task.isCompleted
+                      ? 'bg-emerald-950/30 text-emerald-400 line-through border border-emerald-900/40'
+                      : 'bg-neutral-900/60 text-neutral-200 hover:bg-neutral-800 border border-white/5'
                   }`}
                 >
-                  {task.done && <CheckCircle2 className="w-3 h-3 stroke-[3]" />}
-                </div>
-                <span className="truncate">{task.text}</span>
-              </button>
-            ))}
+                  <div
+                    className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                      task.isCompleted ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-neutral-600'
+                    }`}
+                  >
+                    {task.isCompleted && <CheckCircle2 className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                  <span className="truncate">{task.title}</span>
+                </button>
+              ))
+            )}
           </div>
-
-          <form onSubmit={addTask} className="flex gap-1.5">
-            <input
-              type="text"
-              placeholder="Yeni hedef ekle..."
-              value={newTaskText}
-              onChange={(e) => setNewTaskText(e.target.value)}
-              className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-neutral-900 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500"
-            />
-            <button
-              type="submit"
-              className="px-3 py-1.5 text-xs font-bold bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors cursor-pointer"
-            >
-              Ekle
-            </button>
-          </form>
         </div>
       )}
 

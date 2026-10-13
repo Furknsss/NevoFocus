@@ -15,9 +15,14 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  Cloud,
+  Download,
+  Upload,
+  RefreshCw,
+  Database
 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { UserProfile, FocusSession, FocusTask } from '../types';
 import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
 import {
   sendPasswordResetEmail,
@@ -29,14 +34,25 @@ import {
 } from 'firebase/auth';
 import { doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
+import {
+  syncAllToFirestore,
+  restoreAllFromFirestore,
+  exportLocalBackup,
+  importLocalBackup,
+  getLastSyncTime,
+} from '../services/syncService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: UserProfile;
   currentUser: any;
+  sessions?: FocusSession[];
+  tasks?: FocusTask[];
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
   onAccountDeleted: () => void;
+  onSyncComplete?: (sessions: FocusSession[], tasks: FocusTask[], profile?: UserProfile) => void;
+  onOpenAuth?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -44,10 +60,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   profile,
   currentUser,
+  sessions = [],
+  tasks = [],
   onUpdateProfile,
   onAccountDeleted,
+  onSyncComplete,
+  onOpenAuth,
 }) => {
-  const [activeTab, setActiveTab] = useState<'notifications' | 'theme' | 'security'>('notifications');
+  const [activeTab, setActiveTab] = useState<'notifications' | 'theme' | 'security' | 'backup'>('notifications');
 
   // Notifications
   const [soundNotifications, setSoundNotifications] = useState(profile.soundNotifications ?? true);
@@ -80,6 +100,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Backup & Cloud sync
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleBackupNow = async () => {
+    if (!currentUser) return;
+    try {
+      setIsSyncing(true);
+      setBackupNotice(null);
+      soundEngine.playClick();
+      const res = await syncAllToFirestore(currentUser, sessions, tasks, profile);
+      if (res.success) {
+        soundEngine.playCompletionBell();
+        setBackupNotice({
+          type: 'success',
+          text: `Başarılı! ${res.sessionsUploaded} çalışma seansı ve ${res.tasksUploaded} görev Firestore bulutuna yedeklendi.`,
+        });
+      } else {
+        setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
+      }
+    } catch (err: any) {
+      setBackupNotice({ type: 'error', text: err.message || 'Yedekleme sırasında hata oluştu.' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleRestoreNow = async () => {
+    if (!currentUser) return;
+    try {
+      setIsRestoring(true);
+      setBackupNotice(null);
+      soundEngine.playClick();
+      const res = await restoreAllFromFirestore(currentUser);
+      if (res.success) {
+        soundEngine.playCompletionBell();
+        if (onSyncComplete) {
+          onSyncComplete(res.sessions, res.tasks, res.profile as UserProfile);
+        }
+        setBackupNotice({
+          type: 'success',
+          text: `Geri yükleme tamamlandı! ${res.sessions.length} seans ve ${res.tasks.length} görev buluttan aktarıldı.`,
+        });
+      } else {
+        setBackupNotice({ type: 'error', text: res.message || 'Geri yükleme yapılamadı.' });
+      }
+    } catch (err: any) {
+      setBackupNotice({ type: 'error', text: err.message || 'Geri yükleme sırasında hata oluştu.' });
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleExportJson = () => {
+    soundEngine.playClick();
+    exportLocalBackup(sessions, tasks, profile);
+    setBackupNotice({
+      type: 'success',
+      text: 'Çevrimdışı JSON yedeğiniz bilgisayarınıza / cihazınıza başarıyla indirildi.',
+    });
+  };
+
+  const handleImportJsonFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      if (!content) return;
+      const res = await importLocalBackup(content, currentUser);
+      if (res.success) {
+        soundEngine.playCompletionBell();
+        if (onSyncComplete) {
+          onSyncComplete(res.mergedSessions, res.mergedTasks, res.mergedProfile);
+        }
+        setBackupNotice({
+          type: 'success',
+          text: res.message,
+        });
+      } else {
+        setBackupNotice({
+          type: 'error',
+          text: res.message,
+        });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   if (!isOpen) return null;
 
@@ -341,7 +452,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Shield className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Güvenlik & Hesap</span>
+            <span>Güvenlik</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'backup'
+                ? 'bg-neutral-800 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5 text-sky-400" />
+            <span>Bulut & Yedek</span>
           </button>
         </div>
 
@@ -667,6 +790,138 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: CLOUD & BACKUP (BULUT & YEDEKLEME) */}
+        {activeTab === 'backup' && (
+          <div className="space-y-4 py-2">
+            {backupNotice && (
+              <div
+                className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                  backupNotice.type === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                    : 'bg-red-950/40 border-red-800/60 text-red-300'
+                }`}
+              >
+                {backupNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+                )}
+                <span>{backupNotice.text}</span>
+              </div>
+            )}
+
+            {/* Firestore Cloud Status Card */}
+            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-sky-400" />
+                    <span>Firestore Bulut Eşitleme</span>
+                  </p>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    {currentUser
+                      ? `${currentUser.email || currentUser.displayName} hesabınızla bulut yedekleme aktif.`
+                      : 'Oturum açarak çalışma verilerinizi bulutta güvende tutun.'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  {currentUser ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Bulut Aktif
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-800/50 text-[11px] font-mono text-amber-400">
+                      Çevrimdışı / Yerel
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {currentUser ? (
+                <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={isSyncing}
+                    onClick={handleBackupNow}
+                    className="py-2.5 px-3 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? 'Buluta Yedekleniyor...' : 'Hemen Buluta Yedekle'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isRestoring}
+                    onClick={handleRestoreNow}
+                    className="py-2.5 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <Cloud className={`w-3.5 h-3.5 ${isRestoring ? 'animate-bounce' : ''}`} />
+                    <span>{isRestoring ? 'Buluttan Alınıyor...' : 'Buluttan Geri Yükle & Eşitle'}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-neutral-800/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      if (onOpenAuth) onOpenAuth();
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs shadow-lg shadow-[#ff5500]/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>Giriş Yap veya Kayıt Ol</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Offline JSON Backup / Restore (Dosya İndir / Yükle) */}
+            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <Database className="w-4 h-4 text-purple-400" />
+                  <span>Çevrimdışı JSON Yedekleme</span>
+                </p>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Tüm çalışma seanslarınızı, görevlerinizi ve hedeflerinizi JSON formatında cihazınıza kaydedin veya geri yükleyin.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                {/* Export JSON */}
+                <button
+                  type="button"
+                  onClick={handleExportJson}
+                  className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs border border-neutral-700 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Yedek İndir (.json)</span>
+                </button>
+
+                {/* Import JSON */}
+                <label className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs border border-neutral-700 transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Yedekten İçe Aktar</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportJsonFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Stats Overview */}
+            <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between">
+              <span>Mevcut Cihaz Seansları: <strong className="text-white">{sessions.length}</strong></span>
+              <span>Aktif Görevler: <strong className="text-white">{tasks.length}</strong></span>
+              <span>Son Senkronizasyon: <strong className="text-white">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Yerel'}</strong></span>
             </div>
           </div>
         )}

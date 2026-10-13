@@ -18,6 +18,8 @@ import {
   saveTask,
   toggleTaskDone,
   deleteTask,
+  setAllStoredSessions,
+  setAllStoredTasks,
 } from './utils/storage';
 import { calculateRealStreak, calculateTotalFocusHours, calculateTodayMinutes } from './utils/stats';
 import { getDefaultSubjectsForTrack } from './utils/subjects';
@@ -30,6 +32,10 @@ import {
   OperationType,
   safeSetDoc,
 } from './firebase';
+import {
+  syncAllToFirestore,
+  restoreAllFromFirestore,
+} from './services/syncService';
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth';
 import {
   doc,
@@ -185,8 +191,23 @@ export default function App() {
             const mergedProfile = updateStoredProfile(defaultUserData);
             setProfile(mergedProfile);
           }
+
+          // 2. Bidirectional sync: Pull cloud sessions & tasks, merge with local data
+          const restoreResult = await restoreAllFromFirestore(user);
+          if (restoreResult.success) {
+            setSessions(restoreResult.sessions);
+            setTasks(restoreResult.tasks);
+          }
+
+          // 3. Upload any unsynced local sessions and tasks to Firestore
+          await syncAllToFirestore(
+            user,
+            getStoredSessions(),
+            getStoredTasks(),
+            getStoredProfile()
+          );
         } catch (err) {
-          console.warn('User profile fetch notice:', err);
+          console.warn('User profile sync notice:', err);
         }
 
         // Attach Firestore listener for user's private sessions
@@ -199,7 +220,10 @@ export default function App() {
               cloudSessions.push(d.data() as FocusSession);
             });
             cloudSessions.sort((a, b) => b.timestamp - a.timestamp);
-            setSessions(cloudSessions);
+            if (cloudSessions.length > 0) {
+              setSessions(cloudSessions);
+              setAllStoredSessions(cloudSessions);
+            }
           },
           (err) => {
             handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/sessions`);
@@ -218,7 +242,10 @@ export default function App() {
                 cloudTasks.push(data);
               }
             });
-            setTasks(cloudTasks);
+            if (cloudTasks.length > 0) {
+              setTasks(cloudTasks);
+              setAllStoredTasks(cloudTasks);
+            }
           },
           (err) => {
             handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`);
@@ -257,6 +284,9 @@ export default function App() {
       } else {
         // Visitor is not logged in: Never show onboarding! Show landing page instead.
         setIsOnboardingOpen(false);
+        setSessions(getStoredSessions());
+        setTasks(getStoredTasks());
+        setProfile(getStoredProfile());
       }
     });
 
@@ -805,8 +835,19 @@ export default function App() {
         onClose={() => setIsSettingsModalOpen(false)}
         profile={dynamicProfile}
         currentUser={currentUser}
+        sessions={sessions}
+        tasks={tasks}
         onUpdateProfile={handleUpdateProfile}
         onAccountDeleted={handleAccountDeleted}
+        onSyncComplete={(newSessions, newTasks, newProfile) => {
+          setSessions(newSessions);
+          setTasks(newTasks);
+          if (newProfile) setProfile(newProfile);
+        }}
+        onOpenAuth={() => {
+          setAuthInitialMode('login');
+          setIsAuthModalOpen(true);
+        }}
       />
 
       <MarketModal
@@ -835,6 +876,11 @@ export default function App() {
         initialMode={authInitialMode}
         onRegistrationSuccess={() => {
           setIsOnboardingOpen(true);
+        }}
+        onSyncComplete={() => {
+          setSessions(getStoredSessions());
+          setTasks(getStoredTasks());
+          setProfile(getStoredProfile());
         }}
       />
     </div>

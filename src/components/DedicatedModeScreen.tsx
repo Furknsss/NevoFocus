@@ -268,7 +268,12 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
               {/* 2D International Flight Radar Map */}
               <div className="lg:col-span-7 w-full aspect-video rounded-2xl overflow-hidden bg-black/80 border border-sky-900/50 shadow-2xl">
-                <WorldMap2DFlight origin={originAirport} destination={destAirport} progress={0.15} />
+                <WorldMap2DFlight
+                  origin={originAirport}
+                  destination={destAirport}
+                  progress={0.15}
+                  onSelectAirports={(orig, dest) => onChangeAirports(orig, dest)}
+                />
               </div>
 
               {/* Airport Selection Controls */}
