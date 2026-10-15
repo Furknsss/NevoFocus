@@ -23,15 +23,16 @@ import {
   Activity,
   Layers
 } from 'lucide-react';
-import { FocusSession, UserProfile } from '../types';
+import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
 
 interface StatisticsViewProps {
   sessions: FocusSession[];
   profile: UserProfile;
+  tasks?: FocusTask[];
 }
 
-export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profile }) => {
+export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profile, tasks = [] }) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'forest_gallery'>('daily');
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -261,6 +262,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
       dateStr: string;
       mins: number;
       hours: string;
+      formattedDuration: string;
       sessionCount: number;
       isToday: boolean;
     } | null)[] = [];
@@ -293,23 +295,48 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
         subjectMap[s.subjectName] = (subjectMap[s.subjectName] || 0) + s.completedSeconds;
       });
 
+      const formatCellDuration = (m: number) => {
+        if (!m || m === 0) return '0 dk';
+        const h = Math.floor(m / 60);
+        const rem = m % 60;
+        if (h > 0 && rem > 0) return `${h} sa ${rem} dk`;
+        if (h > 0) return `${h} sa`;
+        return `${rem} dk`;
+      };
+
+      const totalMonthlyMins = Math.round(totalMonthlySecs / 60);
+      const totalBreakMins = Math.round(totalBreakSecs / 60);
+
       days.push({
         dayNum: day,
         dateStr: str,
         mins,
         hours: (mins / 60).toFixed(1),
+        formattedDuration: formatCellDuration(mins),
         sessionCount: matched.length,
         isToday: str === todayStr,
       });
     }
 
     const sortedSubjects = Object.entries(subjectMap).sort((a, b) => b[1] - a[1]);
+    const totalMonthlyMins = Math.round(totalMonthlySecs / 60);
+    const totalBreakMins = Math.round(totalBreakSecs / 60);
+
+    const formatHourMin = (m: number) => {
+      const h = Math.floor(m / 60);
+      const rem = m % 60;
+      if (h > 0 && rem > 0) return `${h} sa ${rem} dk`;
+      if (h > 0) return `${h} sa`;
+      return `${rem} dk`;
+    };
 
     return {
       days,
       totalDaysInMonth,
       totalHours: (totalMonthlySecs / 3600).toFixed(1),
+      totalHoursFormatted: formatHourMin(totalMonthlyMins),
       totalBreakHours: (totalBreakSecs / 3600).toFixed(1),
+      totalBreakHoursFormatted: formatHourMin(totalBreakMins),
       totalSessionCount,
       activeDaysCount,
       consistencyRate: Math.round((activeDaysCount / totalDaysInMonth) * 100),
@@ -329,7 +356,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-bold uppercase tracking-wider text-[#ff5500]">
-              YPT GELİŞMİŞ TAKİP SİSTEMİ
+              GELİŞMİŞ ODAK TAKİP SİSTEMİ
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
@@ -515,7 +542,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-[#ff5500]" />
                 <h3 className="text-sm sm:text-base font-bold text-white">
-                  24-Saatlik Zaman Çizelgesi (YPT Timeline)
+                  24-Saatlik Günlük Zaman Akışı
                 </h3>
               </div>
               <span className="text-xs text-neutral-400 hidden sm:inline">
@@ -719,7 +746,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
                 <span>Haftalık Odaklanma Saatleri (Pazartesi - Pazar)</span>
               </h3>
               <span className="text-xs font-mono font-bold text-[#ff5500]">
-                Toplam: {weeklyAnalysis.totalWeeklyHours} Saat
+                Toplam: {Math.floor(weeklyAnalysis.totalWeeklyMins / 60)} sa {weeklyAnalysis.totalWeeklyMins % 60} dk
               </span>
             </div>
 
@@ -731,7 +758,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
                 return (
                   <div key={d.dateStr} className="flex flex-col items-center gap-2 h-full justify-end group">
                     <span className="text-[10px] font-mono font-bold text-neutral-400 group-hover:text-white transition-colors">
-                      {d.totalHours}s
+                      {d.totalMinutes > 0
+                        ? d.totalMinutes >= 60
+                          ? `${Math.floor(d.totalMinutes / 60)}sa ${d.totalMinutes % 60}dk`
+                          : `${d.totalMinutes}dk`
+                        : '0dk'}
                     </span>
 
                     <button
@@ -977,7 +1008,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
                     className={`aspect-square rounded-xl p-2 sm:p-2.5 flex flex-col justify-between text-left transition-all hover:scale-105 hover:ring-2 hover:ring-white cursor-pointer border relative ${colorClass} ${
                       item.isToday ? 'ring-2 ring-sky-400' : ''
                     }`}
-                    title={`${item.dateStr}: ${item.hours} saat (${item.sessionCount} seans)`}
+                    title={`${item.dateStr}: ${item.formattedDuration} (${item.sessionCount} seans)`}
                   >
                     <div className="flex items-center justify-between w-full">
                       <span className="text-[10px] sm:text-xs font-mono font-bold opacity-90">{item.dayNum}</span>
@@ -987,11 +1018,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
                     </div>
 
                     <div>
-                      <span className="text-xs sm:text-sm font-mono font-black leading-tight block">
-                        {item.hours}s
+                      <span className="text-[11px] sm:text-xs font-mono font-black leading-tight block truncate">
+                        {item.formattedDuration}
                       </span>
                       <span className="text-[9px] opacity-75 hidden sm:block">
-                        {item.sessionCount > 0 ? `${item.sessionCount} seans` : 'çalışma'}
+                        {item.sessionCount > 0 ? `${item.sessionCount} seans` : 'odaklanma'}
                       </span>
                     </div>
                   </button>
@@ -1003,11 +1034,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
             <div className="mt-8 pt-5 border-t border-neutral-800 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Aylık Toplam Odak:</span>
-                <strong className="text-white text-base font-mono">{monthlyCalendarData.totalHours} Saat</strong>
+                <strong className="text-white text-base font-mono">{monthlyCalendarData.totalHoursFormatted}</strong>
               </div>
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Toplam Mola Süresi:</span>
-                <strong className="text-amber-400 text-base font-mono">{monthlyCalendarData.totalBreakHours} Saat</strong>
+                <strong className="text-amber-400 text-base font-mono">{monthlyCalendarData.totalBreakHoursFormatted}</strong>
               </div>
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Aktif Gün Sayısı:</span>

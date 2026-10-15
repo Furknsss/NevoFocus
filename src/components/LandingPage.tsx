@@ -107,7 +107,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Subtitle */}
         <p className="mt-5 text-sm sm:text-lg text-neutral-300 max-w-2xl mx-auto leading-relaxed">
           Google Earth 3D küresinde uçuş yap, karlı zirvelere tırman, kadim ağacını büyüt veya derin okyanusa dal.
-          Sayısal, Eşit Ağırlık ve Dil alanına özel tam filtrelenmiş görev sistemi ve YPT tarzı canlı çalışma odaları.
+          Sayısal, Eşit Ağırlık ve Dil alanına özel tam filtrelenmiş görev sistemi ve canlı çalışma odaları.
         </p>
 
         {/* Hero CTAs */}
@@ -294,7 +294,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="p-3 rounded-2xl bg-sky-500/10 text-sky-400 w-fit">
                 <Calendar className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-white">Aylık & Haftalık YPT Takvimi</h3>
+              <h3 className="text-base font-bold text-white">Aylık & Haftalık Çalışma Takvimi</h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
                 Pazartesi'den Pazar'a gerçek takvim ızgarası, saatlik ısı haritası, en çok ve en az çalışılan dersler ve mola sürelerinin ayrıntılı analizi.
               </p>

@@ -5,12 +5,14 @@ interface ActiveDiveCanvasProps {
   progress: number; // 0 to 1
   isPaused: boolean;
   elapsedSeconds: number;
+  isCampActive?: boolean;
 }
 
 export const ActiveDiveCanvas: React.FC<ActiveDiveCanvasProps> = ({
   progress,
   isPaused,
   elapsedSeconds,
+  isCampActive = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -20,6 +22,8 @@ export const ActiveDiveCanvas: React.FC<ActiveDiveCanvasProps> = ({
   isPausedRef.current = isPaused;
   const elapsedSecondsRef = useRef(elapsedSeconds);
   elapsedSecondsRef.current = elapsedSeconds;
+  const isCampActiveRef = useRef(isCampActive);
+  isCampActiveRef.current = isCampActive;
 
   const [fishCityImage, setFishCityImage] = useState<HTMLImageElement | null>(null);
 

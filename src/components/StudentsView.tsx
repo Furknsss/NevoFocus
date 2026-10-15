@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { StudentPeer, StudyRoom, UserProfile, RoomChatMessage } from '../types';
 import { soundEngine } from '../utils/audio';
-import { db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
+import { db, handleFirestoreError, OperationType, safeSetDoc, parseNumericField } from '../firebase';
 import { DEFAULT_ROOMS } from '../utils/storage';
 import {
   collection,
@@ -497,11 +497,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               status: finalStatus,
               currentSubject: data.currentSubject || (isMe && profile.currentSubject) || 'Genel Odak',
               currentMode: data.currentMode || (isMe && profile.currentMode) || 'forest',
-              currentSeconds: data.currentSeconds || 0,
-              todayTotalMinutes: data.todayTotalMinutes || 0,
+              currentSeconds: parseNumericField(data.currentSeconds, 0),
+              todayTotalMinutes: parseNumericField(data.todayTotalMinutes, 0),
               roomName: data.targetExam || data.studyTrack || 'Sayısal',
-              streakDays: data.streakDays || data.currentStreakDays || 0,
-              cheersReceived: data.cheersReceived || 0,
+              streakDays: parseNumericField(data.streakDays || data.currentStreakDays, 0),
+              cheersReceived: parseNumericField(data.cheersReceived, 0),
               targetUniversity: data.targetUniversity || '',
               targetDepartment: data.targetDepartment || '',
               targetExam: data.targetExam || '',
@@ -520,10 +520,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               currentSubject: profile.currentSubject || 'Genel Odak',
               currentMode: profile.currentMode || 'forest',
               currentSeconds: 0,
-              todayTotalMinutes: profile.todayTotalMinutes || 0,
+              todayTotalMinutes: parseNumericField(profile.todayTotalMinutes, 0),
               roomName: profile.targetExam,
-              streakDays: profile.currentStreakDays,
-              cheersReceived: profile.cheersReceived || 0,
+              streakDays: parseNumericField(profile.currentStreakDays, 0),
+              cheersReceived: parseNumericField(profile.cheersReceived, 0),
               targetUniversity: profile.targetUniversity,
               targetDepartment: profile.targetDepartment,
               targetExam: profile.targetExam,
@@ -553,7 +553,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         (snapshot) => {
           const list: StudyRoom[] = [];
           snapshot.forEach((snap) => {
-            list.push({ id: snap.id, ...snap.data() } as StudyRoom);
+            const rData = snap.data();
+            list.push({
+              id: snap.id,
+              ...rData,
+              name: typeof rData.name === 'string' ? rData.name : 'Çalışma Masası',
+              description: typeof rData.description === 'string' ? rData.description : '',
+              category: typeof rData.category === 'string' ? rData.category : 'Sayısal',
+              code: typeof rData.code === 'string' ? rData.code : (snap.id || 'ODA'),
+              memberCount: parseNumericField(rData.memberCount, Array.isArray(rData.participants) ? rData.participants.length : 1),
+              participants: Array.isArray(rData.participants) ? rData.participants : [],
+              createdAt: parseNumericField(rData.createdAt, Date.now()),
+            } as StudyRoom);
           });
 
           // Merge Firestore rooms with default templates
@@ -564,7 +575,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             }
           });
 
-          combined.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          combined.sort((a, b) => parseNumericField(b.createdAt, 0) - parseNumericField(a.createdAt, 0));
           setRooms(combined);
 
           try {
@@ -655,7 +666,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     });
 
     setLivePeers((prev) =>
-      prev.map((p) => (p.id === peer.id ? { ...p, cheersReceived: p.cheersReceived + 1 } : p))
+      prev.map((p) => (p.id === peer.id ? { ...p, cheersReceived: parseNumericField(p.cheersReceived, 0) + 1 } : p))
     );
 
     try {
@@ -934,7 +945,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       return b.todayTotalMinutes - a.todayTotalMinutes;
     }
     if (studentSortBy === 'cheers') {
-      return (b.cheersReceived || 0) - (a.cheersReceived || 0);
+      return parseNumericField(b.cheersReceived, 0) - parseNumericField(a.cheersReceived, 0);
     }
     if (studentSortBy === 'streak') {
       return b.streakDays - a.streakDays;
@@ -1912,7 +1923,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                 {cooldownLeft > 0 ? (
                                   <span className="text-[10px]">{cooldownLeft}m</span>
                                 ) : (
-                                  <span className="text-[10px] text-neutral-400">{peer.cheersReceived || 0}</span>
+                                  <span className="text-[10px] text-neutral-400">{parseNumericField(peer.cheersReceived, 0)}</span>
                                 )}
                               </button>
                             </div>

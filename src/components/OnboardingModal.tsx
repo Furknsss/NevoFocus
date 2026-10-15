@@ -164,7 +164,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 Hoş Geldin! Seni Tanıyalım 👋
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-                Kişiselleştirilmiş YPT odak çalışma ortamını oluşturmak için temel bilgilerini gir.
+                Kişiselleştirilmiş odak çalışma ortamını oluşturmak için temel bilgilerini gir.
               </p>
             </div>
 
@@ -368,7 +368,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 Çalışma Alanın & Günlük Hedefin ⏳
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-                YPT tarzı günlük ilerleme çubuğun bu hedefe göre hesaplanacaktır.
+                Günlük ilerleme çubuğun bu hedefe göre hesaplanacaktır.
               </p>
             </div>
 

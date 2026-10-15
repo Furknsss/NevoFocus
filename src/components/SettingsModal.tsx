@@ -20,7 +20,10 @@ import {
   Download,
   Upload,
   RefreshCw,
-  Database
+  Database,
+  Smartphone,
+  Tablet,
+  Monitor
 } from 'lucide-react';
 import { UserProfile, FocusSession, FocusTask } from '../types';
 import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
@@ -49,6 +52,9 @@ interface SettingsModalProps {
   currentUser: any;
   sessions?: FocusSession[];
   tasks?: FocusTask[];
+  deviceMode?: 'auto' | 'mobile' | 'tablet' | 'desktop';
+  detectedDevice?: 'mobile' | 'tablet' | 'desktop';
+  onSelectDeviceMode?: (mode: 'auto' | 'mobile' | 'tablet' | 'desktop') => void;
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
   onAccountDeleted: () => void;
   onSyncComplete?: (sessions: FocusSession[], tasks: FocusTask[], profile?: UserProfile) => void;
@@ -62,6 +68,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentUser,
   sessions = [],
   tasks = [],
+  deviceMode = 'auto',
+  detectedDevice = 'desktop',
+  onSelectDeviceMode,
   onUpdateProfile,
   onAccountDeleted,
   onSyncComplete,
@@ -545,15 +554,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: THEME */}
+        {/* TAB 2: THEME & DEVICE */}
         {activeTab === 'theme' && (
-          <div className="space-y-3 py-2">
-            {[
-              { id: 'dark', name: 'Karanlık Grafit (Varsayılan)', hex: '#0b0c10', border: 'border-neutral-700' },
-              { id: 'ocean', name: 'Derin Okyanus Mavisi', hex: '#05131f', border: 'border-cyan-800' },
-              { id: 'emerald', name: 'Zümrüt Orman Yeşili', hex: '#06170e', border: 'border-emerald-800' },
-              { id: 'midnight', name: 'Gece Yarısı Moru', hex: '#0d081f', border: 'border-purple-800' },
-            ].map((th) => (
+          <div className="space-y-4 py-2">
+            {/* Device Mode Selector */}
+            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-sky-400" />
+                  <span>Cihaz & Ekran Görünüm Modu</span>
+                </p>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Uygulamanın PC, tablet veya telefon için optimize edilmiş arayüzünü seçin. Otomatik modda cihazınız kendiliğinden algılanır.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {[
+                  {
+                    id: 'auto' as const,
+                    label: 'Otomatik',
+                    sub: `(${detectedDevice === 'mobile' ? 'Telefon' : detectedDevice === 'tablet' ? 'Tablet' : 'PC'})`,
+                    icon: Sparkles,
+                    color: 'text-amber-400',
+                  },
+                  {
+                    id: 'mobile' as const,
+                    label: 'Telefon',
+                    sub: 'Alt menü barı',
+                    icon: Smartphone,
+                    color: 'text-emerald-400',
+                  },
+                  {
+                    id: 'tablet' as const,
+                    label: 'Tablet',
+                    sub: '2 sütunlu düzen',
+                    icon: Tablet,
+                    color: 'text-sky-400',
+                  },
+                  {
+                    id: 'desktop' as const,
+                    label: 'Masaüstü / PC',
+                    sub: 'Geniş radar HUD',
+                    icon: Monitor,
+                    color: 'text-purple-400',
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isSelected = deviceMode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playClick();
+                        if (onSelectDeviceMode) {
+                          onSelectDeviceMode(item.id);
+                        }
+                        onUpdateProfile({ deviceModePreference: item.id });
+                      }}
+                      className={`p-3 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 ${
+                        isSelected
+                          ? 'border-[#ff5500] bg-neutral-800/90 shadow-md text-white'
+                          : 'border-neutral-800 bg-neutral-900/40 text-neutral-400 hover:text-white hover:border-neutral-700'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 ${item.color}`} />
+                      <span className="text-xs font-bold leading-tight">{item.label}</span>
+                      <span className="text-[10px] text-neutral-500 font-mono leading-tight">{item.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Theme Colors */}
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-neutral-400 uppercase tracking-wider px-1">
+                Renk Teması
+              </p>
+              {[
+                { id: 'dark', name: 'Karanlık Grafit (Varsayılan)', hex: '#0b0c10', border: 'border-neutral-700' },
+                { id: 'ocean', name: 'Derin Okyanus Mavisi', hex: '#05131f', border: 'border-cyan-800' },
+                { id: 'emerald', name: 'Zümrüt Orman Yeşili', hex: '#06170e', border: 'border-emerald-800' },
+                { id: 'midnight', name: 'Gece Yarısı Moru', hex: '#0d081f', border: 'border-purple-800' },
+              ].map((th) => (
               <button
                 key={th.id}
                 type="button"
@@ -579,6 +664,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </button>
             ))}
+            </div>
           </div>
         )}
 

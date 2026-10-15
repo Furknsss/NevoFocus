@@ -25,7 +25,7 @@ export const FOCUS_MODES: FocusModeConfig[] = [
     subtitle: 'Destinasyona var',
     accentColor: '#38bdf8',
     glowColor: 'rgba(56, 189, 248, 0.4)',
-    description: '3D Dünya üzerinde havalimanları arası bilet al, rotanı tamamla.',
+    description: 'Dünya haritasında şehirler arası kesintili rota çizgisi, telemetri ve iniş simülasyonu.',
     iconName: 'Plane',
   },
   {
@@ -170,6 +170,19 @@ export function addStoredSubject(subject: SubjectItem): SubjectItem[] {
   return updated;
 }
 
+function safeNum(val: any, fallback = 0): number {
+  if (typeof val === 'number' && !isNaN(val)) return val;
+  if (typeof val === 'string') {
+    const n = Number(val);
+    if (!isNaN(n)) return n;
+  }
+  if (val && typeof val === 'object') {
+    if (typeof val.Vi === 'number' && !isNaN(val.Vi)) return val.Vi;
+    if (typeof val.value === 'number' && !isNaN(val.value)) return val.value;
+  }
+  return fallback;
+}
+
 export function getStoredProfile(): UserProfile {
   const defaultProfile: UserProfile = {
     name: 'Öğrenci',
@@ -197,7 +210,19 @@ export function getStoredProfile(): UserProfile {
       localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(defaultProfile));
       return defaultProfile;
     }
-    return { ...defaultProfile, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const merged: UserProfile = {
+      ...defaultProfile,
+      ...parsed,
+      name: typeof parsed.name === 'string' ? parsed.name : defaultProfile.name,
+      targetExam: typeof parsed.targetExam === 'string' ? parsed.targetExam : defaultProfile.targetExam,
+      studyTrack: typeof parsed.studyTrack === 'string' ? parsed.studyTrack : defaultProfile.studyTrack,
+      dailyGoalHours: safeNum(parsed.dailyGoalHours, 6),
+      currentStreakDays: safeNum(parsed.currentStreakDays, 0),
+      totalFocusHours: safeNum(parsed.totalFocusHours, 0),
+      cheersReceived: safeNum(parsed.cheersReceived, 0),
+    };
+    return merged;
   } catch {
     return defaultProfile;
   }
@@ -205,7 +230,20 @@ export function getStoredProfile(): UserProfile {
 
 export function updateStoredProfile(profile: Partial<UserProfile>): UserProfile {
   const current = getStoredProfile();
-  const updated = { ...current, ...profile };
+  const sanitizedProfile: Partial<UserProfile> = { ...profile };
+  if ('dailyGoalHours' in sanitizedProfile) {
+    sanitizedProfile.dailyGoalHours = safeNum(sanitizedProfile.dailyGoalHours, 6);
+  }
+  if ('currentStreakDays' in sanitizedProfile) {
+    sanitizedProfile.currentStreakDays = safeNum(sanitizedProfile.currentStreakDays, 0);
+  }
+  if ('totalFocusHours' in sanitizedProfile) {
+    sanitizedProfile.totalFocusHours = safeNum(sanitizedProfile.totalFocusHours, 0);
+  }
+  if ('cheersReceived' in sanitizedProfile) {
+    sanitizedProfile.cheersReceived = safeNum(sanitizedProfile.cheersReceived, 0);
+  }
+  const updated = { ...current, ...sanitizedProfile };
   try {
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(updated));
   } catch (err) {

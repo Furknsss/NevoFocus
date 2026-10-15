@@ -15,9 +15,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
-import { FocusTask, FocusTaskType, StudyAreaType, SubjectItem } from '../types';
+import { FocusTask, FocusTaskType, StudyAreaType, SubjectItem, FocusSession } from '../types';
 import { soundEngine } from '../utils/audio';
 import { getAllowedAreasForTrack, getSubjectsForAreaAndTrack, normalizeStudyTrack } from '../utils/subjects';
 
@@ -25,8 +26,10 @@ interface TasksViewProps {
   tasks: FocusTask[];
   subjects: SubjectItem[];
   studentTrack?: string;
+  sessions?: FocusSession[];
+  dailyGoalHours?: number;
   onAddTask: (task: Omit<FocusTask, 'id' | 'createdAt'>) => void;
-  onToggleTask: (taskId: string) => void;
+  onToggleTask: (taskId: string, manualDurationMinutes?: number) => void;
   onDeleteTask: (taskId: string) => void;
   onStartTaskWithMode: (task: FocusTask) => void;
 }
@@ -43,6 +46,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   subjects,
   studentTrack = 'Sayısal',
+  sessions = [],
+  dailyGoalHours = 6,
   onAddTask,
   onToggleTask,
   onDeleteTask,
@@ -177,6 +182,55 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setTitle('');
   };
 
+  // Manual Task Completion Modal State
+  const [completingTask, setCompletingTask] = useState<FocusTask | null>(null);
+  const [manualHours, setManualHours] = useState<string>('0');
+  const [manualMinutes, setManualMinutes] = useState<string>('45');
+
+  const handleInitiateToggle = (task: FocusTask) => {
+    soundEngine.playClick();
+    if (task.isCompleted) {
+      onToggleTask(task.id);
+    } else {
+      const h = Math.floor((task.plannedMinutes || 45) / 60);
+      const m = (task.plannedMinutes || 45) % 60;
+      setManualHours(String(h));
+      setManualMinutes(String(m));
+      setCompletingTask(task);
+    }
+  };
+
+  const handleConfirmManualComplete = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completingTask) return;
+    const h = parseInt(manualHours, 10) || 0;
+    const m = parseInt(manualMinutes, 10) || 0;
+    const totalMins = Math.max(1, h * 60 + m);
+    soundEngine.playCompletionBell();
+    onToggleTask(completingTask.id, totalMins);
+    setCompletingTask(null);
+  };
+
+  // Distinct Badges Colors for Task Types & Exam Areas
+  const getTaskTypeBadgeStyle = (typeId?: string, typeName?: string) => {
+    const norm = (typeId || typeName || '').toLowerCase();
+    if (norm.includes('soru')) return 'bg-orange-500/20 text-orange-400 border-orange-500/35';
+    if (norm.includes('video')) return 'bg-blue-500/20 text-blue-400 border-blue-500/35';
+    if (norm.includes('konu')) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/35';
+    if (norm.includes('rutin') || norm.includes('tekrar')) return 'bg-purple-500/20 text-purple-400 border-purple-500/35';
+    if (norm.includes('deneme')) return 'bg-pink-500/20 text-pink-400 border-pink-500/35';
+    return 'bg-neutral-800 text-neutral-300 border-neutral-700';
+  };
+
+  const getAreaBadgeStyle = (areaId?: string, areaName?: string) => {
+    const norm = (areaId || areaName || '').toLowerCase();
+    if (norm.includes('tyt')) return 'bg-sky-500/20 text-sky-300 border-sky-500/35';
+    if (norm.includes('ayt')) return 'bg-indigo-500/20 text-indigo-300 border-indigo-500/35';
+    if (norm.includes('ydt') || norm.includes('dil')) return 'bg-amber-500/20 text-amber-300 border-amber-500/35';
+    if (norm.includes('meb') || norm.includes('okul') || norm.includes('lgs')) return 'bg-teal-500/20 text-teal-300 border-teal-500/35';
+    return 'bg-neutral-800 text-neutral-300 border-neutral-700';
+  };
+
   // Filter tasks for the selected date. Also include tasks without dateString if viewing today.
   const dayTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -189,6 +243,23 @@ export const TasksView: React.FC<TasksViewProps> = ({
   }, [tasks, selectedDateStr, dayOffset]);
 
   const completedCount = dayTasks.filter((t) => t.isCompleted).length;
+
+  const totalPlannedMinutes = useMemo(() => {
+    return dayTasks.reduce((sum, t) => sum + (t.plannedMinutes || 45), 0);
+  }, [dayTasks]);
+
+  const actualDateFocusMinutes = useMemo(() => {
+    return sessions
+      .filter((s) => s.dateString === selectedDateStr)
+      .reduce((sum, s) => sum + Math.round(s.completedSeconds / 60), 0);
+  }, [sessions, selectedDateStr]);
+
+  const planAdherencePercent = totalPlannedMinutes > 0
+    ? Math.min(100, Math.round((actualDateFocusMinutes / totalPlannedMinutes) * 100))
+    : (actualDateFocusMinutes > 0 ? 100 : 0);
+
+  const goalMinutes = (dailyGoalHours || 6) * 60;
+  const goalProgressPercent = Math.min(100, Math.round((actualDateFocusMinutes / goalMinutes) * 100));
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 animate-in fade-in duration-300">
@@ -253,16 +324,97 @@ export const TasksView: React.FC<TasksViewProps> = ({
         </div>
       </div>
 
-      {/* Completion Summary Pill */}
-      <div className="mb-6 flex items-center justify-between p-3.5 rounded-2xl bg-neutral-900/60 border border-neutral-800/80">
-        <div className="flex items-center gap-2 text-xs text-neutral-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>
-            Seçili Günün İlerlemesi: <strong className="text-white">{completedCount}</strong> / {dayTasks.length} Tamamlandı
-          </span>
+      {/* Daily Goal, Task Plan & Plan Adherence Dashboard */}
+      <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-neutral-900/80 border border-neutral-800 shadow-xl space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {/* 1. Daily Goal */}
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-neutral-800/80">
+            <span className="text-[11px] font-medium text-neutral-400 block mb-1">Günlük Odak Hedefi</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-black text-white font-mono">{dailyGoalHours}</span>
+              <span className="text-xs text-neutral-400">Saat / Gün</span>
+            </div>
+            <div className="mt-2 w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#ff5500] transition-all duration-500"
+                style={{ width: `${goalProgressPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {/* 2. Tasks Planned Time */}
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-neutral-800/80">
+            <span className="text-[11px] font-medium text-neutral-400 block mb-1">Görevlerden Planlanan</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-black text-sky-400 font-mono">
+                {totalPlannedMinutes >= 60
+                  ? `${Math.floor(totalPlannedMinutes / 60)} sa ${totalPlannedMinutes % 60} dk`
+                  : `${totalPlannedMinutes} dk`}
+              </span>
+            </div>
+            <span className="text-[10px] text-neutral-500 block mt-1.5">
+              {dayTasks.length} görevden hesaplandı
+            </span>
+          </div>
+
+          {/* 3. Actual Focus Completed */}
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-neutral-800/80">
+            <span className="text-[11px] font-medium text-neutral-400 block mb-1">Gerçekleşen Odak</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-black text-emerald-400 font-mono">
+                {actualDateFocusMinutes >= 60
+                  ? `${Math.floor(actualDateFocusMinutes / 60)} sa ${actualDateFocusMinutes % 60} dk`
+                  : `${actualDateFocusMinutes} dk`}
+              </span>
+            </div>
+            <span className="text-[10px] text-neutral-500 block mt-1.5">
+              Seçili gündeki kayıtlı seanslar
+            </span>
+          </div>
+
+          {/* 4. Plan Adherence */}
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-neutral-800/80">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] font-medium text-neutral-400">Plana Uyum</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                planAdherencePercent >= 100
+                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
+                  : planAdherencePercent >= 75
+                  ? 'bg-sky-950 text-sky-400 border border-sky-800/40'
+                  : 'bg-amber-950 text-amber-400 border border-amber-800/40'
+              }`}>
+                {planAdherencePercent >= 100 ? '🎯 Hedefe Ulaşıldı' : planAdherencePercent >= 75 ? '⚡ Güçlü İlerleme' : '🚀 Devam Et'}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-white font-mono">%{planAdherencePercent}</span>
+            </div>
+            <div className="mt-2 w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  planAdherencePercent >= 100
+                    ? 'bg-emerald-400'
+                    : planAdherencePercent >= 75
+                    ? 'bg-sky-400'
+                    : 'bg-amber-400'
+                }`}
+                style={{ width: `${Math.min(100, planAdherencePercent)}%` }}
+              />
+            </div>
+          </div>
         </div>
-        <div className="text-xs font-mono font-bold text-emerald-400">
-          {dayTasks.length > 0 ? `%${Math.round((completedCount / dayTasks.length) * 100)}` : '%0'}
+
+        {/* Task completion pill */}
+        <div className="flex items-center justify-between pt-2 border-t border-neutral-800/60 text-xs">
+          <div className="flex items-center gap-2 text-neutral-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>
+              Görev Tamamlanma: <strong className="text-white">{completedCount}</strong> / {dayTasks.length} Görev Bitti
+            </span>
+          </div>
+          <div className="font-mono font-bold text-emerald-400">
+            {dayTasks.length > 0 ? `%${Math.round((completedCount / dayTasks.length) * 100)}` : '%0'}
+          </div>
         </div>
       </div>
 
@@ -466,12 +618,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   <div className="flex items-start gap-3 min-w-0">
                     <button
                       type="button"
-                      onClick={() => onToggleTask(task.id)}
+                      onClick={() => handleInitiateToggle(task)}
                       className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                         task.isCompleted
                           ? 'bg-emerald-500 border-emerald-500 text-black'
                           : 'border-neutral-700 hover:border-neutral-500'
                       }`}
+                      title={task.isCompleted ? 'Tamamlanmadı olarak işaretle' : 'Tamamla ve süreyi kaydet'}
                     >
                       {task.isCompleted && <CheckCircle2 className="w-4 h-4 stroke-[3]" />}
                     </button>
@@ -486,14 +639,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           {task.title}
                         </span>
 
-                        {/* Badges: Görev Türü & Alan */}
+                        {/* Badges: Görev Türü & Alan ile Farklılaştırılmış Renkler */}
                         {task.taskTypeName && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/30">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${getTaskTypeBadgeStyle(task.taskType, task.taskTypeName)}`}>
                             {task.taskTypeName}
                           </span>
                         )}
                         {task.areaName && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${getAreaBadgeStyle(task.area, task.areaName)}`}>
                             {task.areaName}
                           </span>
                         )}
@@ -537,6 +690,97 @@ export const TasksView: React.FC<TasksViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Manual Task Completion Modal (Saat & Dakika Doğrudan Girişi) */}
+      {completingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-3xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl relative">
+            <button
+              onClick={() => setCompletingTask(null)}
+              className="absolute top-4 right-4 p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div className="min-w-0 pr-6">
+                <h3 className="text-lg font-bold text-white tracking-tight">Görevi Tamamla</h3>
+                <p className="text-xs text-neutral-400 truncate">{completingTask.title}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-300 mb-5 leading-relaxed">
+              Bu görevi odak seansı olmadan tamamladın. Günlük çalışma sürene ve plana uyum grafiğine doğru yansıması için harcadığın süreyi gir:
+            </p>
+
+            <form onSubmit={handleConfirmManualComplete} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-[#ff5500]" />
+                    <span>Saat</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="24"
+                      value={manualHours}
+                      onChange={(e) => setManualHours(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-900 border border-neutral-700/80 hover:border-neutral-600 text-white font-mono text-lg font-bold focus:outline-none focus:border-[#ff5500] text-center"
+                    />
+                    <span className="absolute right-3 top-3.5 text-xs text-neutral-500 font-bold pointer-events-none">
+                      saat
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Dakika</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={manualMinutes}
+                      onChange={(e) => setManualMinutes(e.target.value)}
+                      placeholder="45"
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-900 border border-neutral-700/80 hover:border-neutral-600 text-white font-mono text-lg font-bold focus:outline-none focus:border-[#ff5500] text-center"
+                    />
+                    <span className="absolute right-3 top-3.5 text-xs text-neutral-500 font-bold pointer-events-none">
+                      dakika
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCompletingTask(null)}
+                  className="flex-1 py-3 rounded-2xl bg-neutral-800 hover:bg-neutral-700 text-xs font-bold text-white transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-xs font-bold text-black transition-colors cursor-pointer shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                  <span>Kaydet & Tamamla</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -24,7 +24,6 @@ import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
 import { BoardingPassCard } from './flight/BoardingPassCard';
-import { MyForestModal } from './forest/MyForestModal';
 import { soundEngine } from '../utils/audio';
 
 interface DedicatedModeScreenProps {
@@ -46,6 +45,8 @@ interface DedicatedModeScreenProps {
   onChangeTimerType: (type: 'countdown' | 'stopwatch') => void;
   onAddNewTask?: (task: Omit<FocusTask, 'id' | 'createdAt'>) => void;
   onStartActiveSession: () => void;
+  selectedTreeSpecies?: string;
+  onSelectTreeSpecies?: (species: string) => void;
 }
 
 export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
@@ -67,10 +68,16 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
   onChangeTimerType,
   onAddNewTask,
   onStartActiveSession,
+  selectedTreeSpecies: propSelectedTreeSpecies,
+  onSelectTreeSpecies,
 }) => {
   const [selectedPeak, setSelectedPeak] = useState('Kaçkar Zirvesi (3,937m)');
-  const [selectedTreeSpecies, setSelectedTreeSpecies] = useState('Mistik Zümrüt Bonsai');
-  const [isMyForestOpen, setIsMyForestOpen] = useState(false);
+  const [localTreeSpecies, setLocalTreeSpecies] = useState('Meşe Ağacı');
+  const selectedTreeSpecies = propSelectedTreeSpecies || localTreeSpecies;
+  const setSelectedTreeSpecies = (sp: string) => {
+    setLocalTreeSpecies(sp);
+    if (onSelectTreeSpecies) onSelectTreeSpecies(sp);
+  };
 
   const peaks = [
     { name: 'Kaçkar Zirvesi (3,937m)', diff: 'Orta', region: 'Rize / Karadeniz' },
@@ -80,10 +87,10 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
   ];
 
   const treeSpeciesList = [
-    { name: 'Mistik Zümrüt Bonsai', color: '#10b981', desc: 'Biolüminesans zümrüt yapraklar' },
-    { name: 'Pembe Çiçekli Sakura', color: '#f472b6', desc: 'Japon kiraz çiçeği baharı' },
-    { name: 'Kadim Anadolu Çınarı', color: '#14b8a6', desc: 'Derin kökler ve ulu gövde' },
-    { name: 'Altın Kızılçam Sekoyası', color: '#f59e0b', desc: 'Görkemli asırlık göğe uzanış' },
+    { name: 'Meşe Ağacı', color: '#10b981', desc: 'Geniş gövdeli ve zümrüt yapraklı ulu meşe' },
+    { name: 'Çam Ağacı', color: '#059669', desc: 'Piramit katmanlı iğne yapraklı dağ çamı' },
+    { name: 'Kiraz Çiçeği (Sakura)', color: '#f472b6', desc: 'Zarif kıvrımlı pembe bahar çiçekleri' },
+    { name: 'Dev Sekoya', color: '#b45309', desc: 'Kızıl kabuklu devasa asırlık sekoya' },
   ];
 
   const handleStart = () => {
@@ -457,34 +464,19 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
       {/* 4. FOREST: SEED TO ANCIENT TREE */}
       {mode === 'forest' && (
         <div className="space-y-6 max-w-4xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-2 border-b border-emerald-950/60">
-            <div>
-              <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Forest Kadim Orman Alanı</h1>
-              <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-                Toprağa altın bir tohum ek, odaklandıkça dallanıp çiçek açsın ve kalıcı Sanal Ormanına eklensin.
-              </p>
-            </div>
-
-            {/* Ormanım Button at Top */}
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playClick();
-                setIsMyForestOpen(true);
-              }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 text-black font-black text-xs sm:text-sm shadow-xl shadow-emerald-950/40 hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0"
-            >
-              <Trees className="w-4 h-4" />
-              <span>🌳 Ormanım (Korum)</span>
-            </button>
+          <div className="pb-2 border-b border-emerald-950/60">
+            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Forest Kadim Orman Alanı</h1>
+            <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+              Toprağa altın bir tohum ek, odaklandıkça dallanıp çiçek açsın ve kalıcı Sanal Ormanına eklensin.
+            </p>
           </div>
 
           {/* Live Flowing Forest Tree Canvas (Forest Focus Style) */}
           <div className="w-full h-64 sm:h-72 rounded-3xl overflow-hidden border border-emerald-900/40 relative shadow-2xl bg-black">
-            <ActiveForestCanvas progress={0.65} isPaused={false} elapsedSeconds={120} />
+            <ActiveForestCanvas progress={0.65} isPaused={false} elapsedSeconds={120} treeSpecies={selectedTreeSpecies} />
             <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-emerald-500/30 text-[11px] font-mono text-emerald-400 flex items-center gap-1.5 shadow-lg">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Forest Odak Büyüme Önizlemesi</span>
+              <span>{selectedTreeSpecies} Önizlemesi</span>
             </div>
           </div>
 
@@ -519,13 +511,6 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           )}
         </div>
       )}
-
-      {/* Kişisel Ormanım Modal */}
-      <MyForestModal
-        isOpen={isMyForestOpen}
-        onClose={() => setIsMyForestOpen(false)}
-        onStartSession={handleStart}
-      />
     </div>
   );
 };

@@ -14,7 +14,10 @@ import {
   ChevronDown,
   GraduationCap,
   Trophy,
-  DoorOpen
+  DoorOpen,
+  Smartphone,
+  Tablet,
+  Monitor
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -31,6 +34,8 @@ interface HeaderProps {
   onSignOut: () => void;
   isAudioPlaying: boolean;
   onToggleAudioModal: () => void;
+  isMobile?: boolean;
+  activeDevice?: 'mobile' | 'tablet' | 'desktop';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,6 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   isAudioPlaying,
   onToggleAudioModal,
+  isMobile = false,
+  activeDevice = 'desktop',
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -69,7 +76,9 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'students', label: 'Öğrenciler', icon: Users },
   ] as const;
 
-  const displayName = profile.name && profile.name.trim() !== '' ? profile.name : 'Öğrenci';
+  const rawDisplayName = profile.name && profile.name.trim() !== '' ? profile.name : (currentUser?.displayName || 'Öğrenci');
+  const firstName = rawDisplayName.trim().split(' ')[0] || rawDisplayName;
+  const effectiveAvatar = profile.avatarUrl || currentUser?.photoURL || '';
   const displayEmail = currentUser?.email || profile.email || 'Giriş yapılmadı';
 
   return (
@@ -99,31 +108,50 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* Center Navigation Tabs */}
-      <nav className="flex items-center gap-0.5 sm:gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner max-w-full overflow-x-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentTab === item.id;
+      {/* Center Navigation Tabs - Hidden on mobile if bottom nav is active */}
+      {!isMobile && (
+        <nav className="flex items-center gap-0.5 sm:gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner max-w-full overflow-x-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentTab === item.id;
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer shrink-0 ${
-                isActive
-                  ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                  : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff5500]' : 'text-neutral-400'}`} />
-              <span className="hidden md:inline">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+            return (
+              <button
+                key={item.id}
+                onClick={() => onSelectTab(item.id)}
+                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer shrink-0 ${
+                  isActive
+                    ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff5500]' : 'text-neutral-400'}`} />
+                <span className={activeDevice === 'tablet' ? 'inline text-[11px]' : 'hidden md:inline'}>
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
-      {/* Right Actions: Sound Modal & Profile Dropdown */}
+      {/* Right Actions: Daily Focus Stopwatch, Sound Modal & Profile Dropdown */}
       <div className="flex items-center gap-2">
+        {/* Daily Focus Counter (Sağ üstte sesin solunda) */}
+        <div
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-neutral-900/90 border border-neutral-800 text-xs shadow-inner shrink-0"
+          title="Bugün tamamlanan toplam odaklanma süresi"
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <Clock className="w-3.5 h-3.5 text-[#ff5500]" />
+          <span className="text-neutral-400 hidden sm:inline text-[11px] font-medium">Bugün:</span>
+          <span className="font-mono font-bold text-white text-xs sm:text-sm">
+            {(profile.todayTotalMinutes || 0) >= 60
+              ? `${Math.floor((profile.todayTotalMinutes || 0) / 60)} sa ${(profile.todayTotalMinutes || 0) % 60} dk`
+              : `${profile.todayTotalMinutes || 0} dk`}
+          </span>
+        </div>
+
         {/* Ambient Sound Trigger */}
         <button
           onClick={onToggleAudioModal}
@@ -149,10 +177,10 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setIsDropdownOpen((prev) => !prev)}
             className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-neutral-900/90 border border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer group"
           >
-            {profile.avatarUrl ? (
+            {effectiveAvatar ? (
               <img
-                src={profile.avatarUrl}
-                alt={displayName}
+                src={effectiveAvatar}
+                alt={firstName}
                 className="w-7 h-7 rounded-full object-cover border border-[#ff5500]"
               />
             ) : (
@@ -160,12 +188,12 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm"
                 style={{ backgroundColor: profile.avatarColor || '#ff5500' }}
               >
-                {displayName.charAt(0).toUpperCase() || 'Ö'}
+                {firstName.charAt(0).toUpperCase() || 'Ö'}
               </div>
             )}
-            {/* Student Name beside PP: Fully dynamic from profile.name */}
+            {/* Student First Name beside PP */}
             <span className="text-xs sm:text-sm font-semibold text-neutral-200 group-hover:text-white truncate max-w-[90px] sm:max-w-[130px]">
-              {displayName}
+              {firstName}
             </span>
             <ChevronDown className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${isDropdownOpen ? 'rotate-180 text-white' : ''}`} />
           </button>
@@ -176,10 +204,10 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Dropdown Header: Name & Email & Target Uni */}
               <div className="p-3 rounded-xl bg-neutral-900/80 border border-neutral-800/80 mb-2">
                 <div className="flex items-center gap-3">
-                  {profile.avatarUrl ? (
+                  {effectiveAvatar ? (
                     <img
-                      src={profile.avatarUrl}
-                      alt={displayName}
+                      src={effectiveAvatar}
+                      alt={firstName}
                       className="w-10 h-10 rounded-xl object-cover border border-[#ff5500] shrink-0"
                     />
                   ) : (
@@ -187,13 +215,13 @@ export const Header: React.FC<HeaderProps> = ({
                       className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black text-white shrink-0 shadow-md"
                       style={{ backgroundColor: profile.avatarColor || '#ff5500' }}
                     >
-                      {displayName.charAt(0).toUpperCase() || 'Ö'}
+                      {firstName.charAt(0).toUpperCase() || 'Ö'}
                     </div>
                   )}
 
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-white truncate leading-tight">
-                      {displayName}
+                      {firstName}
                     </p>
                     {/* E-POSTA ADRESİ */}
                     <p className="text-xs text-neutral-400 truncate font-mono mt-0.5" title={displayEmail}>
@@ -275,6 +303,32 @@ export const Header: React.FC<HeaderProps> = ({
                       Yakında
                     </span>
                   </div>
+                </button>
+              </div>
+
+              {/* Device Mode Status Bar */}
+              <div className="pt-2 mt-1 border-t border-neutral-800/60 px-3 py-1.5 flex items-center justify-between text-[11px] text-neutral-400 bg-neutral-900/40 rounded-xl">
+                <span className="flex items-center gap-1.5 font-medium">
+                  {activeDevice === 'mobile' ? (
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : activeDevice === 'tablet' ? (
+                    <Tablet className="w-3.5 h-3.5 text-sky-400" />
+                  ) : (
+                    <Monitor className="w-3.5 h-3.5 text-purple-400" />
+                  )}
+                  <span>
+                    Görünüm: <strong className="text-white font-semibold">{activeDevice === 'mobile' ? 'Telefon' : activeDevice === 'tablet' ? 'Tablet' : 'PC (Masaüstü)'}</strong>
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDropdownOpen(false);
+                    onOpenSettings();
+                  }}
+                  className="text-[#ff5500] hover:text-[#ff7722] hover:underline cursor-pointer font-bold text-[10px]"
+                >
+                  Değiştir
                 </button>
               </div>
 

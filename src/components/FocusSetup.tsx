@@ -384,7 +384,7 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
             <span>
               Seçilen: <strong className="text-white">{selectedSubject.name}</strong>
             </span>
-            <span className="text-neutral-500">YPT zaman çizelgenize kaydedilir</span>
+            <span className="text-neutral-500">Zaman çizelgenize kaydedilir</span>
           </div>
         </div>
       </div>
@@ -410,7 +410,7 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
           <div className="flex items-center gap-1.5">
             <Clock className="w-4 h-4 text-emerald-400" />
             <span>
-              Bugün: <strong className="text-white font-mono">{todayHours}s {todayRemainingMins}dk</strong>
+              Bugün: <strong className="text-white font-mono">{todayHours > 0 ? `${todayHours} sa ${todayRemainingMins} dk` : `${todayRemainingMins} dk`}</strong>
             </span>
           </div>
           <span className="text-neutral-700">·</span>

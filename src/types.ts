@@ -185,4 +185,5 @@ export interface UserProfile {
   breakReminders?: boolean;
   desktopNotifications?: boolean;
   liveNotifications?: boolean;
+  deviceModePreference?: 'auto' | 'mobile' | 'tablet' | 'desktop';
 }

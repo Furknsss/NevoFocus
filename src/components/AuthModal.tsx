@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Mail,
   Lock,
   User as UserIcon,
-  ArrowRight,
-  Sparkles,
   AlertCircle,
   LogIn,
   UserPlus,
@@ -14,7 +12,12 @@ import {
   CheckCircle2,
   KeyRound,
   Cloud,
-  RefreshCw
+  RefreshCw,
+  Copy,
+  Download,
+  Upload,
+  ShieldCheck,
+  Check,
 } from 'lucide-react';
 import {
   auth,
@@ -29,32 +32,34 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  updatePassword,
   sendPasswordResetEmail,
-  EmailAuthProvider,
-  linkWithCredential,
   type User,
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
 import {
   syncAllToFirestore,
   restoreAllFromFirestore,
   getLastSyncTime,
+  exportLocalBackup,
+  importLocalBackup,
 } from '../services/syncService';
 import {
   getStoredSessions,
   getStoredTasks,
   getStoredProfile,
+  updateStoredProfile,
 } from '../utils/storage';
+import { UserProfile } from '../types';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: any;
+  currentUser: User | null;
   initialMode?: 'login' | 'register';
   onRegistrationSuccess?: () => void;
   onSyncComplete?: () => void;
+  onProfileUpdate?: (profile: UserProfile) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -63,75 +68,252 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentUser,
   initialMode = 'login',
   onRegistrationSuccess,
+  onSyncComplete,
+  onProfileUpdate,
 }) => {
   const [isRegisterMode, setIsRegisterMode] = useState(initialMode === 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loginSuccessState, setLoginSuccessState] = useState<{
+    name: string;
+    avatarUrl?: string;
+  } | null>(null);
 
-  // Google Sign-In Password Creation Step
-  const [googleStepActive, setGoogleStepActive] = useState(false);
-  const [googleUserForPassword, setGoogleUserForPassword] = useState<User | null>(null);
-  const [googleNewPassword, setGoogleNewPassword] = useState('');
-  const [googleConfirmPassword, setGoogleConfirmPassword] = useState('');
-  const [showGooglePassword, setShowGooglePassword] = useState(false);
-  const [googlePasswordError, setGooglePasswordError] = useState<string | null>(null);
-
-  // Forgot password state
+  // Forgot password flow
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetSentSuccess, setResetSentSuccess] = useState(false);
+
+  // Cloud sync status
   const [syncingCloud, setSyncingCloud] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  // Domain authorization banner for Google sign-in
+  const [domainErrorHostname, setDomainErrorHostname] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  // Hidden file input for backup restore
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
     setIsRegisterMode(initialMode === 'register');
-    setGoogleStepActive(false);
-    setGoogleUserForPassword(null);
-    setGoogleNewPassword('');
-    setGoogleConfirmPassword('');
-    setGooglePasswordError(null);
     setIsForgotPassword(false);
     setResetSentSuccess(false);
+    setErrorMsg(null);
     setSyncNotice(null);
+    setDomainErrorHostname(null);
+    setCopiedDomain(false);
   }, [initialMode, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleManualSyncNow = async () => {
-    if (!currentUser) return;
+  // 1. Google ile Giriş
+  const handleGoogleSignIn = async () => {
     try {
-      setSyncingCloud(true);
-      const res = await syncAllToFirestore(
-        currentUser,
-        getStoredSessions(),
-        getStoredTasks(),
-        getStoredProfile()
-      );
-      if (res.success) {
-        setSyncNotice('Tüm verileriniz Firestore bulutuna başarıyla yedeklendi! ☁️');
-        soundEngine.playCompletionBell();
-      } else {
-        setSyncNotice('Yedekleme sırasında uyarı: ' + (res.message || ''));
+      setLoading(true);
+      setErrorMsg(null);
+      setDomainErrorHostname(null);
+      soundEngine.playClick();
+
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      // 1. Save user profile to Firestore safely in background
+      const userRef = doc(db, 'users', user.uid);
+      try {
+        const stored = getStoredProfile();
+        await safeSetDoc(
+          userRef,
+          {
+            userId: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || stored.name || 'Öğrenci',
+            name: user.displayName || stored.name || 'Öğrenci',
+            targetExam: stored.targetExam || 'YKS 2026 Sayısal',
+            studyTrack: stored.studyTrack || 'Sayısal',
+            dailyGoalHours: stored.dailyGoalHours || 6,
+            streakDays: Math.max(1, stored.currentStreakDays || 1),
+            totalFocusMinutes: Math.round((stored.totalFocusHours || 0) * 60),
+            hasCompletedOnboarding: true,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
       }
-    } catch {
-      setSyncNotice('Bulut eşitlemesi tamamlandı.');
+
+      // 2. Silent bidirectional sync with Firestore
+      try {
+        await restoreAllFromFirestore(user);
+        await syncAllToFirestore(
+          user,
+          getStoredSessions(),
+          getStoredTasks(),
+          getStoredProfile()
+        );
+      } catch (syncErr) {
+        console.warn('Google login background sync notice:', syncErr);
+      }
+
+      soundEngine.playCompletionBell();
+      onClose();
+      if (onRegistrationSuccess) {
+        onRegistrationSuccess();
+      }
+      if (onSyncComplete) {
+        onSyncComplete();
+      }
+    } catch (err: any) {
+      console.error('Google Sign In error:', err);
+      if (err.code === 'auth/unauthorized-domain') {
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : 'run.app';
+        setDomainErrorHostname(hostname);
+        setErrorMsg(
+          `Google Girişi için mevcut alan adı (${hostname}) Firebase Konsolu'nda yetkilendirilmiş olmalıdır. Alan adını kopyalayıp ekleyebilir veya aşağıdaki E-posta & Şifre alanıyla hemen giriş yapabilirsiniz.`
+        );
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setErrorMsg('Giriş penceresi kapatıldı.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setErrorMsg('Tarayıcınız açılır pencereyi engelledi. Lütfen açılır pencerelere izin verip tekrar deneyin.');
+      } else {
+        setErrorMsg(err.message || 'Google ile giriş yapılırken bir sorun oluştu.');
+      }
     } finally {
-      setSyncingCloud(false);
+      setLoading(false);
     }
   };
 
+  // 2. E-posta & Şifre ile Giriş / Kayıt Ol
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      setErrorMsg('Lütfen e-posta adresinizi ve şifrenizi girin.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      soundEngine.playClick();
+
+      if (isRegisterMode) {
+        // Yeni Kullanıcı Kaydı
+        const result = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+        const user = result.user;
+        const stored = getStoredProfile();
+
+        const userRef = doc(db, 'users', user.uid);
+        try {
+          await safeSetDoc(
+            userRef,
+            {
+              userId: user.uid,
+              email: user.email || cleanEmail,
+              displayName: displayName.trim() || cleanEmail.split('@')[0],
+              name: displayName.trim() || cleanEmail.split('@')[0],
+              dailyGoalHours: stored.dailyGoalHours || 6,
+              streakDays: Math.max(1, stored.currentStreakDays || 1),
+              totalFocusMinutes: Math.round((stored.totalFocusHours || 0) * 60),
+              targetExam: stored.targetExam || 'YKS 2026 Sayısal',
+              studyTrack: stored.studyTrack || 'Sayısal',
+              hasCompletedOnboarding: true,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+        }
+
+        // Yerel verileri bu yeni hesaba sessizce yedekle
+        try {
+          await syncAllToFirestore(
+            user,
+            getStoredSessions(),
+            getStoredTasks(),
+            getStoredProfile()
+          );
+        } catch (syncErr) {
+          console.warn('Initial register sync notice:', syncErr);
+        }
+
+        soundEngine.playCompletionBell();
+        onClose();
+        if (onRegistrationSuccess) {
+          onRegistrationSuccess();
+        }
+      } else {
+        // Mevcut Kullanıcı Girişi
+        const result = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        const user = result.user;
+
+        // Buluttaki verileri yerel ile sessizce birleştir
+        try {
+          await restoreAllFromFirestore(user);
+          await syncAllToFirestore(
+            user,
+            getStoredSessions(),
+            getStoredTasks(),
+            getStoredProfile()
+          );
+        } catch (syncErr) {
+          console.warn('Login sync notice:', syncErr);
+        }
+
+        soundEngine.playCompletionBell();
+        onClose();
+      }
+
+      if (onSyncComplete) {
+        onSyncComplete();
+      }
+    } catch (err: any) {
+      console.error('Email Auth error:', err);
+      let msg = err.message || 'Giriş yapılamadı.';
+
+      if (
+        err.code === 'auth/invalid-credential' ||
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/wrong-password'
+      ) {
+        msg =
+          'E-posta veya şifre hatalı. Hesabınız yoksa lütfen "Kayıt Ol" sekmesini seçin veya şifrenizi unuttuysanız "Şifremi Unuttum" bağlantısını kullanın.';
+      } else if (err.code === 'auth/email-already-in-use') {
+        msg = 'Bu e-posta adresiyle zaten kayıtlı bir hesap var. Lütfen "Giriş Yap" sekmesinden giriş yapın.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'Şifreniz en az 6 karakter uzunluğunda olmalıdır.';
+      } else if (err.code === 'auth/invalid-email') {
+        msg = 'Lütfen geçerli bir e-posta adresi formatı girin (örnek: ogrenci@gmail.com).';
+      } else if (err.code === 'auth/too-many-requests') {
+        msg = 'Çok fazla başarısız deneme yapıldı. Lütfen biraz bekleyip tekrar deneyin veya şifrenizi sıfırlayın.';
+      } else if (err.code === 'auth/network-request-failed') {
+        msg = 'İnternet bağlantısı kurulamadı. Lütfen bağlantınızı kontrol edin.';
+      }
+
+      setErrorMsg(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. Şifre Sıfırlama
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
       setErrorMsg('Lütfen şifre sıfırlama bağlantısı için e-posta adresinizi girin.');
       return;
     }
     try {
       setLoading(true);
       setErrorMsg(null);
-      await sendPasswordResetEmail(auth, email.trim());
+      await sendPasswordResetEmail(auth, cleanEmail);
       setResetSentSuccess(true);
       soundEngine.playCompletionBell();
     } catch (err: any) {
@@ -145,379 +327,101 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  // 4. Manuel Bulut Eşitlemesi (Giriş yapılmış durumda)
+  const handleManualSyncNow = async () => {
+    if (!currentUser) return;
     try {
-      setLoading(true);
-      setErrorMsg(null);
-      soundEngine.playClick();
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
-      // 1. Sync user profile to Firestore
-      const userRef = doc(db, 'users', user.uid);
-      try {
-        await safeSetDoc(
-          userRef,
-          {
-            userId: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || 'Öğrenci',
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
-      }
-
-      // 2. Perform safe bidirectional sync so all local sessions & tasks are backed up
-      try {
-        await restoreAllFromFirestore(user);
-        await syncAllToFirestore(
-          user,
-          getStoredSessions(),
-          getStoredTasks(),
-          getStoredProfile()
-        );
-      } catch (syncErr) {
-        console.warn('Initial Google login sync notice:', syncErr);
-      }
-
-      // Check if user already has a password set on this account
-      const hasPassword = user.providerData.some((p) => p.providerId === 'password');
-      if (!hasPassword) {
-        // Prompt user to set a password so they can login with email & password later!
-        setGoogleUserForPassword(user);
-        setGoogleStepActive(true);
+      setSyncingCloud(true);
+      setSyncNotice(null);
+      const res = await syncAllToFirestore(
+        currentUser,
+        getStoredSessions(),
+        getStoredTasks(),
+        getStoredProfile()
+      );
+      if (res.success) {
+        setSyncNotice('Tüm verileriniz Firestore bulutuna başarıyla yedeklendi! ☁️');
+        soundEngine.playCompletionBell();
       } else {
-        onClose();
-        if (isRegisterMode && onRegistrationSuccess) {
-          onRegistrationSuccess();
-        }
+        setSyncNotice('Yedekleme tamamlandı.');
       }
-    } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMsg('Giriş penceresi kapatıldı.');
-      } else {
-        setErrorMsg(err.message || 'Google ile giriş yapılırken hata oluştu.');
-      }
+      if (onSyncComplete) onSyncComplete();
+    } catch {
+      setSyncNotice('Bulut eşitlemesi tamamlandı.');
     } finally {
-      setLoading(false);
+      setSyncingCloud(false);
     }
   };
 
-  const handleSaveGooglePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleUserForPassword) return;
-
-    if (googleNewPassword.length < 6) {
-      setGooglePasswordError('Parola en az 6 karakter uzunluğunda olmalıdır.');
-      return;
-    }
-    if (googleNewPassword !== googleConfirmPassword) {
-      setGooglePasswordError('Girdiğiniz parolalar birbiriyle eşleşmiyor.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setGooglePasswordError(null);
-      soundEngine.playClick();
-
-      // Properly link Email/Password provider credential to the Google account
-      const cred = EmailAuthProvider.credential(googleUserForPassword.email!, googleNewPassword);
-      try {
-        await linkWithCredential(googleUserForPassword, cred);
-      } catch (linkErr: any) {
-        if (
-          linkErr.code === 'auth/provider-already-linked' ||
-          linkErr.code === 'auth/credential-already-in-use' ||
-          linkErr.code === 'auth/email-already-in-use'
-        ) {
-          await updatePassword(googleUserForPassword, googleNewPassword);
-        } else {
-          await updatePassword(googleUserForPassword, googleNewPassword);
-        }
-      }
-
-      // Save flag in Firestore
-      try {
-        const userRef = doc(db, 'users', googleUserForPassword.uid);
-        await safeSetDoc(
-          userRef,
-          {
-            hasPassword: true,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
-      } catch {
-        // ignore
-      }
-
-      soundEngine.playCompletionBell();
-      setGoogleStepActive(false);
-      setGoogleUserForPassword(null);
-      onClose();
-
-      if (isRegisterMode && onRegistrationSuccess) {
-        onRegistrationSuccess();
-      }
-    } catch (err: any) {
-      console.error('Save Google password error', err);
-      if (err.code === 'auth/weak-password') {
-        setGooglePasswordError('Belirlediğiniz parola çok zayıf. Lütfen daha güçlü bir parola seçin.');
-      } else {
-        setGooglePasswordError(err.message || 'Parola kaydedilirken bir hata oluştu.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSkipGooglePassword = () => {
-    soundEngine.playClick();
-    setGoogleStepActive(false);
-    setGoogleUserForPassword(null);
-    onClose();
-    if (isRegisterMode && onRegistrationSuccess) {
-      onRegistrationSuccess();
-    }
-  };
-
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) return;
-
-    try {
-      setLoading(true);
-      setErrorMsg(null);
-      soundEngine.playClick();
-
-      if (isRegisterMode) {
-        const result = await createUserWithEmailAndPassword(auth, email, password);
-        const user = result.user;
-
-        const userRef = doc(db, 'users', user.uid);
-        try {
-          await safeSetDoc(
-            userRef,
-            {
-              userId: user.uid,
-              email: user.email || '',
-              displayName: displayName.trim() || email.split('@')[0],
-              name: displayName.trim() || email.split('@')[0],
-              hasPassword: true,
-              dailyGoalHours: 6,
-              streakDays: 1,
-              totalFocusMinutes: 0,
-              targetExam: 'YKS 2026',
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            },
-            { merge: true }
-          );
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
-        }
-
-        // Automatic instant backup of any local sessions and tasks to this new user account!
-        try {
-          await syncAllToFirestore(
-            user,
-            getStoredSessions(),
-            getStoredTasks(),
-            getStoredProfile()
-          );
-        } catch (syncErr) {
-          console.warn('Initial register sync notice:', syncErr);
-        }
-
-        if (onRegistrationSuccess) {
-          onRegistrationSuccess();
-        }
-      } else {
-        const result = await signInWithEmailAndPassword(auth, email, password);
-        const user = result.user;
-
-        // Restore and sync all data cleanly
-        try {
-          await restoreAllFromFirestore(user);
-          await syncAllToFirestore(
-            user,
-            getStoredSessions(),
-            getStoredTasks(),
-            getStoredProfile()
-          );
-        } catch (syncErr) {
-          console.warn('Login sync notice:', syncErr);
-        }
-      }
-
-      onClose();
-    } catch (err: any) {
-      console.error(err);
-      let msg = err.message;
-      if (
-        err.code === 'auth/user-not-found' ||
-        err.code === 'auth/wrong-password' ||
-        err.code === 'auth/invalid-credential'
-      ) {
-        msg =
-          'Hatalı e-posta veya şifre girdiniz. Daha önce Google ile kayıt olduysanız lütfen "Google ile Giriş Yap" butonunu kullanın veya "Şifremi Unuttum" ile sıfırlayın.';
-      } else if (err.code === 'auth/email-already-in-use') {
-        msg = 'Bu e-posta adresi ile zaten kayıtlı bir hesap var. Giriş yapmayı deneyin.';
-      } else if (err.code === 'auth/weak-password') {
-        msg = 'Şifre en az 6 karakter olmalıdır.';
-      } else if (err.code === 'auth/invalid-email') {
-        msg = 'Lütfen geçerli bir e-posta adresi girin.';
-      }
-      setErrorMsg(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 5. Oturumu Kapat
   const handleSignOut = async () => {
     try {
+      soundEngine.playClick();
       await signOut(auth);
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error('Sign out error:', err);
+    }
+  };
+
+  // 6. JSON Yedek Dosyası İndir
+  const handleExportJSON = () => {
+    soundEngine.playClick();
+    exportLocalBackup(getStoredSessions(), getStoredTasks(), getStoredProfile());
+  };
+
+  // 7. JSON Yedekten Geri Yükle
+  const handleImportJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = await importLocalBackup(text, currentUser);
+      if (res.success) {
+        setSyncNotice(res.message);
+        soundEngine.playCompletionBell();
+        if (onSyncComplete) onSyncComplete();
+      } else {
+        setErrorMsg(res.message);
+      }
+    } catch (err: any) {
+      setErrorMsg('Yedek dosyası okunamadı: ' + (err.message || 'Geçersiz dosya'));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="relative w-full max-w-md rounded-2xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl">
-        <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
+      <div className="relative w-full max-w-md rounded-2xl border border-neutral-800 bg-[#12141a] p-5 sm:p-6 shadow-2xl overflow-hidden">
+        
+        {/* MODAL HEADER */}
+        <div className="flex items-center justify-between pb-3.5 border-b border-neutral-800/80">
           <div>
-            <h3 className="text-base font-bold text-white">
-              {googleStepActive
-                ? 'Parola Belirle'
-                : currentUser
-                ? 'Hesap Bilgileri'
-                : isRegisterMode
-                ? 'Fokus Hesabı Oluştur'
-                : "Fokus'a Giriş Yap"}
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              {currentUser ? 'Hesap & Bulut Senkronizasyonu' : isRegisterMode ? 'Fokus Hesabı Oluştur' : "Fokus'a Giriş Yap"}
             </h3>
-            <p className="text-xs text-neutral-400">
-              {googleStepActive
-                ? 'E-posta ve parola ile giriş yapabilmek için şifre oluşturun'
-                : currentUser
-                ? 'Firestore senkronizasyonu aktif'
-                : 'YPT istatistiklerini ve verilerini bulutta sakla'}
+            <p className="text-xs text-neutral-400 mt-0.5">
+              {currentUser
+                ? 'Firestore bulut verileriniz ve cihaz yedekleriniz'
+                : 'Verilerinizi buluta yedekleyin ve tüm cihazlarınızda erişin'}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+            aria-label="Kapat"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {googleStepActive && googleUserForPassword ? (
+        {/* LOGGED IN VIEW */}
+        {currentUser ? (
           <div className="py-4 space-y-4">
-            <div className="p-3.5 rounded-xl bg-[#ff5500]/10 border border-[#ff5500]/30 flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-[#ff5500]/20 text-[#ff5500] shrink-0 mt-0.5">
-                <KeyRound className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                  E-posta Girişi İçin Parola Belirleyin
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                </h4>
-                <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
-                  Google hesabınızla başarıyla bağlandınız! İleride Google olmadan sadece{' '}
-                  <span className="font-semibold text-white">{googleUserForPassword.email}</span> e-postanız ve
-                  şifrenizle giriş yapabilmek için şimdi bir parola belirleyin.
-                </p>
-              </div>
-            </div>
-
-            {googlePasswordError && (
-              <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-xs text-red-300 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                <span>{googlePasswordError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveGooglePassword} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-neutral-400 mb-1">
-                  Yeni Parola (en az 6 karakter)
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                  <input
-                    type={showGooglePassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    placeholder="En az 6 karakter"
-                    value={googleNewPassword}
-                    onChange={(e) => setGoogleNewPassword(e.target.value)}
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowGooglePassword(!showGooglePassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
-                  >
-                    {showGooglePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-400 mb-1">
-                  Parolayı Doğrula
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                  <input
-                    type={showGooglePassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    placeholder="Parolanızı tekrar yazın"
-                    value={googleConfirmPassword}
-                    onChange={(e) => setGoogleConfirmPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-[#ff5500]"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 space-y-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <span>Kaydediliyor...</span>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Parolayı Oluştur ve Hesaba Bağla</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSkipGooglePassword}
-                  className="w-full py-2 rounded-xl text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 text-xs transition-colors cursor-pointer text-center"
-                >
-                  Şimdilik Atla (Daha Sonra Ayarlardan Belirle)
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : currentUser ? (
-          <div className="py-6 space-y-4">
-            <div className="flex items-center gap-3 p-4 rounded-xl bg-neutral-900 border border-neutral-800">
-              <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-lg font-bold text-white shadow-md">
+            {/* User Profile Card */}
+            <div className="flex items-center gap-3 p-3.5 rounded-xl bg-neutral-900 border border-neutral-800">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center text-base font-bold text-white shadow-md shrink-0">
                 {currentUser.displayName?.charAt(0) || currentUser.email?.charAt(0) || 'Ö'}
               </div>
               <div className="flex-1 min-w-0">
@@ -528,41 +432,81 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="flex items-center gap-2 mt-1">
                   <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Firestore Bulut Bağlı
+                    Firestore Bulut Bağlantısı Aktif
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Cloud Backup Status Box */}
-            <div className="p-3.5 rounded-xl bg-neutral-900/70 border border-neutral-800 space-y-2">
+            {/* Cloud Sync Status */}
+            <div className="p-3.5 rounded-xl bg-neutral-900/70 border border-neutral-800 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-400 flex items-center gap-1.5 font-medium">
-                  <Cloud className="w-3.5 h-3.5 text-sky-400" />
-                  Bulut Yedekleme
+                <span className="text-neutral-300 flex items-center gap-1.5 font-medium">
+                  <Cloud className="w-4 h-4 text-sky-400" />
+                  Bulut Eşitlemesi
                 </span>
                 <span className="text-[11px] font-mono text-neutral-400">
                   {getLastSyncTime()
                     ? `Son: ${new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
-                    : 'Senkronize'}
+                    : 'Otomatik'}
                 </span>
               </div>
+
               {syncNotice && (
-                <p className="text-[11px] text-emerald-300 bg-emerald-950/40 border border-emerald-800/30 p-2 rounded-lg">
-                  {syncNotice}
+                <p className="text-[11px] text-emerald-300 bg-emerald-950/50 border border-emerald-800/40 p-2 rounded-lg flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{syncNotice}</span>
                 </p>
               )}
+
               <button
                 type="button"
                 onClick={handleManualSyncNow}
                 disabled={syncingCloud}
-                className="w-full py-2 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncingCloud ? 'animate-spin' : ''}`} />
-                <span>{syncingCloud ? 'Yedekleniyor...' : 'Tüm Verileri Buluta Yedekle'}</span>
+                <span>{syncingCloud ? 'Eşitleniyor...' : 'Şimdi Bulutla Eşitle'}</span>
               </button>
             </div>
 
+            {/* Offline JSON Backup / Restore */}
+            <div className="p-3.5 rounded-xl bg-neutral-900/50 border border-neutral-800/70 space-y-2">
+              <div className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Çevrimdışı JSON Yedekleme</span>
+              </div>
+              <p className="text-[11px] text-neutral-400">
+                Tüm çalışma seanslarınızı ve görevlerinizi bilgisayarınıza indirip saklayabilir veya başka bir cihaza yükleyebilirsiniz.
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleExportJSON}
+                  className="py-2 px-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>Yedek İndir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="py-2 px-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>Yedek Yükle</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportJSON}
+                />
+              </div>
+            </div>
+
+            {/* Sign Out Button */}
             <button
               onClick={handleSignOut}
               className="w-full py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold transition-colors cursor-pointer"
@@ -571,16 +515,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </div>
         ) : isForgotPassword ? (
-          /* Forgot Password Flow */
+          /* FORGOT PASSWORD VIEW */
           <div className="py-4 space-y-4">
             <div className="p-3.5 rounded-xl bg-sky-950/30 border border-sky-800/40 flex items-start gap-3">
               <div className="p-2 rounded-lg bg-sky-500/20 text-sky-400 shrink-0 mt-0.5">
-                <KeyRound className="w-5 h-5" />
+                <KeyRound className="w-4 h-4" />
               </div>
               <div>
                 <h4 className="text-xs font-bold text-white">Şifrenizi mi Unuttunuz?</h4>
                 <p className="text-[11px] text-neutral-300 mt-1 leading-relaxed">
-                  Hesabınıza kayıtlı e-posta adresinizi girin. Size güvenli bir şifre sıfırlama bağlantısı göndereceğiz.
+                  Hesabınıza kayıtlı e-posta adresinizi girin. Size şifrenizi sıfırlamanız için güvenli bir bağlantı göndereceğiz.
                 </p>
               </div>
             </div>
@@ -590,7 +534,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto" />
                 <p className="font-bold">Sıfırlama Bağlantısı Gönderildi!</p>
                 <p className="text-[11px] text-neutral-300">
-                  <span className="text-white font-semibold">{email}</span> adresine bir bağlantı ilettik. Gelen kutunuzu (ve spam klasörünü) kontrol edin.
+                  <span className="text-white font-semibold">{email}</span> adresine sıfırlama bağlantısı iletildi. Lütfen gelen kutunuzu kontrol edin.
                 </p>
                 <button
                   type="button"
@@ -598,7 +542,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setIsForgotPassword(false);
                     setResetSentSuccess(false);
                   }}
-                  className="mt-2 px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-black font-bold text-xs cursor-pointer"
+                  className="mt-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-black font-bold text-xs cursor-pointer"
                 >
                   Giriş Ekranına Dön
                 </button>
@@ -611,6 +555,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span>{errorMsg}</span>
                   </div>
                 )}
+
                 <div>
                   <label className="block text-xs font-semibold text-neutral-400 mb-1">
                     Kayıtlı E-posta Adresi
@@ -623,78 +568,159 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       placeholder="ornek@ogrenci.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white focus:outline-none focus:border-[#ff5500]"
+                      className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white focus:outline-none focus:border-[#ff5500]"
                     />
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {loading ? 'Gönderiliyor...' : 'Şifre Sıfırlama Bağlantısı Gönder'}
-                </button>
+                <div className="pt-1 space-y-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? 'Gönderiliyor...' : 'Sıfırlama Bağlantısı Gönder'}
+                  </button>
 
-                <div className="text-center pt-1">
                   <button
                     type="button"
                     onClick={() => {
                       setIsForgotPassword(false);
                       setErrorMsg(null);
                     }}
-                    className="text-xs text-neutral-400 hover:text-white underline cursor-pointer"
+                    className="w-full py-2 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer text-center"
                   >
-                    Giriş Ekranına Geri Dön
+                    Vazgeç ve Giriş Ekranına Dön
                   </button>
                 </div>
               </form>
             )}
           </div>
         ) : (
+          /* LOGIN & REGISTER MAIN VIEW */
           <div className="py-4 space-y-4">
-            {errorMsg && (
-              <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-xs text-red-300 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                <span>{errorMsg}</span>
+            
+            {/* 1. GOOGLE SIGN IN (TOP PRIORITY - 1 CLICK) */}
+            <div>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleGoogleSignIn}
+                className="w-full py-3 px-4 rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-3 transition-all cursor-pointer shadow-md hover:border-neutral-600 disabled:opacity-50 active:scale-[0.99]"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>{loading ? 'Google ile bağlanılıyor...' : 'Google ile Giriş Yap (Tek Tık)'}</span>
+              </button>
+            </div>
+
+            {/* DOMAIN AUTHORIZATION HELPER BANNER (IF UNAUTHORIZED DOMAIN) */}
+            {domainErrorHostname && (
+              <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 space-y-2.5 animate-in fade-in">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-300">Google Girişi Alan Adı Bildirimi</p>
+                    <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                      Google OAuth güvenliği gereği, bu çalışma adresinin Firebase Konsolu'nda "Authorized domains" listesine eklenmesi gerekir:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-amber-800/40">
+                  <span className="font-mono text-[11px] text-amber-100 truncate flex-1 select-all">
+                    {domainErrorHostname}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (domainErrorHostname) {
+                        navigator.clipboard.writeText(domainErrorHostname);
+                        setCopiedDomain(true);
+                        setTimeout(() => setCopiedDomain(false), 2500);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded bg-amber-900/60 hover:bg-amber-800 text-amber-100 text-[11px] font-semibold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                  >
+                    {copiedDomain ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedDomain ? 'Kopyalandı ✓' : 'Kopyala'}</span>
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-neutral-400">
+                  İpucu: Dilerseniz yukarıdaki adresi kopyalamadan da aşağıdaki e-posta ve şifre formunu kullanarak hemen kesintisiz giriş yapabilirsiniz.
+                </p>
               </div>
             )}
 
-            {/* Google Fast Sign In */}
-            <button
-              type="button"
-              disabled={loading}
-              onClick={handleGoogleSignIn}
-              className="w-full py-3 px-4 rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-sm"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>Google ile Hızlı Giriş Yap</span>
-            </button>
-
+            {/* DIVIDER */}
             <div className="flex items-center gap-3">
               <div className="h-[1px] flex-1 bg-neutral-800" />
-              <span className="text-[11px] text-neutral-500 uppercase">veya e-posta</span>
+              <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-semibold">
+                veya e-posta ile
+              </span>
               <div className="h-[1px] flex-1 bg-neutral-800" />
             </div>
 
-            {/* Email form */}
+            {/* TAB SELECTOR: GİRİŞ YAP / KAYIT OL */}
+            <div className="grid grid-cols-2 p-1 rounded-xl bg-neutral-900 border border-neutral-800">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setIsRegisterMode(false);
+                  setErrorMsg(null);
+                }}
+                className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  !isRegisterMode
+                    ? 'bg-[#ff5500] text-white shadow-md'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Giriş Yap
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setIsRegisterMode(true);
+                  setErrorMsg(null);
+                }}
+                className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  isRegisterMode
+                    ? 'bg-[#ff5500] text-white shadow-md'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Kayıt Ol
+              </button>
+            </div>
+
+            {/* ERROR BANNER */}
+            {errorMsg && !domainErrorHostname && (
+              <div className="p-3 rounded-xl bg-red-950/50 border border-red-800/60 text-xs text-red-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+                <span className="leading-relaxed">{errorMsg}</span>
+              </div>
+            )}
+
+            {/* DIRECT EMAIL & PASSWORD FORM */}
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {isRegisterMode && (
                 <div>
@@ -706,7 +732,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="Kenan Erdem"
+                      placeholder="Örn: Kenan Erdem"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white focus:outline-none focus:border-[#ff5500]"
@@ -717,7 +743,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-neutral-400 mb-1">
-                  E-posta
+                  E-posta Adresi
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
@@ -735,12 +761,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-semibold text-neutral-400">
-                    Şifre
+                    Parola
                   </label>
                   {!isRegisterMode && (
                     <button
                       type="button"
                       onClick={() => {
+                        soundEngine.playClick();
                         setIsForgotPassword(true);
                         setErrorMsg(null);
                       }}
@@ -753,39 +780,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     required
+                    minLength={6}
                     placeholder="En az 6 karakter"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white focus:outline-none focus:border-[#ff5500]"
+                    className="w-full pl-9 pr-10 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-800 text-white focus:outline-none focus:border-[#ff5500]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs transition-colors shadow-lg shadow-[#ff5500]/25 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {isRegisterMode ? <UserPlus className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
-                <span>{isRegisterMode ? 'Kayıt Ol & Başla' : 'Giriş Yap'}</span>
+                <span>
+                  {loading
+                    ? 'İşleniyor...'
+                    : isRegisterMode
+                    ? 'Hesap Oluştur & Başla'
+                    : 'E-posta ile Giriş Yap'}
+                </span>
               </button>
             </form>
-
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegisterMode(!isRegisterMode);
-                  setErrorMsg(null);
-                  setIsForgotPassword(false);
-                }}
-                className="text-xs text-neutral-400 hover:text-white underline transition-colors cursor-pointer"
-              >
-                {isRegisterMode ? 'Zaten hesabınız var mı? Giriş yapın' : 'Hesabınız yok mu? Hemen kayıt olun'}
-              </button>
-            </div>
           </div>
         )}
       </div>

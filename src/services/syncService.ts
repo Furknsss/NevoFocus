@@ -1,4 +1,4 @@
-import { db, safeSetDoc, handleFirestoreError, OperationType, cleanFirestoreData } from '../firebase';
+import { db, safeSetDoc, handleFirestoreError, OperationType, cleanFirestoreData, parseNumericField } from '../firebase';
 import { doc, getDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { FocusSession, FocusTask, UserProfile } from '../types';
@@ -177,7 +177,15 @@ export async function restoreAllFromFirestore(
     const sessionsSnap = await getDocs(sessionsCol);
     const cloudSessions: FocusSession[] = [];
     sessionsSnap.forEach((docSnap) => {
-      cloudSessions.push(docSnap.data() as FocusSession);
+      const s = docSnap.data() as any;
+      if (s) {
+        cloudSessions.push({
+          ...s,
+          durationMinutes: parseNumericField(s.durationMinutes, 25),
+          actualSeconds: parseNumericField(s.actualSeconds, 1500),
+          timestamp: parseNumericField(s.timestamp, Date.now()),
+        } as unknown as FocusSession);
+      }
     });
 
     // 3. Fetch Cloud Tasks
@@ -185,9 +193,14 @@ export async function restoreAllFromFirestore(
     const tasksSnap = await getDocs(tasksCol);
     const cloudTasks: FocusTask[] = [];
     tasksSnap.forEach((docSnap) => {
-      const t = docSnap.data() as FocusTask;
-      if (t && !(t as any).deleted) {
-        cloudTasks.push(t);
+      const t = docSnap.data() as any;
+      if (t && !t.deleted) {
+        cloudTasks.push({
+          ...t,
+          estimatedPomodoros: parseNumericField(t.estimatedPomodoros, 1),
+          completedPomodoros: parseNumericField(t.completedPomodoros, 0),
+          createdAt: parseNumericField(t.createdAt, Date.now()),
+        } as unknown as FocusTask);
       }
     });
 

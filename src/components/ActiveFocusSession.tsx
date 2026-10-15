@@ -29,7 +29,6 @@ import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
-import { MyForestModal } from './forest/MyForestModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
 
@@ -50,6 +49,7 @@ interface ActiveFocusSessionProps {
   isAudioPlaying: boolean;
   desktopNotificationsEnabled?: boolean;
   liveNotificationsEnabled?: boolean;
+  selectedTreeSpecies?: string;
 }
 
 const MOTIVATIONAL_QUOTES = [
@@ -60,6 +60,66 @@ const MOTIVATIONAL_QUOTES = [
   'En derin denizler bile cesur dalgıçların önünde sırlarını açar.',
   'Zihnini tek bir hedefe kitle; dünya etrafında dönmeye devam etsin.',
 ];
+
+const MODE_BREAK_CONFIG: Record<
+  FocusModeType,
+  {
+    buttonIcon: any;
+    startLabel: string;
+    resumeLabel: string;
+    hudTitle: string;
+    hudDesc: string;
+    themePillBg: string;
+    themeActiveBtn: string;
+    themeInactiveBtn: string;
+    ambientSound: 'campfire' | 'white_noise' | 'waves' | 'forest';
+  }
+> = {
+  climb: {
+    buttonIcon: Tent,
+    startLabel: '⛺ Kamp Kur & Mola Ver',
+    resumeLabel: '⛺ Tırmanışa Devam Et',
+    hudTitle: 'Temel Kamp Dinlenmesi',
+    hudDesc: 'Dağ yamacında kamp ateşi başında soluklanıyorsun.',
+    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
+    themeActiveBtn: 'bg-gradient-to-r from-orange-600 to-amber-600 text-white border-orange-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-orange-400 border-orange-500/40',
+    ambientSound: 'campfire',
+  },
+  flight: {
+    buttonIcon: Plane,
+    startLabel: '🛫 Transit Mola & Bekleme',
+    resumeLabel: '✈️ Uçuşa Devam Et',
+    hudTitle: 'Havalimanı Transit Molası',
+    hudDesc: 'Uçak apronda beklemede; yolcu ve mürettebat dinleniyor.',
+    themePillBg: 'bg-sky-950/90 border-sky-500/50 text-sky-200',
+    themeActiveBtn: 'bg-gradient-to-r from-sky-600 to-blue-600 text-white border-sky-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-sky-400 border-sky-500/40',
+    ambientSound: 'white_noise',
+  },
+  dive: {
+    buttonIcon: Waves,
+    startLabel: '🌊 Yüzeye Çık & Mola Ver',
+    resumeLabel: '🤿 Dalışa Devam Et',
+    hudTitle: 'Yüzey & Dekompresyon Molası',
+    hudDesc: 'Yüzey şamandırasında sakin dalgalar eşliğinde dinleniyorsun.',
+    themePillBg: 'bg-cyan-950/90 border-cyan-500/50 text-cyan-200',
+    themeActiveBtn: 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white border-cyan-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-cyan-400 border-cyan-500/40',
+    ambientSound: 'waves',
+  },
+  forest: {
+    buttonIcon: Trees,
+    startLabel: '🌳 Gölgede Dinlen & Mola Ver',
+    resumeLabel: '🌱 Odaklanmaya Devam Et',
+    hudTitle: 'Ağaç Gölgesinde Doğal Mola',
+    hudDesc: 'Esinti ve kuş sesleri eşliğinde gölgede dinleniyorsun.',
+    themePillBg: 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200',
+    themeActiveBtn: 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-emerald-400 border-emerald-500/40',
+    ambientSound: 'forest',
+  },
+};
 
 export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   mode,
@@ -78,11 +138,50 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   isAudioPlaying,
   desktopNotificationsEnabled = true,
   liveNotificationsEnabled = false,
+  selectedTreeSpecies = 'Meşe Ağacı',
 }) => {
+  // Check if restoring an active session from localStorage
+  const savedState = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('fokus_active_session_running');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.mode === mode && parsed.subject?.name === subject.name) {
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, [mode, subject.name]);
+
   const totalSeconds = plannedMinutes * 60;
-  const [currentTimerType, setCurrentTimerType] = useState<'countdown' | 'stopwatch'>(timerType);
-  const [secondsRemaining, setSecondsRemaining] = useState(totalSeconds);
-  const [elapsedCountUp, setElapsedCountUp] = useState<number>(0);
+  const [currentTimerType, setCurrentTimerType] = useState<'countdown' | 'stopwatch'>(() => {
+    if (savedState?.timerType) return savedState.timerType;
+    return timerType;
+  });
+
+  // Calculate elapsed & remaining considering time spent while browser/tab was away
+  const wallClockDelta = useMemo(() => {
+    if (!savedState || !savedState.lastTickTime) return 0;
+    return Math.max(0, Math.round((Date.now() - savedState.lastTickTime) / 1000));
+  }, [savedState]);
+
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
+    if (savedState) {
+      if (savedState.isPaused || savedState.isCampActive) return savedState.secondsRemaining;
+      return Math.max(0, savedState.secondsRemaining - wallClockDelta);
+    }
+    return totalSeconds;
+  });
+
+  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => {
+    if (savedState) {
+      if (savedState.isPaused || savedState.isCampActive) return savedState.elapsedCountUp;
+      return savedState.elapsedCountUp + wallClockDelta;
+    }
+    return 0;
+  });
 
   // Today's formatted date (YYYY-MM-DD)
   const todayStr = useMemo(() => {
@@ -95,7 +194,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const todayTasks = useMemo(() => {
     return tasksList.filter((t) => !t.dateString || t.dateString === todayStr);
   }, [tasksList, todayStr]);
-  const [isPaused, setIsPaused] = useState(false);
+
+  const [isPaused, setIsPaused] = useState<boolean>(() => {
+    return savedState ? Boolean(savedState.isPaused) : false;
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAbandonModal, setShowAbandonModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -105,14 +207,28 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const [isNotificationPreviewOpen, setIsNotificationPreviewOpen] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('default');
 
-  // CLIMB CAMPING & BREAK SYSTEM
-  const [isCampActive, setIsCampActive] = useState<boolean>(false);
-  const [breakSeconds, setBreakSeconds] = useState<number>(0);
-  const [breakCount, setBreakCount] = useState<number>(0);
+  // THEMATIC BREAK SYSTEM FOR ALL MODES
+  const [isCampActive, setIsCampActive] = useState<boolean>(() => {
+    return savedState ? Boolean(savedState.isCampActive) : false;
+  });
+  const [breakSeconds, setBreakSeconds] = useState<number>(() => {
+    if (savedState) {
+      if (!savedState.isPaused && savedState.isCampActive) {
+        return (savedState.breakSeconds || 0) + wallClockDelta;
+      }
+      return savedState.breakSeconds || 0;
+    }
+    return 0;
+  });
+  const [breakCount, setBreakCount] = useState<number>(() => {
+    return savedState?.breakCount || 0;
+  });
+
+  const breakConfig = MODE_BREAK_CONFIG[mode] || MODE_BREAK_CONFIG.climb;
+  const BreakIcon = breakConfig.buttonIcon;
 
   // FLIGHT 3D GLOBE / COCKPIT TOGGLE
   const [flightViewMode, setFlightViewMode] = useState<'cockpit' | 'globe'>('globe');
-  const [isMyForestOpen, setIsMyForestOpen] = useState(false);
 
   // Mini task checklist: ONLY when stopwatch is active
   const [showTasksPanel, setShowTasksPanel] = useState(false);
@@ -121,7 +237,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
   );
 
-  const startTimeRef = useRef(Date.now());
+  const startTimeRef = useRef(savedState?.startTime || Date.now());
   const lastTickTimeRef = useRef(Date.now());
 
   // Check Notification permission support on mount
@@ -245,19 +361,74 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     };
   }, [isPaused, isCampActive, showCompletionModal, currentTimerType, timeFormatted, subject.name]);
 
-  const toggleCampBreak = () => {
+  const toggleThematicBreak = () => {
     soundEngine.playClick();
     if (!isCampActive) {
       setIsCampActive(true);
       setBreakCount((prev) => prev + 1);
-      soundEngine.playAmbient('campfire');
+      if (breakConfig.ambientSound) {
+        soundEngine.playAmbient(breakConfig.ambientSound);
+      }
     } else {
       setIsCampActive(false);
     }
   };
 
+  // Continuous sync to localStorage so if tab is closed or reloaded, state is preserved
+  useEffect(() => {
+    if (showCompletionModal) return;
+    try {
+      const stateToPersist = {
+        mode,
+        subject,
+        plannedMinutes,
+        timerType: currentTimerType,
+        originAirport,
+        destAirport,
+        selectedTaskId,
+        selectedTaskTitle,
+        selectedTreeSpecies,
+        startTime: startTimeRef.current,
+        lastTickTime: Date.now(),
+        elapsedCountUp,
+        secondsRemaining,
+        breakSeconds,
+        breakCount,
+        isCampActive,
+        isPaused,
+      };
+      localStorage.setItem('fokus_active_session_running', JSON.stringify(stateToPersist));
+    } catch {
+      // ignore
+    }
+  }, [
+    mode,
+    subject,
+    plannedMinutes,
+    currentTimerType,
+    originAirport,
+    destAirport,
+    selectedTaskId,
+    selectedTaskTitle,
+    selectedTreeSpecies,
+    elapsedCountUp,
+    secondsRemaining,
+    breakSeconds,
+    breakCount,
+    isCampActive,
+    isPaused,
+    showCompletionModal,
+  ]);
+
   const handleFinish = (isCompletedNaturally: boolean) => {
     soundEngine.playCompletionBell();
+
+    // Clear background running session state
+    try {
+      localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
+    }
 
     if (isCompletedNaturally) {
       try {
@@ -276,6 +447,15 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
+    // Calculate actual worked seconds accurately (erken bitirmede net süre esas alınır):
+    const actualCompletedSeconds = Math.max(
+      10,
+      currentTimerType === 'stopwatch'
+        ? elapsedCountUp
+        : Math.min(totalSeconds, totalSeconds - secondsRemaining)
+    );
+    const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
+
     const session: FocusSession = {
       id: `session-${Date.now()}`,
       mode,
@@ -283,14 +463,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       subjectName: subject.name,
       subjectColor: subject.color,
       plannedMinutes,
-      completedSeconds: elapsedSeconds,
+      completedSeconds: actualCompletedSeconds,
       breakSeconds,
       completed: isCompletedNaturally,
       timestamp: Date.now(),
       dateString: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
       startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
       endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-      note: selectedTaskTitle || `${subject.name} seansı (${plannedMinutes} dk)`,
+      note: selectedTaskTitle || `${subject.name} seansı (${actualCompletedMinutes} dk çalışıldı)`,
       taskId: selectedTaskId,
       taskTitle: selectedTaskTitle,
       flightInfo:
@@ -320,7 +500,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       forestInfo:
         mode === 'forest'
           ? {
-              treeSpecies: 'Mistik Zümrüt Bonsai',
+              treeSpecies: selectedTreeSpecies,
               treeLevel: Math.min(5, Math.floor(plannedMinutes / 20) + 1),
             }
           : undefined,
@@ -358,6 +538,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const handleConfirmAbandon = () => {
     soundEngine.playClick();
     setShowAbandonModal(false);
+
+    try {
+      localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
+    }
 
     const now = new Date();
     const startD = new Date(startTimeRef.current);
@@ -408,7 +594,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       forestInfo:
         mode === 'forest'
           ? {
-              treeSpecies: 'Mistik Zümrüt Bonsai',
+              treeSpecies: selectedTreeSpecies,
               treeLevel: Math.max(1, Math.floor(progress * 5)),
             }
           : undefined,
@@ -425,7 +611,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           <ActiveForestCanvas
             progress={progress}
             isPaused={isPaused}
+            isCampActive={isCampActive}
             elapsedSeconds={elapsedSeconds}
+            treeSpecies={selectedTreeSpecies}
           />
         )}
         {mode === 'climb' && (
@@ -442,7 +630,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             origin={originAirport}
             destination={destAirport}
             progress={progress}
-            isFlightActive={!isPaused}
+            isFlightActive={!isPaused && !isCampActive}
             onCompleteLanding={() => handleFinish(true)}
           />
         )}
@@ -450,6 +638,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           <ActiveDiveCanvas
             progress={progress}
             isPaused={isPaused}
+            isCampActive={isCampActive}
             elapsedSeconds={elapsedSeconds}
           />
         )}
@@ -457,7 +646,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
       {/* Top Floating Info Bar (Clean Non-Overlapping Header) */}
       <div className="relative z-10 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
-        {/* Left: Mode Title & Subject Badge & My Forest Button */}
+        {/* Left: Mode Title & Subject Badge & Thematic Break Button */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
             {mode === 'forest' && <Trees className="w-4 h-4 text-emerald-400" />}
@@ -465,7 +654,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             {mode === 'flight' && <Plane className="w-4 h-4 text-sky-400" />}
             {mode === 'dive' && <Waves className="w-4 h-4 text-teal-400" />}
             <span className="capitalize">
-              {mode === 'forest' ? 'Kadim Orman' : mode === 'climb' ? 'Dağcı Kampı' : mode === 'flight' ? 'Focus Flight 2D' : 'Derin Dalış'}
+              {mode === 'forest' ? `Kadim Orman (${selectedTreeSpecies})` : mode === 'climb' ? 'Dağcı Kampı' : mode === 'flight' ? 'Focus Flight 2D' : 'Derin Dalış'}
             </span>
           </div>
 
@@ -477,36 +666,19 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <span>{subject.name}</span>
           </div>
 
-          {/* Ormanım Button for Forest Mode */}
-          {mode === 'forest' && (
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playClick();
-                setIsMyForestOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-lg transition-all cursor-pointer"
-            >
-              <Trees className="w-3.5 h-3.5 text-emerald-400" />
-              <span>🌳 Ormanım</span>
-            </button>
-          )}
-
-          {/* Camp break button for Climb Mode */}
-          {mode === 'climb' && (
-            <button
-              type="button"
-              onClick={toggleCampBreak}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer ${
-                isCampActive
-                  ? 'bg-orange-500 text-black border border-orange-400 animate-pulse'
-                  : 'bg-black/75 hover:bg-black/90 border border-orange-500/40 text-orange-300'
-              }`}
-            >
-              <Tent className="w-3.5 h-3.5" />
-              <span>{isCampActive ? '⛺ Kamptan Ayrıl & Devam Et' : '⛺ Kamp Ateşi Molası Ver'}</span>
-            </button>
-          )}
+          {/* Mode-Specific Thematic Break Button in Top Bar */}
+          <button
+            type="button"
+            onClick={toggleThematicBreak}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer ${
+              isCampActive
+                ? `${breakConfig.themeActiveBtn} animate-pulse ring-2 ring-white/40`
+                : `${breakConfig.themeInactiveBtn} bg-black/75 backdrop-blur-md`
+            }`}
+          >
+            <BreakIcon className="w-3.5 h-3.5" />
+            <span>{isCampActive ? breakConfig.resumeLabel : breakConfig.startLabel}</span>
+          </button>
         </div>
 
         {/* Right: Quick Action Controls (Audio & Fullscreen only - zero clutter) */}
@@ -534,6 +706,43 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           </button>
         </div>
       </div>
+
+      {/* ACTIVE THEMATIC BREAK HUD BANNER */}
+      {isCampActive && (
+        <div className="relative z-20 w-full max-w-lg mx-auto px-4 mt-2 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className={`p-4 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3 ${breakConfig.themePillBg}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-black/50 flex items-center justify-center shrink-0 border border-white/10">
+                <BreakIcon className="w-5 h-5 animate-pulse text-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white truncate">
+                    {breakConfig.hudTitle}
+                  </h4>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-amber-300 border border-amber-500/30 shrink-0">
+                    {breakCount}. Mola
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-85 mt-0.5 leading-tight truncate">
+                  {breakConfig.hudDesc}
+                </p>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-sm font-mono font-black text-white">
+                {String(Math.floor(breakSeconds / 60)).padStart(2, '0')}:{String(breakSeconds % 60).padStart(2, '0')}
+              </div>
+              <button
+                onClick={toggleThematicBreak}
+                className="mt-1 text-[11px] font-bold px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white transition-all cursor-pointer shadow-sm"
+              >
+                Molayı Bitir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Center Focus Timer Display */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 pointer-events-none">
@@ -640,20 +849,18 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
       {/* Bottom Floating Action Bar */}
       <div className="relative z-10 w-full px-4 sm:px-8 pb-6 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap">
-        {/* Climb Mode Specific: Campfire / Break Button */}
-        {mode === 'climb' && (
-          <button
-            onClick={toggleCampBreak}
-            className={`flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border ${
-              isCampActive
-                ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white border-orange-400 animate-pulse'
-                : 'bg-neutral-900/80 hover:bg-neutral-800 text-orange-400 border-orange-500/40 backdrop-blur-md'
-            }`}
-          >
-            <Tent className="w-4 h-4" />
-            <span>{isCampActive ? '⛺ Tırmanışa Devam Et' : '⛺ Kamp Kur / Mola Ver'}</span>
-          </button>
-        )}
+        {/* Universal Mode-Specific Thematic Break Button */}
+        <button
+          onClick={toggleThematicBreak}
+          className={`flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border backdrop-blur-md ${
+            isCampActive
+              ? `${breakConfig.themeActiveBtn} animate-pulse ring-2 ring-white/40`
+              : breakConfig.themeInactiveBtn
+          }`}
+        >
+          <BreakIcon className="w-4 h-4" />
+          <span>{isCampActive ? breakConfig.resumeLabel : breakConfig.startLabel}</span>
+        </button>
 
         {/* Pause / Resume */}
         {!isCampActive && (
@@ -788,12 +995,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         permissionState={permissionState}
         currentRemainingFormatted={timeFormatted}
         currentSubject={subject.name}
-      />
-
-      {/* Kişisel Ormanım Modal */}
-      <MyForestModal
-        isOpen={isMyForestOpen}
-        onClose={() => setIsMyForestOpen(false)}
       />
     </div>
   );

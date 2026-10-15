@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FocusModeType,
   FocusSession,
@@ -20,6 +20,7 @@ import {
   deleteTask,
   setAllStoredSessions,
   setAllStoredTasks,
+  FOCUS_MODES,
 } from './utils/storage';
 import { calculateRealStreak, calculateTotalFocusHours, calculateTodayMinutes } from './utils/stats';
 import { getDefaultSubjectsForTrack } from './utils/subjects';
@@ -31,6 +32,7 @@ import {
   handleFirestoreError,
   OperationType,
   safeSetDoc,
+  parseNumericField,
 } from './firebase';
 import {
   syncAllToFirestore,
@@ -65,6 +67,8 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
 import { CinematicTransitionCurtain } from './components/visuals/CinematicTransitionCurtain';
+import { useDeviceMode } from './hooks/useDeviceMode';
+import { BottomNav } from './components/BottomNav';
 import { Flame, X } from 'lucide-react';
 
 export default function App() {
@@ -85,6 +89,17 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile>(getStoredProfile());
   const [peers, setPeers] = useState<StudentPeer[]>([]);
 
+  // Adaptive Device Mode (Auto-detection + manual override in settings)
+  const {
+    deviceMode,
+    detectedDevice,
+    activeDevice,
+    setDeviceMode,
+    isMobile,
+    isTablet,
+    isDesktop,
+  } = useDeviceMode(profile.deviceModePreference || 'auto');
+
   // Live Toast for Incoming Alev / Cheer Notifications
   const [incomingCheer, setIncomingCheer] = useState<CheerNotification | null>(null);
 
@@ -102,6 +117,17 @@ export default function App() {
 
   // Timer mode state (countdown vs stopwatch)
   const [timerType, setTimerType] = useState<'countdown' | 'stopwatch'>('countdown');
+
+  // Forest selected tree species
+  const [selectedTreeSpecies, setSelectedTreeSpecies] = useState<string>('Meşe Ağacı');
+
+  // Today's date string & calculated planned task minutes
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayPlannedMinutes = useMemo(() => {
+    return tasks
+      .filter((t) => !t.dateString || t.dateString === todayStr)
+      .reduce((sum, t) => sum + (t.plannedMinutes || 45), 0);
+  }, [tasks, todayStr]);
 
   // Active focus session state
   const [isSessionActive, setIsSessionActive] = useState<boolean>(false);
@@ -131,6 +157,29 @@ export default function App() {
     if (initialSubjects.length > 0) {
       setSelectedSubject(initialSubjects[0]);
     }
+
+    // Check if an active focus session was running in localStorage
+    try {
+      const runningRaw = localStorage.getItem('fokus_active_session_running');
+      if (runningRaw) {
+        const saved = JSON.parse(runningRaw);
+        if (saved && saved.mode && saved.subject) {
+          setCurrentActiveMode(saved.mode);
+          setSelectedSubject(saved.subject);
+          setDurationMinutes(saved.plannedMinutes || 45);
+          setTimerType(saved.timerType || 'countdown');
+          if (saved.selectedTaskId) {
+            setSelectedTask(loadedTasks.find((t) => t.id === saved.selectedTaskId) || null);
+          }
+          if (saved.originAirport) setOriginAirport(saved.originAirport);
+          if (saved.destAirport) setDestAirport(saved.destAirport);
+          if (saved.selectedTreeSpecies) setSelectedTreeSpecies(saved.selectedTreeSpecies);
+          setIsSessionActive(true);
+        }
+      }
+    } catch {
+      localStorage.removeItem('fokus_active_session_running');
+    }
   }, []);
 
   // Update selected subject when profile's track changes
@@ -150,6 +199,18 @@ export default function App() {
       setCurrentUser(user);
 
       if (user) {
+        // Immediately sync local profile with Google auth data so name and PP appear instantly without waiting or page refresh
+        const userPhoto = user.photoURL || '';
+        const userDisplayName = user.displayName || user.email?.split('@')[0] || 'Öğrenci';
+        const immediateProfile = updateStoredProfile({
+          userId: user.uid,
+          email: user.email || '',
+          name: userDisplayName,
+          avatarUrl: userPhoto,
+          hasCompletedOnboarding: true,
+        });
+        setProfile(immediateProfile);
+
         // Fetch user document from Firestore to sync profile
         try {
           const userDocRef = doc(db, 'users', user.uid);
@@ -157,27 +218,37 @@ export default function App() {
 
           if (snap.exists()) {
             const data = snap.data();
+            const userPhoto = user.photoURL || '';
+            const resolvedAvatar = (typeof data.avatarUrl === 'string' && data.avatarUrl) ? data.avatarUrl : userPhoto;
+            const resolvedName = (typeof data.name === 'string' && data.name) ? data.name : ((typeof data.displayName === 'string' && data.displayName) ? data.displayName : (user.displayName || 'Öğrenci'));
+
             const mergedProfile = updateStoredProfile({
               userId: user.uid,
               email: user.email || '',
-              name: data.name || data.displayName || user.displayName || 'Öğrenci',
-              avatarUrl: data.avatarUrl || '',
-              avatarColor: data.avatarColor || '#ff5500',
-              targetUniversity: data.targetUniversity || '',
-              targetDepartment: data.targetDepartment || '',
-              targetExam: data.targetExam || 'YKS 2026 Sayısal',
-              studyTrack: data.studyTrack || 'Sayısal',
-              dailyGoalHours: data.dailyGoalHours || 6,
+              name: resolvedName,
+              avatarUrl: resolvedAvatar,
+              avatarColor: typeof data.avatarColor === 'string' ? data.avatarColor : '#ff5500',
+              targetUniversity: typeof data.targetUniversity === 'string' ? data.targetUniversity : '',
+              targetDepartment: typeof data.targetDepartment === 'string' ? data.targetDepartment : '',
+              targetExam: typeof data.targetExam === 'string' ? data.targetExam : 'YKS 2026 Sayısal',
+              studyTrack: typeof data.studyTrack === 'string' ? data.studyTrack : 'Sayısal',
+              dailyGoalHours: parseNumericField(data.dailyGoalHours, 6),
+              currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
+              totalFocusHours: parseNumericField(data.totalFocusHours, 0),
+              cheersReceived: parseNumericField(data.cheersReceived, 0),
               hasCompletedOnboarding: true,
             });
             setProfile(mergedProfile);
           } else {
-            // Document doesn't exist yet for this logged in user, create default safely
+            // Document doesn't exist yet for this logged in user, create default safely with Google data
+            const userPhoto = user.photoURL || '';
+            const userDisplayName = user.displayName || user.email?.split('@')[0] || 'Öğrenci';
             const defaultUserData = {
               userId: user.uid,
               email: user.email || '',
-              displayName: user.displayName || user.email?.split('@')[0] || 'Öğrenci',
-              name: user.displayName || user.email?.split('@')[0] || 'Öğrenci',
+              displayName: userDisplayName,
+              name: userDisplayName,
+              avatarUrl: userPhoto,
               targetExam: 'YKS 2026 Sayısal',
               studyTrack: 'Sayısal',
               dailyGoalHours: 6,
@@ -259,13 +330,23 @@ export default function App() {
           (snapshot) => {
             snapshot.docChanges().forEach((change) => {
               if (change.type === 'added') {
-                const cheerData = change.doc.data() as CheerNotification;
+                const raw = change.doc.data();
+                const createdAtNum = parseNumericField(raw.createdAt, 0);
                 // Only alert if within last 60 seconds
-                if (Date.now() - (cheerData.createdAt || 0) < 60000) {
+                if (Date.now() - createdAtNum < 60000) {
                   soundEngine.playCompletionBell();
-                  setIncomingCheer(cheerData);
+                  const sanitizedCheer: CheerNotification = {
+                    id: change.doc.id,
+                    fromUserId: typeof raw.fromUserId === 'string' ? raw.fromUserId : 'guest',
+                    fromUserName: typeof raw.fromUserName === 'string' ? raw.fromUserName : 'Öğrenci',
+                    fromUserAvatarUrl: typeof raw.fromUserAvatarUrl === 'string' ? raw.fromUserAvatarUrl : '',
+                    toUserId: user.uid,
+                    createdAt: createdAtNum,
+                    read: false,
+                  };
+                  setIncomingCheer(sanitizedCheer);
                   setTimeout(() => {
-                    setIncomingCheer((curr) => (curr?.id === cheerData.id ? null : curr));
+                    setIncomingCheer((curr) => (curr?.id === change.doc.id ? null : curr));
                   }, 6000);
                 }
               }
@@ -357,6 +438,12 @@ export default function App() {
     setSessions(updated);
     setIsSessionActive(false);
 
+    try {
+      localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
+    }
+
     if (currentUser) {
       try {
         const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', newSession.id);
@@ -439,6 +526,11 @@ export default function App() {
     }
 
     setIsSessionActive(false);
+    try {
+      localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
+    }
     updateCloudStatus('idle');
   };
 
@@ -462,7 +554,7 @@ export default function App() {
     }
   };
 
-  const handleToggleTask = async (taskId: string) => {
+  const handleToggleTask = async (taskId: string, manualDurationMinutes?: number) => {
     soundEngine.playClick();
     const updated = toggleTaskDone(taskId);
     setTasks(updated);
@@ -482,6 +574,69 @@ export default function App() {
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}/tasks/${taskId}`);
       }
+    }
+
+    // IF completed manually with explicit duration:
+    if (changed && changed.isCompleted && manualDurationMinutes && manualDurationMinutes > 0) {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateStr = changed.dateString || `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+      const manualSession: FocusSession = {
+        id: `manual-task-${Date.now()}`,
+        userId: currentUser?.uid,
+        mode: 'forest',
+        subjectId: `subj-${changed.subjectName}`,
+        subjectName: changed.subjectName,
+        subjectColor: changed.subjectColor || '#10b981',
+        plannedMinutes: manualDurationMinutes,
+        completedSeconds: manualDurationMinutes * 60,
+        breakSeconds: 0,
+        completed: true,
+        timestamp: Date.now(),
+        dateString: dateStr,
+        startTimeString: timeStr,
+        endTimeString: timeStr,
+        note: `${changed.title} (${manualDurationMinutes} dk tamamlandı)`,
+        taskId: changed.id,
+        taskTitle: changed.title,
+        forestInfo: {
+          treeSpecies: 'Meşe Ağacı',
+          treeLevel: Math.min(5, Math.floor(manualDurationMinutes / 20) + 1),
+        },
+      };
+
+      const updatedSessions = saveSession(manualSession);
+      setSessions(updatedSessions);
+
+      if (currentUser) {
+        try {
+          const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', manualSession.id);
+          await safeSetDoc(sessionDocRef, manualSession);
+
+          // Update user cloud stats
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          await safeSetDoc(
+            userDocRef,
+            {
+              todayTotalMinutes: todayMinutes + manualDurationMinutes,
+              totalFocusMinutes: Math.round(realTotalHours * 60 + manualDurationMinutes),
+              streakDays: calculateRealStreak([manualSession, ...sessions]),
+              lastActiveAt: Date.now(),
+            },
+            { merge: true }
+          );
+        } catch (err) {
+          handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/sessions/${manualSession.id}`);
+        }
+      }
+
+      const updatedProfile = updateStoredProfile({
+        totalFocusHours: calculateTotalFocusHours([manualSession, ...sessions]),
+        currentStreakDays: calculateRealStreak([manualSession, ...sessions]),
+      });
+      setProfile(updatedProfile);
     }
   };
 
@@ -623,8 +778,12 @@ export default function App() {
           currentUser={currentUser}
           initialMode={authInitialMode}
           onRegistrationSuccess={() => {
-            setIsOnboardingOpen(true);
+            const current = getStoredProfile();
+            if (!current.hasCompletedOnboarding) {
+              setIsOnboardingOpen(true);
+            }
           }}
+          onProfileUpdate={(p) => setProfile(p)}
         />
 
         {isOnboardingOpen && (
@@ -662,6 +821,8 @@ export default function App() {
           onSignOut={handleSignOut}
           isAudioPlaying={Boolean(currentAmbientTrack)}
           onToggleAudioModal={() => setIsAudioModalOpen(true)}
+          isMobile={isMobile}
+          activeDevice={activeDevice}
         />
       )}
 
@@ -699,8 +860,8 @@ export default function App() {
         />
       )}
 
-      {/* Main Viewport Content */}
-      <main className="flex-1 flex flex-col">
+      {/* Main Viewport Content - Adaptive bottom padding for mobile bottom nav */}
+      <main className={`flex-1 flex flex-col ${isMobile && !isSessionActive ? 'pb-24' : ''}`}>
         {isSessionActive && selectedSubject && currentActiveMode ? (
           <ActiveFocusSession
             mode={currentActiveMode}
@@ -719,6 +880,7 @@ export default function App() {
             isAudioPlaying={Boolean(currentAmbientTrack)}
             desktopNotificationsEnabled={Boolean(dynamicProfile.desktopNotifications)}
             liveNotificationsEnabled={Boolean(dynamicProfile.liveNotifications)}
+            selectedTreeSpecies={selectedTreeSpecies}
           />
         ) : (
           <>
@@ -731,6 +893,7 @@ export default function App() {
                     todayMinutes={todayMinutes}
                     streakDays={realStreak}
                     dailyGoalHours={dynamicProfile.dailyGoalHours}
+                    todayPlannedMinutes={todayPlannedMinutes}
                   />
                 )}
 
@@ -758,6 +921,8 @@ export default function App() {
                     onChangeTimerType={setTimerType}
                     onAddNewTask={handleAddTask}
                     onStartActiveSession={handleStartSession}
+                    selectedTreeSpecies={selectedTreeSpecies}
+                    onSelectTreeSpecies={setSelectedTreeSpecies}
                   />
                 )}
               </>
@@ -768,6 +933,8 @@ export default function App() {
                 tasks={tasks}
                 subjects={subjects}
                 studentTrack={dynamicProfile.studyTrack || 'Sayısal'}
+                sessions={sessions}
+                dailyGoalHours={dynamicProfile.dailyGoalHours || 6}
                 onAddTask={handleAddTask}
                 onToggleTask={handleToggleTask}
                 onDeleteTask={handleDeleteTask}
@@ -776,7 +943,7 @@ export default function App() {
             )}
 
             {currentTab === 'stats' && (
-              <StatisticsView sessions={sessions} profile={dynamicProfile} />
+              <StatisticsView sessions={sessions} profile={dynamicProfile} tasks={tasks} />
             )}
 
             {currentTab === 'rooms' && (
@@ -837,6 +1004,12 @@ export default function App() {
         currentUser={currentUser}
         sessions={sessions}
         tasks={tasks}
+        deviceMode={deviceMode}
+        detectedDevice={detectedDevice}
+        onSelectDeviceMode={(mode) => {
+          setDeviceMode(mode);
+          handleUpdateProfile({ deviceModePreference: mode });
+        }}
         onUpdateProfile={handleUpdateProfile}
         onAccountDeleted={handleAccountDeleted}
         onSyncComplete={(newSessions, newTasks, newProfile) => {
@@ -875,14 +1048,34 @@ export default function App() {
         currentUser={currentUser}
         initialMode={authInitialMode}
         onRegistrationSuccess={() => {
-          setIsOnboardingOpen(true);
+          const current = getStoredProfile();
+          if (!current.hasCompletedOnboarding) {
+            setIsOnboardingOpen(true);
+          }
         }}
+        onProfileUpdate={(p) => setProfile(p)}
         onSyncComplete={() => {
           setSessions(getStoredSessions());
           setTasks(getStoredTasks());
           setProfile(getStoredProfile());
         }}
       />
+
+      {/* Modern Mobile Bottom Navigation Bar */}
+      {isMobile && !isSessionActive && (
+        <BottomNav
+          currentTab={currentTab}
+          onSelectTab={(tab) => {
+            if (tab === 'focus' && currentTab === 'focus') {
+              setCurrentActiveMode(null);
+            }
+            setCurrentTab(tab);
+          }}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenProfile={() => setIsProfileModalOpen(true)}
+          activeModeTitle={currentActiveMode ? FOCUS_MODES.find((m) => m.id === currentActiveMode)?.title : undefined}
+        />
+      )}
     </div>
   );
 }
