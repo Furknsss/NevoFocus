@@ -13,7 +13,7 @@ interface ModeHubSelectionProps {
   todayPlannedMinutes?: number;
 }
 
-export const ModeHubSelection: React.FC<ModeHubSelectionProps> = ({
+export const ModeHubSelection = React.memo<ModeHubSelectionProps>(({
   onSelectMode,
   todayMinutes,
   streakDays,
@@ -115,37 +115,6 @@ export const ModeHubSelection: React.FC<ModeHubSelectionProps> = ({
           );
         })}
       </div>
-
-      {/* Daily Progress Ribbon at bottom */}
-      <div className="flex items-center justify-center gap-6 sm:gap-8 text-xs sm:text-sm text-neutral-400 py-3 px-6 rounded-2xl bg-neutral-900/60 border border-neutral-800 mx-auto max-w-xl">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-emerald-400" />
-          <span>
-            Bugün: <strong className="text-white font-mono">{todayHours > 0 ? `${todayHours} sa ${todayRemainingMins} dk` : `${todayRemainingMins} dk`}</strong>
-          </span>
-        </div>
-        <span className="text-neutral-700">·</span>
-        <div className="flex items-center gap-2">
-          <Flame className="w-4 h-4 text-[#ff5500]" />
-          <span>
-            Seri: <strong className="text-[#ff5500] font-mono">{streakDays} Gün</strong>
-          </span>
-        </div>
-        <span className="text-neutral-700">·</span>
-        <span>Hedef: <strong className="text-white font-mono">{dailyGoalHours} Saat</strong></span>
-        {todayPlannedMinutes > 0 && (
-          <>
-            <span className="text-neutral-700">·</span>
-            <span>
-              Görev Planı: <strong className="text-sky-300 font-mono">{todayPlannedMinutes >= 60 ? `${Math.floor(todayPlannedMinutes / 60)} sa ${todayPlannedMinutes % 60} dk` : `${todayPlannedMinutes} dk`}</strong>
-            </span>
-            <span className="text-neutral-700">·</span>
-            <span className="inline-flex items-center gap-1 text-emerald-400 font-bold bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-800/40">
-              Plana Uyum: %{Math.min(100, Math.round((todayMinutes / todayPlannedMinutes) * 100))}
-            </span>
-          </>
-        )}
-      </div>
     </div>
   );
-};
+});

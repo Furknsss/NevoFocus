@@ -352,7 +352,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 
                 {/* Airline Boarding Pass Preview */}
                 <BoardingPassCard
-                  passengerName={profile.name}
+                  passengerName={profile.name?.trim().split(' ')[0] || profile.name}
                   origin={originAirport}
                   destination={destAirport}
                   durationMinutes={durationMinutes}

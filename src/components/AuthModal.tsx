@@ -18,6 +18,7 @@ import {
   Upload,
   ShieldCheck,
   Check,
+  ArrowRight,
 } from 'lucide-react';
 import {
   auth,
@@ -33,9 +34,10 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
+  getAdditionalUserInfo,
   type User,
 } from 'firebase/auth';
-import { doc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
 import {
   syncAllToFirestore,
@@ -81,7 +83,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loginSuccessState, setLoginSuccessState] = useState<{
     name: string;
     avatarUrl?: string;
+    email?: string;
   } | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number>(2);
 
   // Forgot password flow
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -106,7 +110,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSyncNotice(null);
     setDomainErrorHostname(null);
     setCopiedDomain(false);
+    setLoginSuccessState(null);
+    setRedirectCountdown(2);
   }, [initialMode, isOpen]);
+
+  // Auto-redirect to home screen after 2-3 seconds when connected
+  useEffect(() => {
+    if (!loginSuccessState) return;
+
+    setRedirectCountdown(2);
+    const interval = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setLoginSuccessState(null);
+          onClose();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [loginSuccessState, onClose]);
 
   if (!isOpen) return null;
 
@@ -120,33 +146,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
+      const additionalInfo = getAdditionalUserInfo(result);
+      const isNewUser = additionalInfo?.isNewUser ?? false;
 
-      // 1. Save user profile to Firestore safely in background
+      const userPhoto = user.photoURL || '';
+      const userDisplayName = user.displayName || user.email?.split('@')[0] || 'Öğrenci';
+      const firstNameOnly = userDisplayName.trim().split(' ')[0] || userDisplayName;
+
+      // 1. Hemen yerel profili Google verileriyle güncelle & anında üst bileşene ilet (sayfa yenileme GEREKTİRMEZ)
+      const immediateProfile = updateStoredProfile({
+        userId: user.uid,
+        email: user.email || '',
+        name: userDisplayName,
+        avatarUrl: userPhoto,
+        hasCompletedOnboarding: true,
+      });
+
+      if (onProfileUpdate) {
+        onProfileUpdate(immediateProfile);
+      }
+
+      // 2. Firestore'daki mevcut profili güvenle kontrol et & kaydet
       const userRef = doc(db, 'users', user.uid);
+      let userAlreadyHadProfile = false;
       try {
-        const stored = getStoredProfile();
-        await safeSetDoc(
-          userRef,
-          {
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          userAlreadyHadProfile = true;
+          const data = snap.data();
+          const resolvedAvatar = (typeof data.avatarUrl === 'string' && data.avatarUrl) ? data.avatarUrl : userPhoto;
+          const resolvedName = (typeof data.name === 'string' && data.name) ? data.name : userDisplayName;
+          const merged = updateStoredProfile({
             userId: user.uid,
-            email: user.email || '',
-            displayName: user.displayName || stored.name || 'Öğrenci',
-            name: user.displayName || stored.name || 'Öğrenci',
-            targetExam: stored.targetExam || 'YKS 2026 Sayısal',
-            studyTrack: stored.studyTrack || 'Sayısal',
-            dailyGoalHours: stored.dailyGoalHours || 6,
-            streakDays: Math.max(1, stored.currentStreakDays || 1),
-            totalFocusMinutes: Math.round((stored.totalFocusHours || 0) * 60),
+            name: resolvedName,
+            avatarUrl: resolvedAvatar,
+            targetUniversity: data.targetUniversity || '',
+            targetDepartment: data.targetDepartment || '',
+            studyTrack: data.studyTrack || 'Sayısal',
             hasCompletedOnboarding: true,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
+          });
+          if (onProfileUpdate) {
+            onProfileUpdate(merged);
+          }
+        } else {
+          // Yeni doküman oluştur
+          await safeSetDoc(
+            userRef,
+            {
+              userId: user.uid,
+              email: user.email || '',
+              displayName: userDisplayName,
+              name: userDisplayName,
+              avatarUrl: userPhoto,
+              targetExam: immediateProfile.targetExam || 'YKS 2026 Sayısal',
+              studyTrack: immediateProfile.studyTrack || 'Sayısal',
+              dailyGoalHours: immediateProfile.dailyGoalHours || 6,
+              streakDays: Math.max(1, immediateProfile.currentStreakDays || 1),
+              totalFocusMinutes: Math.round((immediateProfile.totalFocusHours || 0) * 60),
+              hasCompletedOnboarding: true,
+              updatedAt: Date.now(),
+              createdAt: Date.now(),
+            },
+            { merge: true }
+          );
+        }
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
       }
 
-      // 2. Silent bidirectional sync with Firestore
+      // 3. Silent bidirectional sync with Firestore
       try {
         await restoreAllFromFirestore(user);
         await syncAllToFirestore(
@@ -160,10 +228,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       soundEngine.playCompletionBell();
-      onClose();
-      if (onRegistrationSuccess) {
-        onRegistrationSuccess();
+
+      // ONBOARDING SADECE ve SADECE kullanıcı Kayıt Ol modundayken VE yepyeni ilk kez kaydolan hesapsa açılır!
+      if (isRegisterMode && isNewUser && !userAlreadyHadProfile) {
+        onClose();
+        if (onRegistrationSuccess) {
+          onRegistrationSuccess();
+        }
+      } else {
+        // Normal Giriş: 2-3 saniye "bağlandı" ekranını göster ve ardından otomatik ana sayfaya yönlendir
+        setLoginSuccessState({
+          name: firstNameOnly,
+          avatarUrl: userPhoto,
+          email: user.email || undefined,
+        });
       }
+
       if (onSyncComplete) {
         onSyncComplete();
       }
@@ -253,6 +333,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const result = await signInWithEmailAndPassword(auth, cleanEmail, password);
         const user = result.user;
 
+        const userPhoto = user.photoURL || '';
+        const userDisplayName = user.displayName || user.email?.split('@')[0] || cleanEmail.split('@')[0];
+        const firstNameOnly = userDisplayName.trim().split(' ')[0] || userDisplayName;
+
+        // Hemen yerel profili güncelle & üst bileşene ilet
+        const immediateProfile = updateStoredProfile({
+          userId: user.uid,
+          email: user.email || cleanEmail,
+          name: userDisplayName,
+          avatarUrl: userPhoto,
+          hasCompletedOnboarding: true,
+        });
+        if (onProfileUpdate) {
+          onProfileUpdate(immediateProfile);
+        }
+
         // Buluttaki verileri yerel ile sessizce birleştir
         try {
           await restoreAllFromFirestore(user);
@@ -267,7 +363,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
 
         soundEngine.playCompletionBell();
-        onClose();
+        setLoginSuccessState({
+          name: firstNameOnly,
+          avatarUrl: userPhoto,
+          email: user.email || cleanEmail,
+        });
       }
 
       if (onSyncComplete) {
@@ -399,16 +499,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="flex items-center justify-between pb-3.5 border-b border-neutral-800/80">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              {currentUser ? 'Hesap & Bulut Senkronizasyonu' : isRegisterMode ? 'Fokus Hesabı Oluştur' : "Fokus'a Giriş Yap"}
+              {loginSuccessState
+                ? 'Giriş Başarılı'
+                : currentUser
+                ? 'Hesap & Bulut Senkronizasyonu'
+                : isRegisterMode
+                ? 'Fokus Hesabı Oluştur'
+                : "Fokus'a Giriş Yap"}
             </h3>
             <p className="text-xs text-neutral-400 mt-0.5">
-              {currentUser
+              {loginSuccessState
+                ? 'Hesabınız bağlandı, ana sayfaya yönlendiriliyorsunuz'
+                : currentUser
                 ? 'Firestore bulut verileriniz ve cihaz yedekleriniz'
                 : 'Verilerinizi buluta yedekleyin ve tüm cihazlarınızda erişin'}
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              setLoginSuccessState(null);
+              onClose();
+            }}
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
             aria-label="Kapat"
           >
@@ -416,17 +527,92 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        {/* LOGGED IN VIEW */}
-        {currentUser ? (
+        {/* 1. BAĞLANTI BAŞARILI & 2-3 SANİYE SONRA OTOMATİK ANA SAYFAYA GEÇİŞ */}
+        {loginSuccessState ? (
+          <div className="py-6 space-y-5 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/15 border-2 border-emerald-500/50 flex items-center justify-center mx-auto text-emerald-400 shadow-xl shadow-emerald-950/60">
+              <CheckCircle2 className="w-8 h-8 text-emerald-400 animate-pulse" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/60 shadow-inner">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                Firestore Bulut Bağlantısı Aktif
+              </span>
+              <h3 className="text-xl font-black text-white pt-2">
+                Hesabınıza Başarıyla Bağlandı!
+              </h3>
+              <p className="text-xs text-neutral-300">
+                Hoş geldin, <span className="font-bold text-emerald-300">{loginSuccessState.name}</span>! Tüm ilerlemen güvende.
+              </p>
+            </div>
+
+            {/* Profil Önizleme Kartı */}
+            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-neutral-900 border border-neutral-800 max-w-sm mx-auto text-left">
+              {loginSuccessState.avatarUrl ? (
+                <img
+                  src={loginSuccessState.avatarUrl}
+                  alt={loginSuccessState.name}
+                  className="w-11 h-11 rounded-full object-cover border border-[#ff5500] shrink-0"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center text-base font-bold text-white shadow-md shrink-0">
+                  {loginSuccessState.name.charAt(0).toUpperCase() || 'Ö'}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white truncate">
+                  {loginSuccessState.name}
+                </p>
+                {loginSuccessState.email && (
+                  <p className="text-xs text-neutral-400 truncate font-mono">{loginSuccessState.email}</p>
+                )}
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Bağlandı · Senkronize
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 max-w-sm mx-auto space-y-2">
+              <p className="text-[11px] text-neutral-400 font-mono">
+                {redirectCountdown > 0
+                  ? `${redirectCountdown} saniye sonra ana sayfaya yönlendiriliyorsunuz...`
+                  : 'Ana sayfaya yönlendiriliyorsunuz...'}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginSuccessState(null);
+                  onClose();
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#ff5500]/25 transition-all cursor-pointer active:scale-98"
+              >
+                <span>Hemen Ana Sayfaya Git</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ) : currentUser ? (
           <div className="py-4 space-y-4">
             {/* User Profile Card */}
             <div className="flex items-center gap-3 p-3.5 rounded-xl bg-neutral-900 border border-neutral-800">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center text-base font-bold text-white shadow-md shrink-0">
-                {currentUser.displayName?.charAt(0) || currentUser.email?.charAt(0) || 'Ö'}
-              </div>
+              {currentUser.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.displayName || 'Profil'}
+                  className="w-11 h-11 rounded-full object-cover border border-[#ff5500] shrink-0"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center text-base font-bold text-white shadow-md shrink-0">
+                  {currentUser.displayName?.charAt(0) || currentUser.email?.charAt(0) || 'Ö'}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-white truncate">
-                  {currentUser.displayName || 'Öğrenci'}
+                  {(currentUser.displayName || 'Öğrenci').trim().split(' ')[0]}
                 </p>
                 <p className="text-xs text-neutral-400 truncate">{currentUser.email}</p>
                 <div className="flex items-center gap-2 mt-1">

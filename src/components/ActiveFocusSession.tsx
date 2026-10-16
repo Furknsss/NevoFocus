@@ -21,7 +21,9 @@ import {
   Waves,
   Mountain,
   Trees,
-  Bell
+  Bell,
+  Coffee,
+  Sun,
 } from 'lucide-react';
 import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
@@ -31,6 +33,7 @@ import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
+import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
 
 interface ActiveFocusSessionProps {
   mode: FocusModeType;
@@ -76,47 +79,47 @@ const MODE_BREAK_CONFIG: Record<
   }
 > = {
   climb: {
-    buttonIcon: Tent,
-    startLabel: '⛺ Kamp Kur & Mola Ver',
-    resumeLabel: '⛺ Tırmanışa Devam Et',
-    hudTitle: 'Temel Kamp Dinlenmesi',
-    hudDesc: 'Dağ yamacında kamp ateşi başında soluklanıyorsun.',
+    buttonIcon: Coffee,
+    startLabel: 'Mola Ver',
+    resumeLabel: 'Devam Et',
+    hudTitle: 'Mola',
+    hudDesc: 'Mola veriyorsun.',
     themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
-    themeActiveBtn: 'bg-gradient-to-r from-orange-600 to-amber-600 text-white border-orange-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-orange-400 border-orange-500/40',
+    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
     ambientSound: 'campfire',
   },
   flight: {
-    buttonIcon: Plane,
-    startLabel: '🛫 Transit Mola & Bekleme',
-    resumeLabel: '✈️ Uçuşa Devam Et',
-    hudTitle: 'Havalimanı Transit Molası',
-    hudDesc: 'Uçak apronda beklemede; yolcu ve mürettebat dinleniyor.',
-    themePillBg: 'bg-sky-950/90 border-sky-500/50 text-sky-200',
-    themeActiveBtn: 'bg-gradient-to-r from-sky-600 to-blue-600 text-white border-sky-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-sky-400 border-sky-500/40',
+    buttonIcon: Coffee,
+    startLabel: 'Mola Ver',
+    resumeLabel: 'Devam Et',
+    hudTitle: 'Mola',
+    hudDesc: 'Mola veriyorsun.',
+    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
+    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
     ambientSound: 'white_noise',
   },
   dive: {
-    buttonIcon: Waves,
-    startLabel: '🌊 Yüzeye Çık & Mola Ver',
-    resumeLabel: '🤿 Dalışa Devam Et',
-    hudTitle: 'Yüzey & Dekompresyon Molası',
-    hudDesc: 'Yüzey şamandırasında sakin dalgalar eşliğinde dinleniyorsun.',
-    themePillBg: 'bg-cyan-950/90 border-cyan-500/50 text-cyan-200',
-    themeActiveBtn: 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white border-cyan-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-cyan-400 border-cyan-500/40',
+    buttonIcon: Coffee,
+    startLabel: 'Mola Ver',
+    resumeLabel: 'Devam Et',
+    hudTitle: 'Mola',
+    hudDesc: 'Mola veriyorsun.',
+    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
+    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
     ambientSound: 'waves',
   },
   forest: {
-    buttonIcon: Trees,
-    startLabel: '🌳 Gölgede Dinlen & Mola Ver',
-    resumeLabel: '🌱 Odaklanmaya Devam Et',
-    hudTitle: 'Ağaç Gölgesinde Doğal Mola',
-    hudDesc: 'Esinti ve kuş sesleri eşliğinde gölgede dinleniyorsun.',
-    themePillBg: 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200',
-    themeActiveBtn: 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-emerald-400 border-emerald-500/40',
+    buttonIcon: Coffee,
+    startLabel: 'Mola Ver',
+    resumeLabel: 'Devam Et',
+    hudTitle: 'Mola',
+    hudDesc: 'Mola veriyorsun.',
+    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
+    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
     ambientSound: 'forest',
   },
 };
@@ -665,20 +668,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />
             <span>{subject.name}</span>
           </div>
-
-          {/* Mode-Specific Thematic Break Button in Top Bar */}
-          <button
-            type="button"
-            onClick={toggleThematicBreak}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer ${
-              isCampActive
-                ? `${breakConfig.themeActiveBtn} animate-pulse ring-2 ring-white/40`
-                : `${breakConfig.themeInactiveBtn} bg-black/75 backdrop-blur-md`
-            }`}
-          >
-            <BreakIcon className="w-3.5 h-3.5" />
-            <span>{isCampActive ? breakConfig.resumeLabel : breakConfig.startLabel}</span>
-          </button>
         </div>
 
         {/* Right: Quick Action Controls (Audio & Fullscreen only - zero clutter) */}
@@ -707,35 +696,31 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         </div>
       </div>
 
-      {/* ACTIVE THEMATIC BREAK HUD BANNER */}
+      {/* ACTIVE BREAK HUD BANNER */}
       {isCampActive && (
-        <div className="relative z-20 w-full max-w-lg mx-auto px-4 mt-2 animate-in fade-in slide-in-from-top-3 duration-200">
-          <div className={`p-4 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3 ${breakConfig.themePillBg}`}>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-black/50 flex items-center justify-center shrink-0 border border-white/10">
-                <BreakIcon className="w-5 h-5 animate-pulse text-white" />
+        <div className="relative z-20 w-full max-w-sm mx-auto px-4 mt-2 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="p-3 rounded-2xl border border-amber-500/40 bg-black/85 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                <Coffee className="w-4 h-4 animate-pulse" />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-white truncate">
-                    {breakConfig.hudTitle}
-                  </h4>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-amber-300 border border-amber-500/30 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <h4 className="text-xs font-bold text-white">Mola Verildi</h4>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/60 text-amber-300 border border-amber-500/30 shrink-0">
                     {breakCount}. Mola
                   </span>
                 </div>
-                <p className="text-[11px] opacity-85 mt-0.5 leading-tight truncate">
-                  {breakConfig.hudDesc}
-                </p>
               </div>
             </div>
-            <div className="text-right shrink-0">
-              <div className="text-sm font-mono font-black text-white">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-mono font-bold text-amber-300">
                 {String(Math.floor(breakSeconds / 60)).padStart(2, '0')}:{String(breakSeconds % 60).padStart(2, '0')}
-              </div>
+              </span>
               <button
+                type="button"
                 onClick={toggleThematicBreak}
-                className="mt-1 text-[11px] font-bold px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white transition-all cursor-pointer shadow-sm"
+                className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-black transition-all cursor-pointer shadow-sm"
               >
                 Molayı Bitir
               </button>
@@ -847,53 +832,38 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         </div>
       )}
 
-      {/* Bottom Floating Action Bar */}
+      {/* Bottom Floating Action Bar: Sadece [ Mola Ver ] [ Tamamla ] [ Vazgeç ] */}
       <div className="relative z-10 w-full px-4 sm:px-8 pb-6 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap">
-        {/* Universal Mode-Specific Thematic Break Button */}
+        {/* 1. Mola Ver / Devam Et */}
         <button
+          type="button"
           onClick={toggleThematicBreak}
-          className={`flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border backdrop-blur-md ${
+          className={`flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border backdrop-blur-md ${
             isCampActive
-              ? `${breakConfig.themeActiveBtn} animate-pulse ring-2 ring-white/40`
-              : breakConfig.themeInactiveBtn
+              ? 'bg-amber-500 text-black border-amber-400 shadow-amber-500/25 animate-pulse'
+              : 'bg-neutral-900/90 hover:bg-neutral-800 text-amber-300 border-amber-500/30 hover:border-amber-500/50'
           }`}
         >
-          <BreakIcon className="w-4 h-4" />
-          <span>{isCampActive ? breakConfig.resumeLabel : breakConfig.startLabel}</span>
+          <Coffee className="w-4 h-4" />
+          <span>{isCampActive ? 'Devam Et' : 'Mola Ver'}</span>
         </button>
 
-        {/* Pause / Resume */}
-        {!isCampActive && (
-          <button
-            onClick={() => {
-              soundEngine.playClick();
-              setIsPaused(!isPaused);
-            }}
-            className={`flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer ${
-              isPaused
-                ? 'bg-[#10b981] text-black shadow-emerald-500/20 hover:bg-[#20c991]'
-                : 'bg-white/15 hover:bg-white/25 text-white border border-white/20 backdrop-blur-md'
-            }`}
-          >
-            {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
-            <span>{isPaused ? 'Devam Et' : 'Duraklat'}</span>
-          </button>
-        )}
-
-        {/* Complete Session */}
+        {/* 2. Tamamla */}
         <button
+          type="button"
           onClick={() => handleFinish(true)}
-          className="flex items-center gap-2 px-5 py-3 rounded-full bg-black/60 hover:bg-black/80 text-emerald-400 border border-emerald-500/40 text-sm font-semibold transition-all backdrop-blur-md cursor-pointer"
+          className="flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-sm font-bold transition-all backdrop-blur-md cursor-pointer shadow-lg shadow-emerald-950/40"
           title="Seansı Başarıyla Tamamla"
         >
           <CheckCircle2 className="w-4 h-4" />
           <span>Tamamla</span>
         </button>
 
-        {/* Abandon */}
+        {/* 3. Vazgeç */}
         <button
+          type="button"
           onClick={() => setShowAbandonModal(true)}
-          className="flex items-center gap-2 px-5 py-3 rounded-full bg-black/60 hover:bg-red-950/40 text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 text-sm font-semibold transition-all backdrop-blur-md cursor-pointer"
+          className="flex items-center gap-2 px-6 py-3 rounded-full bg-black/60 hover:bg-red-950/40 text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 text-sm font-semibold transition-all backdrop-blur-md cursor-pointer"
         >
           <RotateCcw className="w-4 h-4" />
           <span>Vazgeç</span>

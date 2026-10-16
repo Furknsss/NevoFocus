@@ -17,7 +17,10 @@ import {
   DoorOpen,
   Smartphone,
   Tablet,
-  Monitor
+  Monitor,
+  Mountain,
+  Download,
+  Sparkles,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -36,6 +39,8 @@ interface HeaderProps {
   onToggleAudioModal: () => void;
   isMobile?: boolean;
   activeDevice?: 'mobile' | 'tablet' | 'desktop';
+  isInstallable?: boolean;
+  onInstallPWA?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -53,9 +58,16 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAudioModal,
   isMobile = false,
   activeDevice = 'desktop',
+  isInstallable = false,
+  onInstallPWA,
 }) => {
+  const [activeTabOptimistic, setActiveTabOptimistic] = useState(currentTab);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setActiveTabOptimistic(currentTab);
+  }, [currentTab]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -86,7 +98,10 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Brand Logo */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => onSelectTab('focus')}
+          onClick={() => {
+            setActiveTabOptimistic('focus');
+            onSelectTab('focus');
+          }}
           className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none"
         >
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#ff5500] to-[#ff7722] flex items-center justify-center shadow-lg shadow-[#ff5500]/25 group-hover:scale-105 transition-transform">
@@ -113,16 +128,20 @@ export const Header: React.FC<HeaderProps> = ({
         <nav className="flex items-center gap-0.5 sm:gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner max-w-full overflow-x-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentTab === item.id;
+            const isActive = activeTabOptimistic === item.id;
 
             return (
               <button
                 key={item.id}
-                onClick={() => onSelectTab(item.id)}
-                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer shrink-0 ${
+                type="button"
+                onClick={() => {
+                  setActiveTabOptimistic(item.id);
+                  onSelectTab(item.id);
+                }}
+                className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-75 active:scale-95 cursor-pointer shrink-0 ${
                   isActive
                     ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50 border border-transparent'
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff5500]' : 'text-neutral-400'}`} />
@@ -135,14 +154,26 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
       )}
 
-      {/* Right Actions: Daily Focus Stopwatch, Sound Modal & Profile Dropdown */}
+      {/* Right Actions: Daily Focus Stopwatch, Sound Modal, PWA & Profile Dropdown */}
       <div className="flex items-center gap-2">
-        {/* Daily Focus Counter (Sağ üstte sesin solunda) */}
+        {/* PWA Uygulama Olarak Yükle Butonu (Install button for Chrome/Edge/PWA) */}
+        {isInstallable && onInstallPWA && (
+          <button
+            type="button"
+            onClick={onInstallPWA}
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ff5500]/15 hover:bg-[#ff5500]/25 border border-[#ff5500]/40 text-xs font-bold text-white transition-all shadow-md cursor-pointer animate-in fade-in"
+            title="Fokus'u Masaüstü/Mobil Uygulama Olarak Yükle"
+          >
+            <Download className="w-3.5 h-3.5 text-[#ff5500]" />
+            <span>Uygulamayı Yükle</span>
+          </button>
+        )}
+
+        {/* Daily Focus Counter (Sağ üstte sesin solunda - yeşil nokta kaldırıldı) */}
         <div
           className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-neutral-900/90 border border-neutral-800 text-xs shadow-inner shrink-0"
           title="Bugün tamamlanan toplam odaklanma süresi"
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <Clock className="w-3.5 h-3.5 text-[#ff5500]" />
           <span className="text-neutral-400 hidden sm:inline text-[11px] font-medium">Bugün:</span>
           <span className="font-mono font-bold text-white text-xs sm:text-sm">
@@ -304,6 +335,23 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   </div>
                 </button>
+
+                {/* 6. PWA Uygulamayı Cihaza Yükle */}
+                {isInstallable && onInstallPWA && (
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false);
+                      onInstallPWA();
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#ff5500]/20 to-amber-500/20 hover:from-[#ff5500]/30 hover:to-amber-500/30 border border-[#ff5500]/40 transition-colors cursor-pointer text-left"
+                  >
+                    <Download className="w-4 h-4 text-[#ff5500]" />
+                    <div className="flex-1">
+                      <span className="block font-bold">Uygulama Olarak Yükle</span>
+                      <span className="text-[10px] text-neutral-300">Chrome / Masaüstü / Mobil tam ekran deneyimi</span>
+                    </div>
+                  </button>
+                )}
               </div>
 
               {/* Device Mode Status Bar */}

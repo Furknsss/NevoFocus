@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { getStoredMountainDesign, MOUNTAIN_PRESETS, MountainDesignConfig } from '../../utils/mountainDesign';
 
 interface ActiveClimbCanvasProps {
   progress: number; // 0 to 1
@@ -6,6 +7,7 @@ interface ActiveClimbCanvasProps {
   isCampActive: boolean;
   elapsedSeconds: number;
   breakSeconds: number;
+  mountainDesign?: MountainDesignConfig;
 }
 
 export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
@@ -14,7 +16,29 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
   isCampActive,
   elapsedSeconds,
   breakSeconds,
+  mountainDesign,
 }) => {
+  const [currentDesign, setCurrentDesign] = useState<MountainDesignConfig>(mountainDesign || getStoredMountainDesign());
+
+  useEffect(() => {
+    if (mountainDesign) {
+      setCurrentDesign(mountainDesign);
+    }
+  }, [mountainDesign]);
+
+  useEffect(() => {
+    const handleDesignUpdate = (e: any) => {
+      if (e.detail) {
+        setCurrentDesign(e.detail);
+      }
+    };
+    window.addEventListener('fokus_mountain_design_updated', handleDesignUpdate);
+    return () => window.removeEventListener('fokus_mountain_design_updated', handleDesignUpdate);
+  }, []);
+
+  const designRef = useRef(currentDesign);
+  designRef.current = currentDesign;
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const progressRef = useRef(progress);
   progressRef.current = progress;
@@ -87,6 +111,9 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
 
       const camping = isCampActiveRef.current;
 
+      const design = designRef.current;
+      const preset = MOUNTAIN_PRESETS.find((p) => p.id === design.style) || MOUNTAIN_PRESETS[0];
+
       // 1. SKY GRADIENT (Smooth daylight-to-alpine-twilight transition based on progress & camp)
       const sky = ctx.createLinearGradient(0, 0, 0, h);
       if (camping) {
@@ -96,12 +123,11 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
         sky.addColorStop(0.8, '#180a22');
         sky.addColorStop(1, '#0e0414');
       } else {
-        // Alpine twilight transitioning towards crisp summit dawn
+        // Preset sky transitioning smoothly towards summit dawn
         const dawnShift = Math.min(1, smoothProgress);
-        sky.addColorStop(0, '#090814');
-        sky.addColorStop(0.3, '#130d22');
-        sky.addColorStop(0.65, dawnShift > 0.7 ? '#4a1e35' : '#2b1428');
-        sky.addColorStop(1, dawnShift > 0.7 ? '#6b2d2a' : '#1f0d1f');
+        sky.addColorStop(0, preset.skyTop);
+        sky.addColorStop(0.4, preset.skyBottom);
+        sky.addColorStop(1, dawnShift > 0.7 ? '#4a1e35' : preset.skyBottom);
       }
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
@@ -137,7 +163,7 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
       const baseRightX = w * 0.96;
 
       const mtnGrad = ctx.createLinearGradient(summitX, summitY, summitX, h);
-      mtnGrad.addColorStop(0, '#241731');
+      mtnGrad.addColorStop(0, preset.mountainColor);
       mtnGrad.addColorStop(0.5, '#191024');
       mtnGrad.addColorStop(1, '#0e0816');
       ctx.fillStyle = mtnGrad;
@@ -150,7 +176,7 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
       ctx.fill();
 
       // Mountain Snow Crest & Glacial Caps
-      ctx.fillStyle = camping ? '#7e8f9e' : '#e2e8f0';
+      ctx.fillStyle = camping ? '#7e8f9e' : preset.capColor;
       ctx.beginPath();
       ctx.moveTo(summitX, summitY);
       ctx.lineTo(summitX + 70 * dpr, summitY + 95 * dpr);
@@ -179,7 +205,7 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
 
       // Draw flowing dashed climbing route
       ctx.save();
-      ctx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
+      ctx.strokeStyle = design.trailGlowColor || 'rgba(249, 115, 22, 0.4)';
       ctx.lineWidth = 2.5 * dpr;
       ctx.setLineDash([6 * dpr, 6 * dpr]);
       ctx.lineDashOffset = -time * 15; // CONTINUOUS FLOWING TRAIL DASHES!

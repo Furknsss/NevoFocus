@@ -1,58 +1,86 @@
-# Canlı Görev Renkleri, Arka Plan Seans Devamlılığı, Üst Bar Günlük Kronometre ve Manuel Süre Girişi Uygulama Planı
+# Fokus PWA, Kalıcı Cihaz Hatırlama, Arayüz Sadeleştirme ve Sinematik Dağ Tasarım Stüdyosu Planı
 
-Kullanıcının belirlediği 4 temel işlevsellik ve yanıtladığı tercihler doğrultusunda hazırlanmış kapsamlı uygulama planı:
-
----
-
-## 1. Görev Türleri & Sınav Alanları Renk Ayrımı & Takvim İbaresi
-- **Görev Türleri Canlı Renk Ayrımı (TasksView.tsx):**
-  - Görev oluştururken ve liste kartlarında görevin sağında yer alan rozetlerde her türe özel net renk paleti:
-    - **Soru Çözümü:** Turuncu rozet & ikon (`bg-orange-500/15 text-orange-400 border-orange-500/30`)
-    - **Video İzleme:** Mavi rozet & ikon (`bg-blue-500/15 text-blue-400 border-blue-500/30`)
-    - **Konu Çalışma:** Zümrüt Yeşili rozet & ikon (`bg-emerald-500/15 text-emerald-400 border-emerald-500/30`)
-    - **Rutin / Tekrar:** Canlı Mor rozet & ikon (`bg-purple-500/15 text-purple-400 border-purple-500/30`)
-    - **Deneme Çözümü:** Canlı Pembe rozet & ikon (`bg-pink-500/15 text-pink-400 border-pink-500/30`)
-- **Sınav Alanları (TYT vs AYT vs YDT) Renk Ayrımı:**
-  - Mevcut durumda hepsi mavi görünen alan etiketleri ayrıştırılacak:
-    - **TYT:** Canlı Gökyüzü Mavisi (`bg-sky-500/20 text-sky-300 border-sky-500/30`)
-    - **AYT:** Derin İndigo / Gece Moru (`bg-indigo-500/20 text-indigo-300 border-indigo-500/30`)
-    - **YDT:** Sıcak Kehribar / Altın Sarısı (`bg-amber-500/20 text-amber-300 border-amber-500/30`)
-    - **Okul / Genel:** Zümrüt (`bg-teal-500/20 text-teal-300 border-teal-500/30`)
-- **Aylık Takvim Hücre İbaresi (StatisticsView.tsx):**
-  - Takvim hücrelerinde alt satırda yer alan "dinlenme" ibaresi kaldırılarak doğrudan **"odaklanma"** (örneğin: `1 sa 20 dk odaklanma` veya `0 seans odaklanma`) yazılacak.
+Bu plan, kullanıcının belirttiği 4 temel başlığı kapsar:
+1. **Chrome PWA (Uygulama Olarak Yükle) ve Kalıcı Cihaz Hatırlaması:** Masaüstü ve mobilde bağımsız uygulama (standalone) olarak yüklenebilme, başlıkta "Uygulamayı Yükle" butonu, karşılama bildirim çubuğu ve tarayıcı kapatılıp açıldığında oturumu sürekli açık tutan kalıcı cihaz saklama (`browserLocalPersistence`).
+2. **Arayüz Temizliği (Yeşil Nokta ve Alt 'Bugün' Alanı):** Sağ üst köşedeki "Bugün" sayacının solunda yer alan yeşil nabız noktasının kaldırılması; ana sayfanın en altında yer alan "Bugün" istatistik şeridinin tamamen kaldırılması.
+3. **Odak Modlarında Sade Kontrol Düzeni:** Odak seanslarındaki tematik/ekstra ("gölgenin altında" vb.) karmaşık metin ve butonların kaldırılması; kontrollerin yalnızca yan yana **[ Mola Ver ] [ Tamamla ] [ Vazgeç ]** butonlarından oluşacak şekilde sadeleştirilmesi.
+4. **Sinematik Görsel & Dağ Tasarım Stüdyosu:** Sitenin sinematikliğinden ve animasyonlarından sorumlu, dağları (zirve keskinliği, karlı/alpin atmosfer, sis/bulut partikülleri, günbatımı ve günışığı tonları, tırmanış irtifa detayları) canlı önizlemeyle özelleştiren ve tırmanış moduna doğrudan yansıtan uygulama içi tasarım paneli.
 
 ---
 
-## 2. Arka Planda & Sayfa Yenilemede Kesintisiz Seans & Erken Bitirmede Gerçek Süre
-- **Kalıcı Aktif Seans Durumu (localStorage):**
-  - `active_focus_session_state` anahtarıyla seansın modu, dersi, görevi, hedef süresi, başlangıç zamanı (`startTimeMs`), duraklatma ve mola bilgileri her saniye/durum değişikliğinde yerel belleğe kaydedilecek.
-  - Kullanıcı sekmeyi kapatsa veya sayfayı yenilese dahi, uygulama açıldığında otomatik olarak aktif seans ekranı açılacak ve duvar saati farkı (`Date.now() - startTimeMs`) hesaplanarak seans tam kaldığı yerden canlı akmaya devam edecek.
-  - Seans bittiğinde veya iptal edildiğinde bu geçici kayıt temizlenecek.
-- **Erken Bitirmede Gerçek Sürenin Kaydedilmesi:**
-  - 60 dakikalık geri sayım başlatılıp 54. dakikada "Bitir / Tamamla" butonuna basıldığında, sisteme 60 dakika yerine **gerçek çalışılan net süre olan 54 dakika** (`elapsedSeconds`) kaydedilecek.
-  - Kullanıcı seansı hangi dakikada bitirirse istatistiklere, grafiklere ve profile tam olarak o süre işlenecek.
+## 1. Mimari ve Bileşen Yapısı
+
+### A. PWA ve Oturum Kalıcılığı (`pwa-integration` standardı)
+- **`public/manifest.webmanifest` & `public/manifest.json`:**
+  - `name`: "FOKUS - Derin Odaklanma & Çalışma İstasyonu"
+  - `short_name`: "Fokus" (≤ 12 karakter standardı)
+  - `start_url`: "/"
+  - `display`: "standalone"
+  - `theme_color`: "#07090e"
+  - `background_color`: "#07090e"
+  - İkonlar: 192x192 ve 512x512 maskable/any PWA standart ikonları.
+- **`public/sw.js` (Service Worker):**
+  - Çevrimdışı önbellekleme ve hızlı başlatma desteği.
+- **PWA Yükleme Kancası (`usePWAInstall` hook):**
+  - `beforeinstallprompt` olayını yakalar.
+  - Başlıkta (Header) "Uygulama Olarak Yükle" butonu sunar.
+  - İlk girişte hafif, şık bir "Fokus'u bilgisayarına / telefonuna uygulama olarak yükle" bildirim çubuğu gösterir.
+- **Kalıcı Cihaz Hatırlama (`firebase.ts` & `src/utils/storage.ts`):**
+  - `browserLocalPersistence` ve yerel cihaz anahtarı ile kullanıcının hesabı tarayıcı kapansa bile cihazda hatırlanır.
+
+### B. Header ve Ana Sayfa Sadeleştirmesi
+- **`src/components/Header.tsx`:**
+  - "Bugün:" sayacının solundaki `<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />` kaldırılacak; yalnızca saat simgesi ve süre kalacak.
+  - Başlık sağ üst eylemlerine PWA "Yükle" butonu entegre edilecek.
+  - Özel Tasarım Stüdyosu butonu (palet/sinematik ikonu) eklenecek.
+- **`src/components/ModeHubSelection.tsx`:**
+  - En alttaki `Daily Progress Ribbon at bottom` ("Bugün: ... Seri: ... Hedef: ...") tamamen kaldırılacak; kartlar ve sayfa tertemiz kalacak.
+
+### C. Odak Seansı Kontrolleri (`ActiveFocusSession.tsx`)
+- Üst çubuktaki ve alt çubuktaki karmaşık tematik metinler ("Ağaç Gölgesinde Dinlen", "Transit Mola Ver", "Resife Sığın") ve ekstra hud açıklamaları kaldırılacak.
+- Alt kontrol çubuğu kullanıcının net talebine göre düzenlenecek:
+  - **[ Mola Ver ]** (Mola sırasında: **[ Devam Et ]**)
+  - **[ Tamamla ]** (Görevi veya seansı bitirme)
+  - **[ Vazgeç ]** (Seansı sonlandırma)
+
+### D. Sinematik Dağ & Görsel Tasarım Stüdyosu (`src/components/MountainVisualStudioModal.tsx`)
+- Kullanıcının doğrudan seçtiği **"Uygulama içi görsel ve sinematik dağ tasarım paneli"**:
+  - **Dağ Zirvesi Stili:** Karlı Alpler (Snowy Alps), Mistik Sisli Everest (Misty Fog Summit), Volkanik Obsidyen (Volcanic Basalt), Altın Zirve Günbatımı (Golden Hour Peak).
+  - **Hava & Atmosfer Yoğunluğu:** Sis miktarı, rüzgarlı kar partikülü hızı, gökyüzü sinematik tonu.
+  - **Tırmanış İrtifa Efektleri:** Tırmanış rotası ışıltısı, dağcı kampı ışığı.
+  - **Canlı Canvas Önizlemesi:** Kullanıcı panelde ayar değiştirdikçe dağın sinematik renderını anlık görür.
+  - **Entegrasyon:** Seçilen ayarlar `ActiveClimbCanvas.tsx` tırmanış motoruna aktarılır; seanstaki dağ manzarası kullanıcının tasarladığı şekilde hayat bulur.
 
 ---
 
-## 3. Üst Bar: Günlük Toplam Odak Kronometresi (Ses Butonunun Solunda)
-- `Header.tsx` içerisinde günün o ana kadarki toplam çalışma süresi (`Bugün: 2 sa 15 dk`), sağ üst köşedeki **Ses (Zen Audio) butonunun hemen soluna** şık bir sayaç rozeti olarak konumlandırılacak.
-- Canlı çalışan odak seansıyla birlikte bu sayaç da eşzamanlı olarak artacak ve kullanıcı dilediği an o günkü toplam odaklanma süresini tek bakışta görebilecek.
+## 2. Değiştirilecek ve Oluşturulacak Dosyalar
+
+1. **`public/manifest.webmanifest` & `public/manifest.json`:** PWA yapılandırması ve standart ikon referansları.
+2. **`public/sw.js` & `index.html`:** Service worker kaydı ve PWA meta etiketleri (`theme-color`, `apple-mobile-web-app-capable`).
+3. **`src/hooks/usePWAInstall.ts`:** PWA yükleme olayı (`beforeinstallprompt`) dinleyicisi ve yükleme tetikleyicisi.
+4. **`src/components/Header.tsx`:** 
+   - Yeşil noktanın kaldırılması.
+   - PWA Yükle butonu.
+   - Sinematik Tasarım Stüdyosu tetikleyici butonu.
+5. **`src/components/ModeHubSelection.tsx`:** En alttaki "Bugün" şeridinin kaldırılması.
+6. **`src/components/ActiveFocusSession.tsx`:** Yalnızca [Mola Ver] [Tamamla] [Vazgeç] kontrol dizilimi; tematik karmaşıklıkların temizlenmesi.
+7. **`src/components/MountainVisualStudioModal.tsx` (Yeni):** Sinematik dağ ve görsel tasarım stüdyosu.
+8. **`src/components/visuals/ActiveClimbCanvas.tsx`:** Tasarlanan dağ stili, kar partikülleri ve sinematik renk paletini destekleyecek şekilde güncellenmesi.
+9. **`src/firebase.ts`:** `browserLocalPersistence` ve cihaz oturum güvencesi.
 
 ---
 
-## 4. Görev Listesinden Odaksız Tamamlamada Saat & Dakika Sorgulama
-- Kullanıcı aktif odak seansı açmadan ya da seansı iptal ettikten sonra Görevler listesindeki tamamlama kutucuğuna tıkladığında:
-  - Şık bir **"Görevi Tamamla & Süre Gir"** modalı açılacak.
-  - Kullanıcı için doğrudan doldurulabilir iki adet net kutu sunulacak:
-    - `[   ] Saat`  ve  `[   ] Dakika` (varsayılan olarak görevin planlanan süresi hazır gelecek).
-  - "Kaydet & Görevi Tamamla" butonuna basıldığında:
-    - Girilen saat ve dakika (`hours * 3600 + minutes * 60`) baz alınarak tamamlanmış bir `FocusSession` nesnesi oluşturulup kaydedilecek.
-    - Günlük odak saatine, istatistiklere ve plana uyum yüzdesine bu süre eklenecek.
+## 3. Doğrulama ve Test Adımları
 
----
-
-## 5. Doğrulama & Derleme
-- `lint_applet` ve `compile_applet` ile sıfır hata doğrulaması.
-- Görev listesinde her görev türünün ve TYT/AYT alanlarının farklı renklerde görüntülendiğinin teyidi.
-- Sayfa yenilendiğinde aktif odak seansının kaldığı yerden aktığının ve erken bitirmede net sürenin kaydedildiğinin doğrulanması.
-- Üst barda ses butonunun solundaki günlük kronometrenin ve görev manuel tamamlama modalının test edilmesi.
+1. **PWA Testi:**
+   - Chrome'da adres çubuğunda "Uygulamayı Yükle" simgesinin çıkması ve başlıktaki butonla native yükleme iletişim kutusunun tetiklenmesi.
+   - Çıkıp tekrar girildiğinde oturumun korunması.
+2. **Arayüz Temizlik Testi:**
+   - Sağ üstteki yeşil noktanın tamamen kaybolduğu, yalnızca sürenin kaldığı doğrulanır.
+   - Ana sayfa en altındaki "Bugün" şeridinin kaldırıldığı doğrulanır.
+3. **Odak Kontrol Testi:**
+   - Odak seansı başlatılır; altta yalnızca [Mola Ver], [Tamamla], [Vazgeç] butonlarının çalıştığı, seans mola ve devam durumlarının kusursuz işlediği test edilir.
+4. **Dağ Tasarım Stüdyosu Testi:**
+   - Tasarım stüdyosu açılır; dağ stili veya kar/sis partikülü değiştirilip kaydedilir; tırmanış moduna girildiğinde dağın seçilen tasarıma göre sinematik olarak çizildiği teyit edilir.
+5. **Derleme Doğrulaması:**
+   - `compile_applet` ve `lint_applet` çalıştırılarak sıfır hata ile üretim kalitesinde tamamlanır.

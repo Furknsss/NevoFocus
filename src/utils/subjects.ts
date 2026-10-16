@@ -18,6 +18,8 @@ export const ALL_SUBJECTS: AreaSubjectConfig[] = [
   { name: 'TYT Matematik', color: '#10b981', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
   { name: 'TYT Geometri', color: '#059669', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] }, // Geometri ayrı!
   { name: 'TYT Türkçe', color: '#f59e0b', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'Paragraf', color: '#f59e0b', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] }, // Günlük Rutin
+  { name: 'Problem', color: '#10b981', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] }, // Günlük Rutin
   { name: 'TYT Fizik', color: '#3b82f6', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'TYT Kimya', color: '#ec4899', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'TYT Biyoloji', color: '#84cc16', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
@@ -57,9 +59,11 @@ export const ALL_SUBJECTS: AreaSubjectConfig[] = [
   { name: 'KPSS Alan Bilgisi / ÖABT', color: '#ec4899', area: 'kpss', trackWhitelist: ['KPSS'] },
 
   // --- Genel / Rutin / Kodlama ---
-  { name: 'Problem Rutini', color: '#10b981', area: 'genel', trackWhitelist: ['Genel'] },
-  { name: 'Geometri Rutini', color: '#059669', area: 'genel', trackWhitelist: ['Genel'] },
-  { name: 'Paragraf Rutini', color: '#f59e0b', area: 'genel', trackWhitelist: ['Genel'] },
+  { name: 'Paragraf', color: '#f59e0b', area: 'genel', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
+  { name: 'Problem', color: '#10b981', area: 'genel', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
+  { name: 'Problem Rutini', color: '#10b981', area: 'genel', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
+  { name: 'Geometri Rutini', color: '#059669', area: 'genel', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
+  { name: 'Paragraf Rutini', color: '#f59e0b', area: 'genel', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
   { name: 'Kodlama & Algoritma', color: '#f97316', area: 'genel', trackWhitelist: ['Genel'] },
   { name: 'Serbest Çalışma', color: '#64748b', area: 'genel', trackWhitelist: ['Genel'] },
 ];

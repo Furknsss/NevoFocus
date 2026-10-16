@@ -42,7 +42,7 @@ const TASK_TYPES: { id: FocusTaskType; label: string; icon: any; color: string }
   { id: 'deneme', label: 'Deneme Çözümü', icon: FileSpreadsheet, color: '#ec4899' },
 ];
 
-export const TasksView: React.FC<TasksViewProps> = ({
+export const TasksView = React.memo<TasksViewProps>(({
   tasks,
   subjects,
   studentTrack = 'Sayısal',
@@ -104,8 +104,17 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // 4. Ders seçimi: dynamically filtered by normalizedTrack & area (Geometries separated!)
   const availableSubjects = useMemo(() => {
-    return getSubjectsForAreaAndTrack(selectedArea, normalizedTrack);
-  }, [selectedArea, normalizedTrack]);
+    const list = getSubjectsForAreaAndTrack(selectedArea, normalizedTrack);
+    if (selectedTaskType === 'rutin') {
+      const routinePriority = [
+        { name: 'Paragraf', color: '#f59e0b' },
+        { name: 'Problem', color: '#10b981' },
+      ];
+      const other = list.filter((s) => s.name !== 'Paragraf' && s.name !== 'Problem');
+      return [...routinePriority, ...other];
+    }
+    return list;
+  }, [selectedArea, normalizedTrack, selectedTaskType]);
 
   const [selectedSubjectName, setSelectedSubjectName] = useState<string>(
     availableSubjects[0]?.name || 'TYT Matematik'
@@ -460,7 +469,16 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     <button
                       key={type.id}
                       type="button"
-                      onClick={() => setSelectedTaskType(type.id)}
+                      onClick={() => {
+                        setSelectedTaskType(type.id);
+                        if (type.id === 'rutin') {
+                          setSelectedSubjectName('Paragraf');
+                          setSelectedSubjectColor('#f59e0b');
+                          if (!title || title.includes('Soru')) {
+                            setTitle('Günlük 20 Paragraf');
+                          }
+                        }
+                      }}
                       className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
                         isSelected
                           ? 'bg-[#ff5500] border-[#ff5500] text-white shadow-md'
@@ -473,6 +491,61 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   );
                 })}
               </div>
+
+              {/* Rutin Türüne Özel Hızlı Seçim Butonları (Paragraf & Problem) */}
+              {selectedTaskType === 'rutin' && (
+                <div className="flex flex-wrap items-center gap-1.5 mt-2 animate-in fade-in duration-200">
+                  <span className="text-[11px] text-neutral-400 font-semibold mr-1">Hızlı Rutin:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle('Günlük 20 Paragraf');
+                      setSelectedSubjectName('Paragraf');
+                      setSelectedSubjectColor('#f59e0b');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedSubjectName === 'Paragraf'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <span>📄</span>
+                    <span>20 Paragraf</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle('Günlük 15 Problem');
+                      setSelectedSubjectName('Problem');
+                      setSelectedSubjectColor('#10b981');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedSubjectName === 'Problem'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                        : 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <span>🧮</span>
+                    <span>15 Problem</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTitle('Günlük 10 Geometri');
+                      setSelectedSubjectName('TYT Geometri');
+                      setSelectedSubjectColor('#059669');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedSubjectName.includes('Geometri')
+                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/50'
+                        : 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <span>📐</span>
+                    <span>10 Geometri</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 3. ALAN SEÇİMİ (ÖĞRENCİNİN ALANINA GÖRE FİLTRELİ) */}
@@ -783,4 +856,4 @@ export const TasksView: React.FC<TasksViewProps> = ({
       )}
     </div>
   );
-};
+});

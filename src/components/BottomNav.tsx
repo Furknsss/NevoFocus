@@ -26,7 +26,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   activeModeTitle,
 }) => {
   const handleTabClick = (tab: 'focus' | 'tasks' | 'stats' | 'students') => {
-    soundEngine.playClick();
     onSelectTab(tab);
   };
 

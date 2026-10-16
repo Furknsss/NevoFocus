@@ -32,7 +32,7 @@ interface StatisticsViewProps {
   tasks?: FocusTask[];
 }
 
-export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profile, tasks = [] }) => {
+export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profile, tasks = [] }) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'forest_gallery'>('daily');
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -1097,4 +1097,4 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({ sessions, profil
       )}
     </div>
   );
-};
+});

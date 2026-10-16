@@ -6,7 +6,7 @@ interface ModeCardPreviewProps {
   isActive: boolean;
 }
 
-export const ModeCardPreview: React.FC<ModeCardPreviewProps> = ({ mode, isActive }) => {
+export const ModeCardPreview = React.memo<ModeCardPreviewProps>(({ mode, isActive }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -18,18 +18,29 @@ export const ModeCardPreview: React.FC<ModeCardPreviewProps> = ({ mode, isActive
     let animId: number;
     let time = 0;
 
-    const handleResize = () => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = (rect.width || 320) * dpr;
-      canvas.height = (rect.height || 180) * dpr;
+    const dprVal = Math.min(window.devicePixelRatio || 1, 2);
+    const updateSize = () => {
+      const clientW = canvas.clientWidth || 320;
+      const clientH = canvas.clientHeight || 180;
+      const targetW = Math.floor(clientW * dprVal);
+      const targetH = Math.floor(clientH * dprVal);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
     };
-    handleResize();
+    updateSize();
+
+    let resizeTimer: number;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(updateSize, 100);
+    };
     window.addEventListener('resize', handleResize);
 
     const w = () => canvas.width;
     const h = () => canvas.height;
-    const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = () => dprVal;
 
     // Multi-layer particle streams for continuous flow
     const particles = Array.from({ length: 40 }, () => ({
@@ -408,9 +419,10 @@ export const ModeCardPreview: React.FC<ModeCardPreviewProps> = ({ mode, isActive
 
     return () => {
       cancelAnimationFrame(animId);
+      clearTimeout(resizeTimer);
       window.removeEventListener('resize', handleResize);
     };
   }, [mode, isActive]);
 
   return <canvas ref={canvasRef} className="w-full h-full block" />;
-};
+});

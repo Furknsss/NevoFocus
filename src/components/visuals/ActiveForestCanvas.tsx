@@ -313,10 +313,12 @@ export const ActiveForestCanvas: React.FC<ActiveForestCanvasProps> = ({
         const puffSize = (22 + saplingProg * 18) * dpr;
 
         if (isPine) {
-          // Genç çam: katmanlı üçgen iğne katmanları
-          drawPineTier(ctx, windSway * 30 * dpr, -trunkHeight * 0.65, 24 * dpr, 16 * dpr);
-          drawPineTier(ctx, windSway * 35 * dpr, -trunkHeight * 0.85, 20 * dpr, 14 * dpr);
-          drawPineTier(ctx, windSway * 40 * dpr, -trunkHeight, 14 * dpr, 12 * dpr);
+          // Genç çam: orantılı, büyütülmüş 4 katmanlı iğne piramidi
+          const youngScale = 1.35;
+          drawPineTier(ctx, windSway * 20 * dpr, -trunkHeight * 0.48, 38 * dpr * youngScale, 20 * dpr * youngScale, '#022c22', '#065f46');
+          drawPineTier(ctx, windSway * 28 * dpr, -trunkHeight * 0.68, 30 * dpr * youngScale, 18 * dpr * youngScale, '#064e3b', '#047857');
+          drawPineTier(ctx, windSway * 35 * dpr, -trunkHeight * 0.88, 22 * dpr * youngScale, 16 * dpr * youngScale, '#065f46', '#10b981');
+          drawPineTier(ctx, windSway * 40 * dpr, -trunkHeight * 1.06, 14 * dpr * youngScale, 14 * dpr * youngScale, '#10b981', '#34d399');
         } else if (isSakura) {
           drawFoliagePuff(ctx, -18 * dpr + windSway * 20 * dpr, -trunkHeight * 0.75, puffSize * 0.75, '#831843', '#db2777', '#fbcfe8');
           drawFoliagePuff(ctx, 18 * dpr + windSway * 30 * dpr, -trunkHeight * 0.85, puffSize * 0.8, '#9d174d', '#f472b6', '#fdf2f8');
@@ -418,40 +420,43 @@ export const ActiveForestCanvas: React.FC<ActiveForestCanvasProps> = ({
 
         } else if (isPine) {
           // -------------------------------------------------------------
-          // 2. ÇAM AĞACI (KATMANLI PİRAMİT DAĞ ÇAMI)
+          // 2. ÇAM AĞACI (GÖRKEMLİ, BÜYÜTÜLMÜŞ VE TAM ORANTILI DAĞ ÇAMI)
           // -------------------------------------------------------------
-          const trunkH = (110 + matureProg * 40) * dpr * treeScale;
+          const pineScale = treeScale * 1.36; // %36 daha büyük, heybetli ve tam orantılı
+          const trunkH = (142 + matureProg * 50) * dpr * pineScale;
 
-          // Düz, uzun çam gövdesi
+          // Düz, uzun, asil çam gövdesi
           ctx.save();
-          ctx.rotate(windSway * 0.4);
-          ctx.fillStyle = '#3e2723';
+          ctx.rotate(windSway * 0.35);
+          ctx.fillStyle = '#271810';
           ctx.beginPath();
-          ctx.moveTo(-11 * dpr * treeScale, 0);
-          ctx.lineTo(11 * dpr * treeScale, 0);
-          ctx.lineTo(5 * dpr * treeScale, -trunkH);
-          ctx.lineTo(-5 * dpr * treeScale, -trunkH);
+          ctx.moveTo(-13 * dpr * pineScale, 0);
+          ctx.lineTo(13 * dpr * pineScale, 0);
+          ctx.lineTo(6 * dpr * pineScale, -trunkH);
+          ctx.lineTo(-6 * dpr * pineScale, -trunkH);
           ctx.closePath();
           ctx.fill();
 
-          // Çam kabuk dokusu
-          ctx.strokeStyle = '#5d4037';
-          ctx.lineWidth = 2 * dpr;
-          for (let yStep = 0; yStep < trunkH * 0.8; yStep += 14 * dpr) {
+          // Çam kabuk dokusu (doğal kabuk yarıkları)
+          ctx.strokeStyle = '#4a2818';
+          ctx.lineWidth = 2.5 * dpr;
+          for (let yStep = 0; yStep < trunkH * 0.85; yStep += 13 * dpr) {
             ctx.beginPath();
-            ctx.moveTo(-7 * dpr, -yStep);
-            ctx.lineTo(7 * dpr, -yStep - 4 * dpr);
+            ctx.moveTo(-8 * dpr * pineScale, -yStep);
+            ctx.lineTo(8 * dpr * pineScale, -yStep - 5 * dpr);
             ctx.stroke();
           }
           ctx.restore();
 
-          // 5 Katmanlı Piramit İğne Yaprak Katmanları (Tiered Conifer Canopy)
+          // 7 Katmanlı Zengin Piramit İğne Yaprak Katmanları (Tam Çam Silüeti)
           const tiers = [
-            { yRatio: 0.42, wTier: 110, hTier: 40, c1: '#064e3b', c2: '#047857' },
-            { yRatio: 0.58, wTier: 94, hTier: 36, c1: '#065f46', c2: '#059669' },
-            { yRatio: 0.72, wTier: 78, hTier: 34, c1: '#047857', c2: '#10b981' },
-            { yRatio: 0.86, wTier: 60, hTier: 30, c1: '#059669', c2: '#34d399' },
-            { yRatio: 1.00, wTier: 40, hTier: 26, c1: '#10b981', c2: '#6ee7b7' },
+            { yRatio: 0.30, wTier: 154, hTier: 46, c1: '#022c22', c2: '#064e3b' },
+            { yRatio: 0.42, wTier: 138, hTier: 43, c1: '#064e3b', c2: '#047857' },
+            { yRatio: 0.54, wTier: 120, hTier: 40, c1: '#065f46', c2: '#059669' },
+            { yRatio: 0.66, wTier: 102, hTier: 36, c1: '#047857', c2: '#10b981' },
+            { yRatio: 0.78, wTier: 80,  hTier: 32, c1: '#059669', c2: '#10b981' },
+            { yRatio: 0.89, wTier: 56,  hTier: 28, c1: '#10b981', c2: '#34d399' },
+            { yRatio: 1.00, wTier: 34,  hTier: 24, c1: '#34d399', c2: '#6ee7b7' },
           ];
 
           tiers.forEach((tier, idx) => {
@@ -461,28 +466,38 @@ export const ActiveForestCanvas: React.FC<ActiveForestCanvasProps> = ({
               ctx,
               tierX,
               tierY,
-              tier.wTier * dpr * treeScale,
-              tier.hTier * dpr * treeScale,
+              tier.wTier * dpr * pineScale,
+              tier.hTier * dpr * pineScale,
               tier.c1,
               tier.c2
             );
 
             // Altına asılan çam kozalakları (Pine Cones)
-            if (p >= 0.70 && idx < 3) {
-              [-0.35, 0.35].forEach((offset) => {
-                const coneX = tierX + offset * tier.wTier * dpr * treeScale;
-                const coneY = tierY + 4 * dpr;
-                ctx.fillStyle = '#4e342e';
+            if (p >= 0.65 && idx < 4) {
+              [-0.38, -0.18, 0.18, 0.38].forEach((offset) => {
+                const coneX = tierX + offset * tier.wTier * dpr * pineScale;
+                const coneY = tierY + 5 * dpr;
+                ctx.fillStyle = '#3e2723';
                 ctx.beginPath();
-                ctx.ellipse(coneX, coneY, 3 * dpr, 6 * dpr, 0.1, 0, Math.PI * 2);
+                ctx.ellipse(coneX, coneY, 3.5 * dpr, 7 * dpr, 0.1, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.fillStyle = '#6d4c41';
+                ctx.fillStyle = '#5d4037';
                 ctx.beginPath();
-                ctx.arc(coneX, coneY - 3 * dpr, 2.5 * dpr, 0, Math.PI * 2);
+                ctx.arc(coneX, coneY - 3 * dpr, 3 * dpr, 0, Math.PI * 2);
                 ctx.fill();
               });
             }
           });
+
+          // Zirve sivri çam ucu (Top Pine Conifer Spire)
+          const apexY = -trunkH - 10 * dpr * pineScale;
+          ctx.fillStyle = '#34d399';
+          ctx.beginPath();
+          ctx.moveTo(sX * 0.9, apexY);
+          ctx.lineTo(sX * 0.9 + 4 * dpr, apexY + 15 * dpr);
+          ctx.lineTo(sX * 0.9 - 4 * dpr, apexY + 15 * dpr);
+          ctx.closePath();
+          ctx.fill();
 
         } else if (isSakura) {
           // -------------------------------------------------------------
@@ -682,7 +697,7 @@ export const ActiveForestCanvas: React.FC<ActiveForestCanvasProps> = ({
       c.globalAlpha = 1.0;
     }
 
-    // Helper: Çam Ağacı Katman Çizimi (Serrations and Pine Needle Shelf)
+    // Helper: Çam Ağacı Katman Çizimi (Doğal İğneli ve Katmanlı Dağ Çamı)
     function drawPineTier(
       c: CanvasRenderingContext2D,
       x: number,
@@ -695,36 +710,61 @@ export const ActiveForestCanvas: React.FC<ActiveForestCanvasProps> = ({
       c.save();
       c.translate(x, y);
 
-      // Koyu alt gölge
+      const halfW = wTier * 0.5;
+
+      // 1. Koyu alt gölge ve alt iğne saçakları (Derin İbreli Alt Taban)
       c.fillStyle = cDark;
       c.beginPath();
       c.moveTo(0, -hTier);
-      c.lineTo(wTier * 0.5, 0);
-      c.lineTo(wTier * 0.35, -hTier * 0.2);
-      c.lineTo(0, -hTier * 0.1);
-      c.lineTo(-wTier * 0.35, -hTier * 0.2);
-      c.lineTo(-wTier * 0.5, 0);
+      c.quadraticCurveTo(halfW * 0.45, -hTier * 0.35, halfW, 0);
+
+      // Alt dişli iğne saçakları (Serrated needle fringe)
+      const teethCount = 7;
+      for (let i = teethCount; i >= 0; i--) {
+        const tX = -halfW + (halfW * 2 * i) / teethCount;
+        const dip = (i % 2 === 0 ? 0 : -hTier * 0.22);
+        c.lineTo(tX, dip);
+      }
+      c.lineTo(-halfW, 0);
+      c.quadraticCurveTo(-halfW * 0.45, -hTier * 0.35, 0, -hTier);
       c.closePath();
       c.fill();
 
-      // İğneli çam üçgeni
+      // 2. Ana gövdeli iğneli çam kademesi (Güneşli Gradyan ve İğne Uçları)
       const tierGrad = c.createLinearGradient(0, -hTier, 0, 0);
       tierGrad.addColorStop(0, cLight);
-      tierGrad.addColorStop(1, cDark);
+      tierGrad.addColorStop(0.7, cDark);
+      tierGrad.addColorStop(1, '#022c22');
       c.fillStyle = tierGrad;
 
       c.beginPath();
-      c.moveTo(0, -hTier);
-      c.lineTo(wTier * 0.48, 0);
-      // Dişli iğne yaprak kenarı
-      c.lineTo(wTier * 0.3, -hTier * 0.25);
-      c.lineTo(wTier * 0.15, -hTier * 0.05);
-      c.lineTo(0, -hTier * 0.2);
-      c.lineTo(-wTier * 0.15, -hTier * 0.05);
-      c.lineTo(-wTier * 0.3, -hTier * 0.25);
-      c.lineTo(-wTier * 0.48, 0);
+      c.moveTo(0, -hTier * 0.95);
+      c.quadraticCurveTo(halfW * 0.4, -hTier * 0.3, halfW * 0.94, -2);
+
+      // İğne uçları zikzakları
+      const innerTeeth = 8;
+      for (let i = innerTeeth; i >= 0; i--) {
+        const tx = -halfW * 0.94 + (halfW * 1.88 * i) / innerTeeth;
+        const ty = (i % 2 === 0 ? -1 : -hTier * 0.28);
+        c.lineTo(tx, ty);
+      }
+      c.lineTo(-halfW * 0.94, -2);
+      c.quadraticCurveTo(-halfW * 0.4, -hTier * 0.3, 0, -hTier * 0.95);
       c.closePath();
       c.fill();
+
+      // 3. İğnelerin üst yüzeyindeki güneş ışıltısı / açık yeşil iğne çizgileri
+      c.strokeStyle = cLight;
+      c.lineWidth = 1.3;
+      c.globalAlpha = 0.5;
+      for (let i = -3; i <= 3; i++) {
+        const nx = i * (halfW * 0.22);
+        c.beginPath();
+        c.moveTo(nx * 0.2, -hTier * 0.85);
+        c.lineTo(nx, -hTier * 0.15);
+        c.stroke();
+      }
+      c.globalAlpha = 1.0;
 
       c.restore();
     }

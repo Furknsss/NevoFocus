@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, startTransition } from 'react';
 import {
   FocusModeType,
   FocusSession,
@@ -68,8 +68,9 @@ import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
 import { CinematicTransitionCurtain } from './components/visuals/CinematicTransitionCurtain';
 import { useDeviceMode } from './hooks/useDeviceMode';
+import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
-import { Flame, X } from 'lucide-react';
+import { Flame, X, Download } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -139,6 +140,9 @@ export default function App() {
   const [isMarketModalOpen, setIsMarketModalOpen] = useState<boolean>(false);
   const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+
+  // PWA (Progressive Web App) Install Hook
+  const { isInstallable, installApp, showWelcomeBanner, dismissBanner } = usePWAInstall();
 
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<string | null>(null);
   const [audioVolume, setAudioVolume] = useState<number>(0.5);
@@ -375,17 +379,31 @@ export default function App() {
   }, []);
 
   // Compute 100% Real Stats & Real Streak
-  const realStreak = calculateRealStreak(sessions);
-  const realTotalHours = calculateTotalFocusHours(sessions);
-  const todayMinutes = calculateTodayMinutes(sessions);
+  const realStreak = useMemo(() => calculateRealStreak(sessions), [sessions]);
+  const realTotalHours = useMemo(() => calculateTotalFocusHours(sessions), [sessions]);
+  const todayMinutes = useMemo(() => calculateTodayMinutes(sessions), [sessions]);
 
-  // Sync computed stats into dynamic profile representation
-  const dynamicProfile: UserProfile = {
+  // Sync computed stats into dynamic profile representation (memoized to avoid re-render cascades)
+  const dynamicProfile: UserProfile = useMemo(() => ({
     ...profile,
     currentStreakDays: realStreak,
     totalFocusHours: realTotalHours,
     todayTotalMinutes: todayMinutes,
-  };
+  }), [profile, realStreak, realTotalHours, todayMinutes]);
+
+  // Instant tab transition without delay
+  const handleSelectTab = useCallback((tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => {
+    // Non-blocking tactile feedback
+    setTimeout(() => {
+      soundEngine.playClick();
+    }, 0);
+
+    if (tab === 'focus' && currentTab === 'focus' && !isSessionActive) {
+      setCurrentActiveMode(null);
+    }
+
+    setCurrentTab(tab);
+  }, [currentTab, isSessionActive]);
 
   // Sync user status to Firestore for real community visibility (safe setDoc)
   const updateCloudStatus = async (status: 'studying' | 'idle' | 'break', subjectName?: string) => {
@@ -804,13 +822,7 @@ export default function App() {
       {!isSessionActive && (
         <Header
           currentTab={currentTab}
-          onSelectTab={(tab) => {
-            soundEngine.playClick();
-            if (tab === 'focus' && currentTab === 'focus' && !isSessionActive) {
-              setCurrentActiveMode(null);
-            }
-            setCurrentTab(tab);
-          }}
+          onSelectTab={handleSelectTab}
           profile={dynamicProfile}
           currentUser={currentUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
@@ -823,6 +835,8 @@ export default function App() {
           onToggleAudioModal={() => setIsAudioModalOpen(true)}
           isMobile={isMobile}
           activeDevice={activeDevice}
+          isInstallable={isInstallable}
+          onInstallPWA={installApp}
         />
       )}
 
@@ -946,27 +960,15 @@ export default function App() {
               <StatisticsView sessions={sessions} profile={dynamicProfile} tasks={tasks} />
             )}
 
-            {currentTab === 'rooms' && (
+            {(currentTab === 'rooms' || currentTab === 'students') && (
               <StudentsView
                 peers={peers}
                 profile={dynamicProfile}
                 currentUser={currentUser}
                 onCheerPeer={handleCheerPeer}
                 isCurrentUserStudying={isSessionActive}
-                activeViewTab="rooms"
-                onSwitchTab={(tab) => setCurrentTab(tab)}
-              />
-            )}
-
-            {currentTab === 'students' && (
-              <StudentsView
-                peers={peers}
-                profile={dynamicProfile}
-                currentUser={currentUser}
-                onCheerPeer={handleCheerPeer}
-                isCurrentUserStudying={isSessionActive}
-                activeViewTab="students"
-                onSwitchTab={(tab) => setCurrentTab(tab)}
+                activeViewTab={currentTab === 'rooms' ? 'rooms' : 'students'}
+                onSwitchTab={handleSelectTab}
               />
             )}
           </>
@@ -1061,16 +1063,41 @@ export default function App() {
         }}
       />
 
+      {/* PWA Hoş Geldin & Uygulama Yükleme Bildirim Çubuğu */}
+      {showWelcomeBanner && !isSessionActive && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] p-3 sm:p-3.5 rounded-2xl bg-neutral-900/95 border border-[#ff5500]/40 backdrop-blur-xl shadow-2xl shadow-black/80 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center text-white shrink-0 shadow-md shadow-[#ff5500]/25">
+              <Download className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-white tracking-tight">Fokus'u Masaüstü/Mobil Uygulama Olarak Yükle</h4>
+              <p className="text-[11px] text-neutral-400 truncate">Hızlı açılış, tam ekran deneyimi ve kalıcı oturum</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={installApp}
+              className="px-3 py-1.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white text-xs font-bold shadow-md shadow-[#ff5500]/20 transition-all cursor-pointer"
+            >
+              Yükle
+            </button>
+            <button
+              onClick={dismissBanner}
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white cursor-pointer"
+              aria-label="Kapat"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modern Mobile Bottom Navigation Bar */}
       {isMobile && !isSessionActive && (
         <BottomNav
           currentTab={currentTab}
-          onSelectTab={(tab) => {
-            if (tab === 'focus' && currentTab === 'focus') {
-              setCurrentActiveMode(null);
-            }
-            setCurrentTab(tab);
-          }}
+          onSelectTab={handleSelectTab}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           activeModeTitle={currentActiveMode ? FOCUS_MODES.find((m) => m.id === currentActiveMode)?.title : undefined}

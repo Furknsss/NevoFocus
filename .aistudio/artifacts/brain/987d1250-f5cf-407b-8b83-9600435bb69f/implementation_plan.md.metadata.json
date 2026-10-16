@@ -1,6 +1,6 @@
 {
-  "summary": "Görev türleri ve sınav alanları için canlı ayırt edici renkler, aylık takvimde odaklanma ibaresi, sayfa yenilendiğinde kesintisiz devam eden seans mimarisi, erken bitirmede net gerçek sürenin kaydedilmesi, üst barda ses butonunun soluna taşınan canlı günlük kronometre ve odaksız görev tamamlamada saat/dakika modalı uygulama planı.",
-  "updatedAt": "2026-10-15T09:15:26.688140890Z",
+  "summary": "PWA (uygulama olarak yükleme), kalıcı cihaz hatırlaması, arayüz sadeleştirmeleri (sağ üstteki yeşil noktanın ve ana sayfa altındaki Bugün şeridinin kaldırılması, odak modlarında yalnızca 'Mola Ver - Tamamla - Vazgeç' kontrollerinin kalması) ve sinematik dağ/görsel tasarım stüdyosu uygulama planı.",
+  "updatedAt": "2026-10-16T11:21:12.156297447Z",
   "requestFeedback": true,
   "userFacing": true
 }

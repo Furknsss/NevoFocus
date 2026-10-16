@@ -512,7 +512,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           if (currentUser && !cloudPeers.some((p) => p.id === currentUser.uid)) {
             cloudPeers.push({
               id: currentUser.uid,
-              name: profile.name,
+              name: profile.name?.trim().split(' ')[0] || profile.name,
               initials: profile.initials,
               avatarBg: 'bg-[#ff5500]',
               avatarUrl: profile.avatarUrl,
@@ -684,7 +684,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       await safeSetDoc(cheerRef, {
         id: cheerId,
         fromUserId: currentUser?.uid || 'guest',
-        fromUserName: profile.name || 'Öğrenci',
+        fromUserName: profile.name?.trim().split(' ')[0] || profile.name || 'Öğrenci',
         fromUserAvatarUrl: profile.avatarUrl || '',
         toUserId: peer.id,
         createdAt: now,
@@ -879,7 +879,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       id: msgId,
       roomId: activeChatRoom.id,
       userId: currentUser?.uid || 'guest',
-      userName: profile.name || 'Öğrenci',
+      userName: profile.name?.trim().split(' ')[0] || profile.name || 'Öğrenci',
       userAvatarUrl: profile.avatarUrl || '',
       userAvatarColor: profile.avatarColor || '#ff5500',
       text,
