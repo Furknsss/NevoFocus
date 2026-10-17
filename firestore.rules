@@ -38,6 +38,11 @@ service cloud.firestore {
       match /cheers/{cheerId} {
         allow read, write: if true;
       }
+
+      // Live Active Focus Session (cross-device sync tablet <-> phone)
+      match /active_focus/{docId} {
+        allow read, write: if true;
+      }
     }
 
     // Collaborative Study Rooms & Messages - public read, open write so all students can create, join, chat

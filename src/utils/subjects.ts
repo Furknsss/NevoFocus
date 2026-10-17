@@ -32,6 +32,8 @@ export const ALL_SUBJECTS: AreaSubjectConfig[] = [
   // Sayısal subjects: Only for Sayısal & Genel (NO Edebiyat, NO Felsefe Grubu, NO Coğrafya)
   { name: 'AYT Matematik', color: '#0d9488', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Genel'] },
   { name: 'AYT Geometri', color: '#14b8a6', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Genel'] }, // Geometri ayrı!
+  { name: 'Paragraf', color: '#f59e0b', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
+  { name: 'Problem', color: '#10b981', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
   { name: 'AYT Fizik', color: '#2563eb', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'AYT Kimya', color: '#db2777', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'AYT Biyoloji', color: '#65a30d', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },

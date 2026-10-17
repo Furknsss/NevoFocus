@@ -9,6 +9,7 @@ import {
   createUserWithEmailAndPassword,
   signInAnonymously,
   browserLocalPersistence,
+  indexedDBLocalPersistence,
   setPersistence,
   type User,
 } from 'firebase/auth';
@@ -20,11 +21,13 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Cihaz hatırlaması: Tarayıcı ve PWA kapatılıp açılsa dahi oturum açık kalır
+// Cihaz ve PWA kalıcı oturum: Tablet ve telefonda kapatılıp açılsa bile hesap kalıcı kalır
 if (typeof window !== 'undefined') {
-  setPersistence(auth, browserLocalPersistence).catch((err) => {
-    console.warn('Firebase persistence warning:', err);
-  });
+  setPersistence(auth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(auth, browserLocalPersistence))
+    .catch((err) => {
+      console.warn('Firebase persistence warning:', err);
+    });
 }
 
 export enum OperationType {

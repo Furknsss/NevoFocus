@@ -22,11 +22,13 @@ import { soundEngine } from '../utils/audio';
 interface LandingPageProps {
   onOpenLogin: () => void;
   onOpenRegister: () => void;
+  onContinueAsGuest?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenLogin,
   onOpenRegister,
+  onContinueAsGuest,
 }) => {
   return (
     <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] flex flex-col font-sans selection:bg-[#ff5500]/30 selection:text-white">
@@ -134,6 +136,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span>Hesabına Giriş Yap</span>
           </button>
         </div>
+
+        {onContinueAsGuest && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onContinueAsGuest();
+              }}
+              className="text-xs sm:text-sm text-neutral-400 hover:text-white underline underline-offset-4 cursor-pointer transition-colors"
+            >
+              Giriş yapmadan hızlıca dene (Misafir Modu) →
+            </button>
+          </div>
+        )}
 
         {/* Trust Badges */}
         <div className="mt-12 flex flex-wrap items-center justify-center gap-6 sm:gap-10 text-xs font-semibold text-neutral-400 pt-6 border-t border-neutral-800/80">

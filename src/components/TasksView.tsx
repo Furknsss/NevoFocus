@@ -132,6 +132,9 @@ export const TasksView = React.memo<TasksViewProps>(({
   // If track changed or area changed, keep subject aligned
   const handleSelectArea = (area: StudyAreaType) => {
     setSelectedArea(area);
+    if (selectedTaskType === 'rutin' && (selectedSubjectName === 'Paragraf' || selectedSubjectName === 'Problem')) {
+      return;
+    }
     const subjs = getSubjectsForAreaAndTrack(area, normalizedTrack);
     if (subjs.length > 0) {
       setSelectedSubjectName(subjs[0].name);

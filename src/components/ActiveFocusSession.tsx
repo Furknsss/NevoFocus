@@ -34,6 +34,8 @@ import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
 import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
+import { auth, db, safeSetDoc } from '../firebase';
+import { doc, deleteDoc } from 'firebase/firestore';
 
 interface ActiveFocusSessionProps {
   mode: FocusModeType;
@@ -49,6 +51,7 @@ interface ActiveFocusSessionProps {
   onSessionComplete: (session: FocusSession) => void;
   onAbandonSession: (partialSession?: FocusSession) => void;
   onToggleAudioModal: () => void;
+  onMinimize?: () => void;
   isAudioPlaying: boolean;
   desktopNotificationsEnabled?: boolean;
   liveNotificationsEnabled?: boolean;
@@ -138,6 +141,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   onSessionComplete,
   onAbandonSession,
   onToggleAudioModal,
+  onMinimize,
   isAudioPlaying,
   desktopNotificationsEnabled = true,
   liveNotificationsEnabled = false,
@@ -201,6 +205,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const [isPaused, setIsPaused] = useState<boolean>(() => {
     return savedState ? Boolean(savedState.isPaused) : false;
   });
+  const { isWakeLockActive } = useScreenWakeLock(!isPaused);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAbandonModal, setShowAbandonModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -242,6 +247,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   const startTimeRef = useRef(savedState?.startTime || Date.now());
   const lastTickTimeRef = useRef(Date.now());
+  const lastCloudSyncRef = useRef<number>(0);
+  const lastPausedRef = useRef<boolean>(isPaused);
+  const lastCampRef = useRef<boolean>(isCampActive);
 
   // Check Notification permission support on mount
   useEffect(() => {
@@ -401,6 +409,39 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         isPaused,
       };
       localStorage.setItem('fokus_active_session_running', JSON.stringify(stateToPersist));
+
+      // Sync active session to Firestore for cross-device tablet <-> phone sync
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        const now = Date.now();
+        if (
+          now - lastCloudSyncRef.current > 4000 ||
+          isPaused !== lastPausedRef.current ||
+          isCampActive !== lastCampRef.current
+        ) {
+          lastCloudSyncRef.current = now;
+          lastPausedRef.current = isPaused;
+          lastCampRef.current = isCampActive;
+          const cloudPayload = {
+            mode,
+            subject,
+            plannedMinutes,
+            startedAt: startTimeRef.current,
+            elapsedSeconds,
+            isPaused,
+            isCampActive,
+            breakSeconds,
+            timerType: currentTimerType,
+            selectedTreeSpecies: selectedTreeSpecies || null,
+            originAirport: originAirport || null,
+            destAirport: destAirport || null,
+            selectedTaskId: selectedTaskId || null,
+            selectedTaskTitle: selectedTaskTitle || null,
+            updatedAt: now,
+          };
+          safeSetDoc(doc(db, 'users', userId, 'active_focus', 'current'), cloudPayload, { merge: true }).catch(() => {});
+        }
+      }
     } catch {
       // ignore
     }
@@ -416,6 +457,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     selectedTreeSpecies,
     elapsedCountUp,
     secondsRemaining,
+    elapsedSeconds,
     breakSeconds,
     breakCount,
     isCampActive,
@@ -426,9 +468,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const handleFinish = (isCompletedNaturally: boolean) => {
     soundEngine.playCompletionBell();
 
-    // Clear background running session state
+    // Clear background running session state locally and in cloud
     try {
       localStorage.removeItem('fokus_active_session_running');
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
+      }
     } catch {
       // ignore
     }
@@ -544,6 +590,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     try {
       localStorage.removeItem('fokus_active_session_running');
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
+      }
     } catch {
       // ignore
     }
@@ -607,9 +657,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[calc(100vh-65px)] min-h-[600px] bg-black overflow-hidden flex flex-col justify-between select-none">
-      {/* Visual Canvas Backdrop */}
-      <div className="absolute inset-0 z-0">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 w-full h-full min-h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none">
+      {/* Visual Canvas Backdrop - Fullscreen edge-to-edge */}
+      <div className="absolute inset-0 z-0 w-full h-full overflow-hidden">
         {mode === 'forest' && (
           <ActiveForestCanvas
             progress={progress}
@@ -670,8 +720,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           </div>
         </div>
 
-        {/* Right: Quick Action Controls (Audio & Fullscreen only - zero clutter) */}
+        {/* Right: Quick Action Controls (Wake Lock, Audio, Minimize & Fullscreen) */}
         <div className="flex items-center gap-2">
+          {/* Wake Lock Status Badge */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/60 border border-white/10 text-xs text-neutral-300 backdrop-blur-md shadow-sm"
+            title="Ekran Açık Tutuluyor: Odaklanma boyunca telefon/tablet ekranı kapanmaz."
+          >
+            <Sun className={`w-3.5 h-3.5 ${isWakeLockActive ? 'text-amber-400 animate-pulse' : 'text-neutral-400'}`} />
+            <span className="text-[11px] font-medium hidden sm:inline">Ekran Açık</span>
+          </div>
+
           {/* Audio trigger */}
           <button
             onClick={onToggleAudioModal}
@@ -685,11 +744,22 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <Volume2 className="w-4 h-4" />
           </button>
 
+          {/* Minimize / Floating Pill Mode */}
+          {onMinimize && (
+            <button
+              onClick={onMinimize}
+              className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
+              title="Oturumu Küçült (Sağ altta yüzen çubuk olarak devam eder)"
+            >
+              <Minimize2 className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Fullscreen */}
           <button
             onClick={handleToggleFullscreen}
             className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
-            title="Tam Ekran"
+            title="Tarayıcı Tam Ekranı"
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -833,7 +903,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       )}
 
       {/* Bottom Floating Action Bar: Sadece [ Mola Ver ] [ Tamamla ] [ Vazgeç ] */}
-      <div className="relative z-10 w-full px-4 sm:px-8 pb-6 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap">
+      <div className="relative z-10 w-full px-4 sm:px-8 pb-6 sm:pb-8 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {/* 1. Mola Ver / Devam Et */}
         <button
           type="button"

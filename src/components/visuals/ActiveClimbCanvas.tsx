@@ -195,24 +195,24 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      // 4. CONTINUOUS TRAIL WAYPOINTS & PATH
+      // 4. CONTINUOUS TRAIL WAYPOINTS & PATH (Elevated and centered so climber is always fully visible)
       const waypoints = [
-        { x: w * 0.84, y: h * 0.84, name: 'Ana Kamp (1,850m)' },
-        { x: w * 0.74, y: h * 0.65, name: 'Buzul Sırtı (2,600m)' },
-        { x: w * 0.63, y: h * 0.44, name: 'İleri Kamp (3,200m)' },
+        { x: w * 0.76, y: h * 0.70, name: 'Ana Kamp (1,850m)' },
+        { x: w * 0.67, y: h * 0.54, name: 'Buzul Sırtı (2,600m)' },
+        { x: w * 0.58, y: h * 0.38, name: 'İleri Kamp (3,200m)' },
         { x: summitX, y: summitY, name: 'Kaçkar Zirvesi (3,937m)' },
       ];
 
       // Draw flowing dashed climbing route
       ctx.save();
-      ctx.strokeStyle = design.trailGlowColor || 'rgba(249, 115, 22, 0.4)';
-      ctx.lineWidth = 2.5 * dpr;
-      ctx.setLineDash([6 * dpr, 6 * dpr]);
-      ctx.lineDashOffset = -time * 15; // CONTINUOUS FLOWING TRAIL DASHES!
+      ctx.strokeStyle = design.trailGlowColor || 'rgba(249, 115, 22, 0.5)';
+      ctx.lineWidth = 2.8 * dpr;
+      ctx.setLineDash([7 * dpr, 7 * dpr]);
+      ctx.lineDashOffset = -time * 18; // CONTINUOUS FLOWING TRAIL DASHES!
       ctx.beginPath();
       ctx.moveTo(waypoints[0].x, waypoints[0].y);
-      ctx.quadraticCurveTo(w * 0.78, h * 0.74, waypoints[1].x, waypoints[1].y);
-      ctx.quadraticCurveTo(w * 0.69, h * 0.54, waypoints[2].x, waypoints[2].y);
+      ctx.quadraticCurveTo(w * 0.72, h * 0.62, waypoints[1].x, waypoints[1].y);
+      ctx.quadraticCurveTo(w * 0.63, h * 0.46, waypoints[2].x, waypoints[2].y);
       ctx.quadraticCurveTo(summitX + 25 * dpr, summitY + 25 * dpr, waypoints[3].x, waypoints[3].y);
       ctx.stroke();
       ctx.restore();
@@ -317,77 +317,244 @@ export const ActiveClimbCanvas: React.FC<ActiveClimbCanvasProps> = ({
           ctx.fill();
         });
       } else {
-        // 6. ACTIVE STEPPING CLIMBER (Canlı tırmanan dağcı modeli)
-        const cX = climberX;
-        const cY = climberY - walkBounce;
+        // 6. ACTIVE STEPPING CLIMBER (Büyük, Canlı, Dinamik Tırmanan Dağcı Modeli)
+        const cScale = 1.75 * dpr; // Belirgin derecede büyük, net ve dinamik
+        const strideCycle = time * 7.5;
+        const stepPhase = Math.sin(strideCycle);
+        const stepCos = Math.cos(strideCycle);
+        const walkBounce = (!camping && !isPausedRef.current) ? Math.abs(stepPhase) * 4.5 * dpr : 0;
 
-        // Headlamp Beam projecting forward onto the snow ridge
-        const beamAngle = -0.55;
-        const beamLength = 45 * dpr;
-        const beamGrad = ctx.createRadialGradient(cX, cY - 8 * dpr, 2, cX - 30 * dpr, cY - 25 * dpr, beamLength);
-        beamGrad.addColorStop(0, 'rgba(254, 240, 138, 0.85)');
-        beamGrad.addColorStop(0.5, 'rgba(254, 240, 138, 0.25)');
+        // Dynamic forward slope stride: dağcı dağa doğru aktif şekilde tırmanır
+        const stepStride = (!camping && !isPausedRef.current) ? (Math.max(0, stepPhase) * 5.0 * dpr) : 0;
+        const cX = climberX - stepStride * 0.7;
+        const cY = climberY - walkBounce - stepStride * 0.5;
+
+        const currentAltitude = Math.round(1850 + p * (3937 - 1850));
+
+        // Warm ambient spotlight around the climber
+        const haloGrad = ctx.createRadialGradient(cX, cY - 10 * cScale, 4, cX, cY - 10 * cScale, 55 * dpr);
+        haloGrad.addColorStop(0, 'rgba(251, 146, 60, 0.4)');
+        haloGrad.addColorStop(0.5, 'rgba(249, 115, 22, 0.15)');
+        haloGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = haloGrad;
+        ctx.beginPath();
+        ctx.arc(cX, cY - 10 * cScale, 55 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 1. Safety Rope anchored down the mountain slope
+        ctx.save();
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 2 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(cX + 24 * cScale, cY + 20 * cScale);
+        ctx.quadraticCurveTo(cX + 14 * cScale, cY + 14 * cScale, cX + 2 * cScale, cY - 2 * cScale);
+        ctx.stroke();
+
+        // Safety anchor piton in rock
+        ctx.fillStyle = '#94a3b8';
+        ctx.beginPath();
+        ctx.arc(cX + 24 * cScale, cY + 20 * cScale, 2.8 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 2. Snow crunch / kick particles under boots
+        if (!isPausedRef.current) {
+          const kickAlpha = Math.max(0, stepPhase * 0.8);
+          ctx.fillStyle = `rgba(255, 255, 255, ${kickAlpha})`;
+          ctx.beginPath();
+          ctx.arc(cX + 8 * cScale, cY + 14 * cScale, 2.2 * dpr, 0, Math.PI * 2);
+          ctx.arc(cX + 12 * cScale, cY + 16 * cScale, 1.6 * dpr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // 3. Headlamp Beam projecting forward onto the snow ridge
+        const beamLength = 65 * dpr;
+        const beamGrad = ctx.createRadialGradient(cX - 8 * cScale, cY - 14 * cScale, 2, cX - 45 * dpr, cY - 35 * dpr, beamLength);
+        beamGrad.addColorStop(0, 'rgba(254, 240, 138, 0.9)');
+        beamGrad.addColorStop(0.4, 'rgba(254, 240, 138, 0.3)');
         beamGrad.addColorStop(1, 'transparent');
         ctx.fillStyle = beamGrad;
         ctx.beginPath();
-        ctx.moveTo(cX, cY - 8 * dpr);
-        ctx.lineTo(cX - 38 * dpr, cY - 32 * dpr);
-        ctx.lineTo(cX - 22 * dpr, cY - 42 * dpr);
+        ctx.moveTo(cX - 8 * cScale, cY - 14 * cScale);
+        ctx.lineTo(cX - 55 * dpr, cY - 42 * dpr);
+        ctx.lineTo(cX - 35 * dpr, cY - 55 * dpr);
         ctx.closePath();
         ctx.fill();
 
-        // Climber Body
-        // Head / Helmet
+        ctx.save();
+        ctx.translate(cX, cY);
+        // Leaning into the mountain slope
+        ctx.rotate(-0.28);
+
+        // Backpack with foam sleeping pad roll
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(4 * cScale, -13 * cScale, 7 * cScale, 13 * cScale);
+        // Sleeping pad roll
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.ellipse(7.5 * cScale, -14 * cScale, 4.5 * cScale, 2.5 * cScale, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Climber Torso (Alpine GORE-TEX Parka)
+        const jacketGrad = ctx.createLinearGradient(-5 * cScale, -14 * cScale, 5 * cScale, 0);
+        jacketGrad.addColorStop(0, '#f97316');
+        jacketGrad.addColorStop(1, '#ea580c');
+        ctx.fillStyle = jacketGrad;
+        ctx.beginPath();
+        ctx.roundRect(-6 * cScale, -14 * cScale, 11 * cScale, 14 * cScale, 3 * dpr);
+        ctx.fill();
+
+        // Black shoulder reinforcement pads
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(-6 * cScale, -14 * cScale, 11 * cScale, 3.5 * cScale);
+
+        // Climbing Harness around waist
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(-6 * cScale, -2 * cScale, 11 * cScale, 2.5 * cScale);
+
+        // Head / Climbing Helmet
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(cX, cY - 14 * dpr, 4.5 * dpr, 0, Math.PI * 2);
+        ctx.arc(-2 * cScale, -19 * cScale, 6 * cScale, 0, Math.PI * 2);
         ctx.fill();
 
-        // Headlamp
+        // Dark Visor / Goggles
+        ctx.fillStyle = '#0284c7';
+        ctx.beginPath();
+        ctx.roundRect(-7 * cScale, -20 * cScale, 5 * cScale, 3 * cScale, 1.5 * dpr);
+        ctx.fill();
+
+        // Headlamp Unit
         ctx.fillStyle = '#fef08a';
         ctx.beginPath();
-        ctx.arc(cX - 3 * dpr, cY - 14 * dpr, 2 * dpr, 0, Math.PI * 2);
+        ctx.arc(-7 * cScale, -21 * cScale, 2.4 * cScale, 0, Math.PI * 2);
         ctx.fill();
 
-        // Torso / Alpine Parka
-        ctx.fillStyle = '#ea580c'; // Vibrant Orange Mountaineering Jacket
-        ctx.fillRect(cX - 4 * dpr, cY - 10 * dpr, 8 * dpr, 10 * dpr);
+        // Cold Alpine Breath Steam Puff
+        if (!isPausedRef.current) {
+          const breathPhase = Math.sin(time * 3.5);
+          if (breathPhase > 0) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${breathPhase * 0.45})`;
+            ctx.beginPath();
+            ctx.arc(-11 * cScale - breathPhase * 4 * dpr, -20 * cScale - breathPhase * 5 * dpr, (2 + breathPhase * 3) * dpr, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
 
-        // Backpack
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(cX + 2 * dpr, cY - 9 * dpr, 5 * dpr, 8 * dpr);
+        // Stepping Leg 1 (Front Leg - Bending and Driving Upward)
+        const frontHipX = -2 * cScale;
+        const frontHipY = 0;
+        const frontKneeX = frontHipX - 4 * cScale - stepPhase * 5 * cScale;
+        const frontKneeY = frontHipY + 6 * cScale - Math.max(0, stepPhase) * 6 * cScale;
+        const frontFootX = frontKneeX - 2 * cScale;
+        const frontFootY = frontKneeY + 7 * cScale;
 
-        // Stepping Legs (Dynamic climbing animation!)
-        const legSwing = Math.sin(stepCycle) * 6 * dpr;
         ctx.strokeStyle = '#1e293b';
-        ctx.lineWidth = 2.5 * dpr;
+        ctx.lineWidth = 3.5 * dpr;
         ctx.lineCap = 'round';
-        // Left leg
+        ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(cX - 2 * dpr, cY);
-        ctx.lineTo(cX - 5 * dpr - legSwing, cY + 8 * dpr);
-        ctx.stroke();
-        // Right leg
-        ctx.beginPath();
-        ctx.moveTo(cX + 2 * dpr, cY);
-        ctx.lineTo(cX + 1 * dpr + legSwing, cY + 8 * dpr);
+        ctx.moveTo(frontHipX, frontHipY);
+        ctx.lineTo(frontKneeX, frontKneeY);
+        ctx.lineTo(frontFootX, frontFootY);
         ctx.stroke();
 
-        // Swinging Arm with Ice Axe (Kazma sallama)
-        const armSwing = Math.cos(stepCycle) * 5 * dpr;
+        // Front Mountain Boot with Crampons
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(frontFootX - 3.5 * cScale, frontFootY - 1 * cScale, 6 * cScale, 3.5 * cScale);
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(frontFootX - 4 * cScale, frontFootY + 2.5 * cScale, 6.5 * cScale, 1.2 * cScale);
+
+        // Stepping Leg 2 (Back Leg - Pushing Off Slope)
+        const backHipX = 2 * cScale;
+        const backHipY = 0;
+        const backKneeX = backHipX + 4 * cScale + stepPhase * 5 * cScale;
+        const backKneeY = backHipY + 7 * cScale + Math.max(0, -stepPhase) * 4 * cScale;
+        const backFootX = backKneeX + 2 * cScale;
+        const backFootY = backKneeY + 7 * cScale;
+
+        ctx.beginPath();
+        ctx.moveTo(backHipX, backHipY);
+        ctx.lineTo(backKneeX, backKneeY);
+        ctx.lineTo(backFootX, backFootY);
+        ctx.stroke();
+
+        // Back Boot
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(backFootX - 2.5 * cScale, backFootY - 1 * cScale, 6 * cScale, 3.5 * cScale);
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(backFootX - 3 * cScale, backFootY + 2.5 * cScale, 6.5 * cScale, 1.2 * cScale);
+
+        // Climbing Arm 1: Reaching Up with Ice Axe (Kazma Sallama & Buz Kırma)
+        const axeSwing = stepCos * 7 * cScale;
         ctx.strokeStyle = '#ea580c';
+        ctx.lineWidth = 3 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(-4 * cScale, -11 * cScale);
+        ctx.lineTo(-10 * cScale, -8 * cScale + axeSwing * 0.5);
+        ctx.lineTo(-15 * cScale, -5 * cScale + axeSwing);
+        ctx.stroke();
+
+        // Technical Ice Axe Pick & Head
+        ctx.save();
+        ctx.translate(-15 * cScale, -5 * cScale + axeSwing);
+        ctx.rotate(-0.4);
+        ctx.strokeStyle = '#94a3b8';
         ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.moveTo(cX - 3 * dpr, cY - 8 * dpr);
-        ctx.lineTo(cX - 8 * dpr, cY - 4 * dpr + armSwing);
+        ctx.moveTo(-5 * cScale, -2 * cScale);
+        ctx.lineTo(3 * cScale, 2 * cScale);
         ctx.stroke();
-        // Ice axe head
-        ctx.strokeStyle = '#94a3b8';
+        // Sharp curved adze/pick
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 2.5 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(-5 * cScale, -2 * cScale);
+        ctx.lineTo(-7 * cScale, 3 * cScale);
+        ctx.stroke();
+        ctx.restore();
+
+        // Climbing Arm 2: Alpine Trekking Pole
+        const poleSwing = -stepCos * 5 * cScale;
+        ctx.strokeStyle = '#ea580c';
+        ctx.lineWidth = 2.8 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(2 * cScale, -10 * cScale);
+        ctx.lineTo(6 * cScale, -4 * cScale + poleSwing * 0.5);
+        ctx.lineTo(10 * cScale, 2 * cScale + poleSwing);
+        ctx.stroke();
+        // Pole shaft down into the snow
+        ctx.strokeStyle = '#64748b';
         ctx.lineWidth = 1.5 * dpr;
         ctx.beginPath();
-        ctx.moveTo(cX - 11 * dpr, cY - 6 * dpr + armSwing);
-        ctx.lineTo(cX - 6 * dpr, cY - 2 * dpr + armSwing);
+        ctx.moveTo(10 * cScale, 2 * cScale + poleSwing);
+        ctx.lineTo(13 * cScale, 15 * cScale + poleSwing);
         ctx.stroke();
+
+        ctx.restore();
+
+        // 4. Live Altitude & Progress HUD Badge Floating Smoothly Above Climber
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 1 * dpr;
+        const badgeText = `▲ ${currentAltitude.toLocaleString('tr-TR')}m · %${Math.round(p * 100)}`;
+        ctx.font = `bold ${Math.round(11 * dpr)}px ui-sans-serif, system-ui, sans-serif`;
+        const textMetrics = ctx.measureText(badgeText);
+        const bW = textMetrics.width + 16 * dpr;
+        const bH = 20 * dpr;
+        const bX = cX - bW * 0.5;
+        const bY = cY - 48 * dpr;
+        ctx.beginPath();
+        ctx.roundRect(bX, bY, bW, bH, 6 * dpr);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, cX, bY + bH * 0.5);
+        ctx.restore();
       }
 
       // 7. VICTORY BANNER AT SUMMIT (When progress >= 0.95)

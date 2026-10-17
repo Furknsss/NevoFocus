@@ -70,6 +70,7 @@ import { CinematicTransitionCurtain } from './components/visuals/CinematicTransi
 import { useDeviceMode } from './hooks/useDeviceMode';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
+import { FloatingMiniFocusPill, ActiveFocusData } from './components/FloatingMiniFocusPill';
 import { Flame, X, Download } from 'lucide-react';
 
 export default function App() {
@@ -83,6 +84,25 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+
+  // Cloud active focus sync across devices (e.g. tablet <-> phone)
+  const [cloudActiveSession, setCloudActiveSession] = useState<ActiveFocusData | null>(null);
+
+  // Tablet & Phone authentication persistence: never flash or dump user to landing screen
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const hadAuth = localStorage.getItem('fokus_user_authenticated') === 'true';
+      const stored = getStoredProfile();
+      return hadAuth || Boolean(stored.userId);
+    }
+    return false;
+  });
+  const [isGuestMode, setIsGuestMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('fokus_guest_mode') === 'true';
+    }
+    return false;
+  });
 
   // Persistence data
   const [sessions, setSessions] = useState<FocusSession[]>([]);
@@ -361,10 +381,51 @@ export default function App() {
           }
         );
 
+        // Attach Firestore listener for cross-device active focus session sync (tablet <-> phone)
+        const activeFocusDoc = doc(db, 'users', user.uid, 'active_focus', 'current');
+        const unsubActiveFocus = onSnapshot(
+          activeFocusDoc,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.data();
+              if (data && data.mode && data.subject) {
+                setCloudActiveSession({
+                  mode: data.mode,
+                  subject: data.subject,
+                  plannedMinutes: parseNumericField(data.plannedMinutes, 45),
+                  startedAt: parseNumericField(data.startedAt, Date.now()),
+                  elapsedSeconds: parseNumericField(data.elapsedSeconds, 0),
+                  isPaused: Boolean(data.isPaused),
+                  isCampActive: Boolean(data.isCampActive),
+                  breakSeconds: parseNumericField(data.breakSeconds, 0),
+                  timerType: data.timerType === 'stopwatch' ? 'stopwatch' : 'countdown',
+                  selectedTreeSpecies: data.selectedTreeSpecies,
+                  originAirport: data.originAirport,
+                  destAirport: data.destAirport,
+                  selectedTaskId: data.selectedTaskId,
+                });
+              }
+            } else {
+              setCloudActiveSession(null);
+            }
+          },
+          () => {
+            // ignore
+          }
+        );
+
+        try {
+          localStorage.setItem('fokus_user_authenticated', 'true');
+          localStorage.setItem('fokus_user_uid', user.uid);
+          localStorage.removeItem('fokus_guest_mode');
+          setIsGuestMode(false);
+        } catch {}
+
         return () => {
           unsubSessions();
           unsubTasks();
           unsubCheers();
+          unsubActiveFocus();
         };
       } else {
         // Visitor is not logged in: Never show onboarding! Show landing page instead.
@@ -372,7 +433,17 @@ export default function App() {
         setSessions(getStoredSessions());
         setTasks(getStoredTasks());
         setProfile(getStoredProfile());
+        setCloudActiveSession(null);
+
+        try {
+          const isGuest = localStorage.getItem('fokus_guest_mode') === 'true';
+          if (!isGuest) {
+            localStorage.removeItem('fokus_user_authenticated');
+            localStorage.removeItem('fokus_user_uid');
+          }
+        } catch {}
       }
+      setIsAuthChecking(false);
     });
 
     return () => unsubscribe();
@@ -746,6 +817,10 @@ export default function App() {
   const handleSignOut = async () => {
     soundEngine.playClick();
     try {
+      localStorage.removeItem('fokus_user_authenticated');
+      localStorage.removeItem('fokus_user_uid');
+      localStorage.removeItem('fokus_guest_mode');
+      setIsGuestMode(false);
       await updateCloudStatus('idle');
       await signOut(auth);
       setCurrentUser(null);
@@ -756,6 +831,12 @@ export default function App() {
 
   const handleAccountDeleted = () => {
     setCurrentUser(null);
+    try {
+      localStorage.removeItem('fokus_user_authenticated');
+      localStorage.removeItem('fokus_user_uid');
+      localStorage.removeItem('fokus_guest_mode');
+    } catch {}
+    setIsGuestMode(false);
     const fresh = getStoredProfile();
     setProfile(fresh);
     setSessions([]);
@@ -772,9 +853,23 @@ export default function App() {
       ? 'bg-[#0d081f]'
       : 'bg-[#0b0c10]';
 
-  // YENİ TARAYICIDA / İLK KEZ SİTEYE GİRİLDİĞİNDE:
+  // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
+  // Kullanıcı zaten giriş yapmışsa asla LandingPage'e atmaz, doğrudan ana panele bağlar
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-[#07090e] text-white flex flex-col items-center justify-center font-sans">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center shadow-xl shadow-[#ff5500]/30 animate-pulse mb-4">
+          <span className="text-white font-black text-2xl">F</span>
+        </div>
+        <h3 className="text-base font-bold text-white tracking-tight">Fokus Premium</h3>
+        <p className="text-xs text-neutral-400 mt-1">Hesabınız yükleniyor...</p>
+      </div>
+    );
+  }
+
+  // 2. YENİ TARAYICIDA / İLK KEZ SİTEYE GİRİLDİĞİNDE:
   // Onboarding ASLA açılmaz; sağ üstte Giriş Yap ve Kaydol butonları olan Tanıtım Sayfası (LandingPage) gösterilir!
-  if (!currentUser) {
+  if (!currentUser && !isGuestMode) {
     return (
       <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] flex flex-col font-sans">
         <LandingPage
@@ -787,6 +882,12 @@ export default function App() {
             soundEngine.playClick();
             setAuthInitialMode('register');
             setIsAuthModalOpen(true);
+          }}
+          onContinueAsGuest={() => {
+            try {
+              localStorage.setItem('fokus_guest_mode', 'true');
+            } catch {}
+            setIsGuestMode(true);
           }}
         />
 
@@ -891,6 +992,7 @@ export default function App() {
             onSessionComplete={handleSessionComplete}
             onAbandonSession={handleAbandonSession}
             onToggleAudioModal={() => setIsAudioModalOpen(true)}
+            onMinimize={() => setIsSessionActive(false)}
             isAudioPlaying={Boolean(currentAmbientTrack)}
             desktopNotificationsEnabled={Boolean(dynamicProfile.desktopNotifications)}
             liveNotificationsEnabled={Boolean(dynamicProfile.liveNotifications)}
@@ -1091,6 +1193,87 @@ export default function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Multi-Device & Minimized Floating Mini Focus Pill (Matches User Photo) */}
+      {cloudActiveSession && !isSessionActive && (
+        <FloatingMiniFocusPill
+          session={cloudActiveSession}
+          isMobile={isMobile}
+          isAudioPlaying={Boolean(currentAmbientTrack)}
+          onToggleAudio={() => {
+            if (currentAmbientTrack) {
+              soundEngine.stopAmbient();
+              setCurrentAmbientTrack(null);
+            } else {
+              soundEngine.playAmbient('forest');
+              setCurrentAmbientTrack('forest');
+            }
+          }}
+          onTogglePause={async () => {
+            const nextPaused = !cloudActiveSession.isPaused;
+            setCloudActiveSession((prev) => (prev ? { ...prev, isPaused: nextPaused } : null));
+            if (currentUser) {
+              try {
+                await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
+                  isPaused: nextPaused,
+                  updatedAt: Date.now(),
+                });
+              } catch {}
+            }
+          }}
+          onComplete={async () => {
+            const completedSecs = Math.max(60, cloudActiveSession.elapsedSeconds || 60);
+            const now = new Date();
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            const newSession: FocusSession = {
+              id: `sess-${Date.now()}`,
+              userId: currentUser?.uid || 'guest',
+              mode: cloudActiveSession.mode,
+              subjectId: cloudActiveSession.subject?.id || 'sub-genel',
+              subjectName: cloudActiveSession.subject?.name || 'Serbest Çalışma',
+              subjectColor: cloudActiveSession.subject?.color || '#ff5500',
+              plannedMinutes: cloudActiveSession.plannedMinutes || 45,
+              completedSeconds: completedSecs,
+              breakSeconds: cloudActiveSession.breakSeconds || 0,
+              completed: true,
+              dateString: dateStr,
+              startTimeString: timeStr,
+              endTimeString: timeStr,
+              timestamp: Date.now(),
+              note: 'Hızlı yüzen çubuk üzerinden başarıyla tamamlandı.',
+            };
+            const updated = saveSession(newSession);
+            setSessions(updated);
+            soundEngine.playCompletionBell();
+
+            if (currentUser) {
+              try {
+                await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'));
+                await syncAllToFirestore(currentUser, updated, tasks, dynamicProfile);
+              } catch {}
+            }
+            try {
+              localStorage.removeItem('fokus_active_session_running');
+            } catch {}
+            setCloudActiveSession(null);
+          }}
+          onMaximize={() => {
+            setCurrentActiveMode(cloudActiveSession.mode);
+            setSelectedSubject(cloudActiveSession.subject);
+            setDurationMinutes(cloudActiveSession.plannedMinutes);
+            setTimerType(cloudActiveSession.timerType);
+            if (cloudActiveSession.selectedTaskId) {
+              setSelectedTask(tasks.find((t) => t.id === cloudActiveSession.selectedTaskId) || null);
+            }
+            if (cloudActiveSession.originAirport) setOriginAirport(cloudActiveSession.originAirport);
+            if (cloudActiveSession.destAirport) setDestAirport(cloudActiveSession.destAirport);
+            if (cloudActiveSession.selectedTreeSpecies) setSelectedTreeSpecies(cloudActiveSession.selectedTreeSpecies);
+            setIsSessionActive(true);
+          }}
+        />
       )}
 
       {/* Modern Mobile Bottom Navigation Bar */}
