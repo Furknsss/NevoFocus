@@ -202,6 +202,9 @@ export function getStoredProfile(): UserProfile {
     desktopNotifications: false,
     liveNotifications: false,
     theme: 'dark',
+    weeklyRestDays: [0], // Default: Pazar
+    customRestDates: [],
+    excludedRestDates: [],
   };
 
   try {
@@ -221,6 +224,9 @@ export function getStoredProfile(): UserProfile {
       currentStreakDays: safeNum(parsed.currentStreakDays, 0),
       totalFocusHours: safeNum(parsed.totalFocusHours, 0),
       cheersReceived: safeNum(parsed.cheersReceived, 0),
+      weeklyRestDays: Array.isArray(parsed.weeklyRestDays) ? parsed.weeklyRestDays : [0],
+      customRestDates: Array.isArray(parsed.customRestDates) ? parsed.customRestDates : [],
+      excludedRestDates: Array.isArray(parsed.excludedRestDates) ? parsed.excludedRestDates : [],
     };
     return merged;
   } catch {

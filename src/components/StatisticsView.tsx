@@ -20,19 +20,29 @@ import {
   CheckCircle2,
   ArrowUpRight,
   ArrowDownRight,
+  Layers,
+  Coffee,
   Activity,
-  Layers
 } from 'lucide-react';
 import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
+import { isDateRestDay } from '../utils/stats';
 
 interface StatisticsViewProps {
   sessions: FocusSession[];
   profile: UserProfile;
   tasks?: FocusTask[];
+  onOpenSettings?: () => void;
+  onUpdateProfile?: (updated: Partial<UserProfile>) => void;
 }
 
-export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profile, tasks = [] }) => {
+export const StatisticsView = React.memo<StatisticsViewProps>(({
+  sessions,
+  profile,
+  tasks = [],
+  onOpenSettings,
+  onUpdateProfile,
+}) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'forest_gallery'>('daily');
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -265,6 +275,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
       formattedDuration: string;
       sessionCount: number;
       isToday: boolean;
+      isRestDay: boolean;
     } | null)[] = [];
 
     // Empty leading padding slots for Monday start
@@ -278,6 +289,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
     let totalBreakSecs = 0;
     let totalSessionCount = 0;
     let activeDaysCount = 0;
+    let restDaysCount = 0;
 
     for (let day = 1; day <= totalDaysInMonth; day++) {
       const str = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -285,8 +297,10 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
       const daySecs = matched.reduce((sum, s) => sum + s.completedSeconds, 0);
       const dayBreakSecs = matched.reduce((sum, s) => sum + (s.breakSeconds || 0), 0);
       const mins = Math.round(daySecs / 60);
+      const isRest = isDateRestDay(str, profile);
 
       if (daySecs > 0) activeDaysCount++;
+      if (isRest) restDaysCount++;
       totalMonthlySecs += daySecs;
       totalBreakSecs += dayBreakSecs;
       totalSessionCount += matched.length;
@@ -304,9 +318,6 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
         return `${rem} dk`;
       };
 
-      const totalMonthlyMins = Math.round(totalMonthlySecs / 60);
-      const totalBreakMins = Math.round(totalBreakSecs / 60);
-
       days.push({
         dayNum: day,
         dateStr: str,
@@ -315,6 +326,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
         formattedDuration: formatCellDuration(mins),
         sessionCount: matched.length,
         isToday: str === todayStr,
+        isRestDay: isRest,
       });
     }
 
@@ -339,10 +351,11 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
       totalBreakHoursFormatted: formatHourMin(totalBreakMins),
       totalSessionCount,
       activeDaysCount,
+      restDaysCount,
       consistencyRate: Math.round((activeDaysCount / totalDaysInMonth) * 100),
       topSubjects: sortedSubjects.slice(0, 5),
     };
-  }, [sessions, selectedMonthDate]);
+  }, [sessions, selectedMonthDate, profile]);
 
   // Forest Trees Collection
   const forestTrees = useMemo(() => {
@@ -491,6 +504,37 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Rest Day Highlight Banner */}
+          {isDateRestDay(targetDateStr, profile) && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-950/35 border border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200 shadow-sm animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl sm:text-3xl">☕</span>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-2">
+                    <span>Haftalık Mola Günü</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-mono">
+                      {targetDateStr}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-amber-200/80 mt-0.5">
+                    Bu gün programınızda dinlenme günü olarak işaretlidir. Mola günleri istikrar serinizi (streak) korur.
+                  </p>
+                </div>
+              </div>
+              {onOpenSettings && (
+                <button
+                  onClick={() => {
+                    soundEngine.playClick();
+                    onOpenSettings();
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold border border-amber-500/40 transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                >
+                  Mola Günlerini Düzenle
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Quick Metrics Bar - Net Odak, Mola Sayısı, Molada Geçen Süre */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
@@ -938,26 +982,45 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
 
           {/* Gerçek Pazartesi-Pazar Aylık Takvim Izgarası */}
           <div className="p-6 rounded-2xl bg-neutral-900/80 border border-neutral-800 shadow-xl">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-[#ff5500]" />
                   <span>{selectedMonthTitle} Odaklanma Takvimi</span>
                 </h3>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  Pazartesi'den Pazar'a gerçek takvim. Her kutudaki saat değerine tıklayarak o günün detaylarını inceleyebilirsiniz.
+                  Pazartesi'den Pazar'a gerçek takvim. Günlere tıklayarak detayları inceleyebilir, mola günlerinizi takip edebilirsiniz.
                 </p>
               </div>
 
-              {/* Heatmap Legend */}
-              <div className="flex items-center gap-1.5 text-xs text-neutral-400">
-                <span>0s</span>
-                <span className="w-3 h-3 rounded-sm bg-neutral-800/80" />
-                <span className="w-3 h-3 rounded-sm bg-[#ff5500]/25" />
-                <span className="w-3 h-3 rounded-sm bg-[#ff5500]/50" />
-                <span className="w-3 h-3 rounded-sm bg-[#ff5500]/80" />
-                <span className="w-3 h-3 rounded-sm bg-[#ff5500]" />
-                <span>6s+</span>
+              {/* Heatmap Legend & Mola Günü Info */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-neutral-400">
+                <div className="flex items-center gap-1.5">
+                  <span>0s</span>
+                  <span className="w-3 h-3 rounded-sm bg-neutral-800/80" />
+                  <span className="w-3 h-3 rounded-sm bg-[#ff5500]/25" />
+                  <span className="w-3 h-3 rounded-sm bg-[#ff5500]/50" />
+                  <span className="w-3 h-3 rounded-sm bg-[#ff5500]/80" />
+                  <span className="w-3 h-3 rounded-sm bg-[#ff5500]" />
+                  <span>6s+</span>
+                </div>
+                <div className="flex items-center gap-1.5 pl-2 border-l border-neutral-800 text-amber-400 font-semibold text-[11px]">
+                  <span>☕</span>
+                  <span>mola günü</span>
+                </div>
+                {onOpenSettings && (
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick();
+                      onOpenSettings();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-all cursor-pointer hover:border-amber-500/60 hover:text-amber-300"
+                    title="Haftalık mola günlerini ayarla"
+                  >
+                    <Coffee className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Mola Günlerini Ayarla</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -987,7 +1050,11 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
                 const numericHours = parseFloat(item.hours);
                 let colorClass = 'bg-neutral-800/60 text-neutral-400 border-neutral-700/40 hover:bg-neutral-800';
 
-                if (numericHours >= 6.0) {
+                if (item.isRestDay && numericHours === 0) {
+                  colorClass = 'bg-amber-950/25 text-amber-200/90 border-amber-500/40 hover:bg-amber-900/30 hover:border-amber-400 shadow-sm';
+                } else if (item.isRestDay && numericHours > 0) {
+                  colorClass = 'bg-[#ff5500]/70 text-white font-bold border-amber-400/90 shadow-md shadow-amber-500/20';
+                } else if (numericHours >= 6.0) {
                   colorClass = 'bg-[#ff5500] text-white font-black shadow-lg shadow-[#ff5500]/30 border-[#ff7722]';
                 } else if (numericHours >= 4.0) {
                   colorClass = 'bg-[#ff5500]/80 text-white font-bold border-[#ff5500]/60';
@@ -1005,25 +1072,49 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
                       setSelectedCalendarDate(item.dateStr);
                       setActiveTab('daily');
                     }}
-                    className={`aspect-square rounded-xl p-2 sm:p-2.5 flex flex-col justify-between text-left transition-all hover:scale-105 hover:ring-2 hover:ring-white cursor-pointer border relative ${colorClass} ${
+                    className={`aspect-square rounded-xl p-1.5 sm:p-2.5 flex flex-col justify-between text-left transition-all hover:scale-105 hover:ring-2 hover:ring-white cursor-pointer border relative ${colorClass} ${
                       item.isToday ? 'ring-2 ring-sky-400' : ''
                     }`}
-                    title={`${item.dateStr}: ${item.formattedDuration} (${item.sessionCount} seans)`}
+                    title={`${item.dateStr}: ${item.isRestDay ? '☕ Mola Günü - ' : ''}${item.formattedDuration} (${item.sessionCount} seans)`}
                   >
-                    <div className="flex items-center justify-between w-full">
+                    {/* Top Row: Day Number on the Left, Coffee & "mola günü" on the Right */}
+                    <div className="flex items-center justify-between w-full gap-1">
                       <span className="text-[10px] sm:text-xs font-mono font-bold opacity-90">{item.dayNum}</span>
-                      {item.isToday && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                      )}
+                      
+                      <div className="flex items-center gap-1 ml-auto">
+                        {item.isToday && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
+                        )}
+                        {item.isRestDay && (
+                          <span className="inline-flex items-center gap-0.5 sm:gap-1 text-[7.5px] sm:text-[9.5px] font-bold text-amber-300 bg-amber-500/25 border border-amber-500/50 px-1 sm:px-1.5 py-0.5 rounded leading-none shadow-xs">
+                            <span className="text-[9px] sm:text-[11px] leading-none">☕</span>
+                            <span className="whitespace-nowrap font-medium">mola günü</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
 
+                    {/* Bottom Row: Duration or Rest Indicator */}
                     <div>
-                      <span className="text-[11px] sm:text-xs font-mono font-black leading-tight block truncate">
-                        {item.formattedDuration}
-                      </span>
-                      <span className="text-[9px] opacity-75 hidden sm:block">
-                        {item.sessionCount > 0 ? `${item.sessionCount} seans` : 'odaklanma'}
-                      </span>
+                      {item.isRestDay && numericHours === 0 ? (
+                        <>
+                          <span className="text-[9.5px] sm:text-xs font-semibold text-amber-300/90 leading-tight block truncate">
+                            Dinlenme
+                          </span>
+                          <span className="text-[8px] sm:text-[9px] text-amber-400/60 hidden sm:block">
+                            Haftalık Mola
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-[10px] sm:text-xs font-mono font-black leading-tight block truncate">
+                            {item.formattedDuration}
+                          </span>
+                          <span className="text-[8px] sm:text-[9px] opacity-75 hidden sm:block">
+                            {item.sessionCount > 0 ? `${item.sessionCount} seans` : 'odaklanma'}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </button>
                 );
@@ -1031,7 +1122,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
             </div>
 
             {/* Monthly Summary Footer */}
-            <div className="mt-8 pt-5 border-t border-neutral-800 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="mt-8 pt-5 border-t border-neutral-800 grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 text-xs">
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Aylık Toplam Odak:</span>
                 <strong className="text-white text-base font-mono">{monthlyCalendarData.totalHoursFormatted}</strong>
@@ -1039,6 +1130,13 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({ sessions, profi
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Toplam Mola Süresi:</span>
                 <strong className="text-amber-400 text-base font-mono">{monthlyCalendarData.totalBreakHoursFormatted}</strong>
+              </div>
+              <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
+                <span className="text-neutral-400 block mb-1">Mola Günleri:</span>
+                <strong className="text-amber-300 text-base font-mono flex items-center gap-1">
+                  <span>☕</span>
+                  <span>{monthlyCalendarData.restDaysCount} Gün</span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
                 <span className="text-neutral-400 block mb-1">Aktif Gün Sayısı:</span>

@@ -157,6 +157,7 @@ export default function App() {
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'breaks' | 'notifications' | 'theme' | 'security' | 'backup'>('breaks');
   const [isMarketModalOpen, setIsMarketModalOpen] = useState<boolean>(false);
   const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
@@ -217,6 +218,14 @@ export default function App() {
     }
   }, [profile.studyTrack]);
 
+  // Fast loading safety timeout: unlock within max 500ms so user never waits
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAuthChecking(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Firebase Auth listener and Firestore sync
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -235,7 +244,10 @@ export default function App() {
         });
         setProfile(immediateProfile);
 
-        // Fetch user document from Firestore to sync profile
+        // INSTANT UNLOCK: Immediately display the app panel without waiting for cloud fetch!
+        setIsAuthChecking(false);
+
+        // Fetch user document from Firestore in the background to sync profile
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userDocRef);
@@ -260,6 +272,8 @@ export default function App() {
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
               totalFocusHours: parseNumericField(data.totalFocusHours, 0),
               cheersReceived: parseNumericField(data.cheersReceived, 0),
+              weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || [0]),
+              customRestDates: Array.isArray(data.customRestDates) ? data.customRestDates : (immediateProfile.customRestDates || []),
               hasCompletedOnboarding: true,
             });
             setProfile(mergedProfile);
@@ -449,8 +463,8 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Compute 100% Real Stats & Real Streak
-  const realStreak = useMemo(() => calculateRealStreak(sessions), [sessions]);
+  // Compute 100% Real Stats & Real Streak (Rest days preserve streak)
+  const realStreak = useMemo(() => calculateRealStreak(sessions, profile), [sessions, profile]);
   const realTotalHours = useMemo(() => calculateTotalFocusHours(sessions), [sessions]);
   const todayMinutes = useMemo(() => calculateTodayMinutes(sessions), [sessions]);
 
@@ -552,7 +566,7 @@ export default function App() {
             currentSubject: '',
             todayTotalMinutes: todayMinutes + Math.round(newSession.completedSeconds / 60),
             totalFocusMinutes: Math.round(realTotalHours * 60 + newSession.completedSeconds / 60),
-            streakDays: calculateRealStreak([newSession, ...sessions]),
+            streakDays: calculateRealStreak([newSession, ...sessions], profile),
             lastActiveAt: Date.now(),
           },
           { merge: true }
@@ -568,7 +582,7 @@ export default function App() {
 
     const updatedProfile = updateStoredProfile({
       totalFocusHours: calculateTotalFocusHours([newSession, ...sessions]),
-      currentStreakDays: calculateRealStreak([newSession, ...sessions]),
+      currentStreakDays: calculateRealStreak([newSession, ...sessions], profile),
     });
     setProfile(updatedProfile);
 
@@ -711,7 +725,7 @@ export default function App() {
             {
               todayTotalMinutes: todayMinutes + manualDurationMinutes,
               totalFocusMinutes: Math.round(realTotalHours * 60 + manualDurationMinutes),
-              streakDays: calculateRealStreak([manualSession, ...sessions]),
+              streakDays: calculateRealStreak([manualSession, ...sessions], profile),
               lastActiveAt: Date.now(),
             },
             { merge: true }
@@ -723,7 +737,7 @@ export default function App() {
 
       const updatedProfile = updateStoredProfile({
         totalFocusHours: calculateTotalFocusHours([manualSession, ...sessions]),
-        currentStreakDays: calculateRealStreak([manualSession, ...sessions]),
+        currentStreakDays: calculateRealStreak([manualSession, ...sessions], profile),
       });
       setProfile(updatedProfile);
     }
@@ -824,6 +838,9 @@ export default function App() {
       await updateCloudStatus('idle');
       await signOut(auth);
       setCurrentUser(null);
+      const fresh = getStoredProfile();
+      fresh.userId = '';
+      setProfile(fresh);
     } catch {
       // ignore
     }
@@ -838,6 +855,7 @@ export default function App() {
     } catch {}
     setIsGuestMode(false);
     const fresh = getStoredProfile();
+    fresh.userId = '';
     setProfile(fresh);
     setSessions([]);
     setTasks([]);
@@ -854,22 +872,20 @@ export default function App() {
       : 'bg-[#0b0c10]';
 
   // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
-  // Kullanıcı zaten giriş yapmışsa asla LandingPage'e atmaz, doğrudan ana panele bağlar
-  if (isAuthChecking) {
-    return (
-      <div className="min-h-screen bg-[#07090e] text-white flex flex-col items-center justify-center font-sans">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#ff5500] to-amber-500 flex items-center justify-center shadow-xl shadow-[#ff5500]/30 animate-pulse mb-4">
-          <span className="text-white font-black text-2xl">F</span>
-        </div>
-        <h3 className="text-base font-bold text-white tracking-tight">Fokus Premium</h3>
-        <p className="text-xs text-neutral-400 mt-1">Hesabınız yükleniyor...</p>
-      </div>
-    );
-  }
+  // Kullanıcı zaten kayıtlıysa veya misafir modundaysa ASLA bekleme ekranında takılı kalmaz, 0ms anında açılır!
+  const isExistingUser = Boolean(
+    currentUser ||
+    isGuestMode ||
+    profile.userId ||
+    (typeof window !== 'undefined' && (
+      localStorage.getItem('fokus_user_authenticated') === 'true' ||
+      localStorage.getItem('fokus_user_uid')
+    ))
+  );
 
   // 2. YENİ TARAYICIDA / İLK KEZ SİTEYE GİRİLDİĞİNDE:
   // Onboarding ASLA açılmaz; sağ üstte Giriş Yap ve Kaydol butonları olan Tanıtım Sayfası (LandingPage) gösterilir!
-  if (!currentUser && !isGuestMode) {
+  if (!isExistingUser) {
     return (
       <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] flex flex-col font-sans">
         <LandingPage
@@ -1059,7 +1075,16 @@ export default function App() {
             )}
 
             {currentTab === 'stats' && (
-              <StatisticsView sessions={sessions} profile={dynamicProfile} tasks={tasks} />
+              <StatisticsView
+                sessions={sessions}
+                profile={dynamicProfile}
+                tasks={tasks}
+                onOpenSettings={() => {
+                  setSettingsInitialTab('breaks');
+                  setIsSettingsModalOpen(true);
+                }}
+                onUpdateProfile={handleUpdateProfile}
+              />
             )}
 
             {(currentTab === 'rooms' || currentTab === 'students') && (
@@ -1104,6 +1129,7 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
+        initialTab={settingsInitialTab}
         profile={dynamicProfile}
         currentUser={currentUser}
         sessions={sessions}

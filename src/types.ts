@@ -186,4 +186,7 @@ export interface UserProfile {
   desktopNotifications?: boolean;
   liveNotifications?: boolean;
   deviceModePreference?: 'auto' | 'mobile' | 'tablet' | 'desktop';
+  weeklyRestDays?: number[]; // [0 = Pazar, 1 = Pazartesi, 2 = Salı, 3 = Çarşamba, 4 = Perşembe, 5 = Cuma, 6 = Cumartesi]
+  customRestDates?: string[]; // Array of YYYY-MM-DD for week-specific custom rest days
+  excludedRestDates?: string[]; // Array of YYYY-MM-DD to remove rest day for a specific week
 }
