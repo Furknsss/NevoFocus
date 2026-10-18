@@ -1,4 +1,4 @@
-export type FocusModeType = 'forest' | 'climb' | 'flight' | 'dive';
+export type FocusModeType = 'forest' | 'climb' | 'flight' | 'dive' | 'clock';
 
 export interface FocusModeConfig {
   id: FocusModeType;
@@ -190,3 +190,10 @@ export interface UserProfile {
   customRestDates?: string[]; // Array of YYYY-MM-DD for week-specific custom rest days
   excludedRestDates?: string[]; // Array of YYYY-MM-DD to remove rest day for a specific week
 }
+
+export const SERBEST_CALISMA_SUBJECT: SubjectItem = {
+  id: 'sub-serbest-calisma',
+  name: 'Serbest Çalışma',
+  color: '#6366f1',
+};
+

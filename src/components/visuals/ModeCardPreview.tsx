@@ -412,6 +412,60 @@ export const ModeCardPreview = React.memo<ModeCardPreviewProps>(({ mode, isActiv
           ctx.fill();
           ctx.stroke();
         });
+      } else if (mode === 'clock') {
+        // PURE AMOLED BLACK IPAD DIGITAL STOPWATCH PREVIEW
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Soft center ambient glow
+        const glow = ctx.createRadialGradient(cw / 2, ch / 2, 5 * cdpr, cw / 2, ch / 2, 70 * cdpr);
+        glow.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
+        glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Mini subtle Spotify indicator in top-left
+        ctx.fillStyle = '#1DB954';
+        ctx.beginPath();
+        ctx.arc(18 * cdpr, 18 * cdpr, 3.5 * cdpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Animated digital seconds calculation
+        const secVal = Math.floor((time * 2.5) % 60);
+        const padSec = String(secVal).padStart(2, '0');
+
+        // Central Stopwatch Typography
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Main Digits: "00:41"
+        ctx.font = `600 ${32 * cdpr}px monospace, ui-monospace, sans-serif`;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('00:41', cw / 2 - 16 * cdpr, ch / 2 - 6 * cdpr);
+
+        // Smaller Seconds: ":15"
+        ctx.font = `400 ${20 * cdpr}px monospace, ui-monospace, sans-serif`;
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(`:${padSec}`, cw / 2 + 38 * cdpr, ch / 2 - 2 * cdpr);
+
+        // Mode subtitle label
+        ctx.font = `700 ${8.5 * cdpr}px sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.fillText('KRONOMETRE', cw / 2, ch / 2 + 22 * cdpr);
+
+        // Apple-style bottom dots/buttons preview
+        ctx.fillStyle = '#262626';
+        ctx.beginPath();
+        ctx.arc(cw / 2 - 40 * cdpr, ch - 22 * cdpr, 7 * cdpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#14532d';
+        ctx.beginPath();
+        ctx.arc(cw / 2 + 40 * cdpr, ch - 22 * cdpr, 7 * cdpr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
       }
     };
 

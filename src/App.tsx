@@ -8,6 +8,7 @@ import {
   StudentPeer,
   FlightAirport,
   CheerNotification,
+  SERBEST_CALISMA_SUBJECT,
 } from './types';
 import {
   getStoredSessions,
@@ -87,6 +88,7 @@ export default function App() {
 
   // Cloud active focus sync across devices (e.g. tablet <-> phone)
   const [cloudActiveSession, setCloudActiveSession] = useState<ActiveFocusData | null>(null);
+  const [localMinimizedSession, setLocalMinimizedSession] = useState<ActiveFocusData | null>(null);
 
   // Tablet & Phone authentication persistence: never flash or dump user to landing screen
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(() => {
@@ -188,9 +190,9 @@ export default function App() {
       const runningRaw = localStorage.getItem('fokus_active_session_running');
       if (runningRaw) {
         const saved = JSON.parse(runningRaw);
-        if (saved && saved.mode && saved.subject) {
+        if (saved && saved.mode) {
           setCurrentActiveMode(saved.mode);
-          setSelectedSubject(saved.subject);
+          setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
           setDurationMinutes(saved.plannedMinutes || 45);
           setTimerType(saved.timerType || 'countdown');
           if (saved.selectedTaskId) {
@@ -207,8 +209,10 @@ export default function App() {
     }
   }, []);
 
-  // Update selected subject when profile's track changes
+  // Update selected subject when profile's track changes (NEVER overwrite active session or Serbest Çalışma)
   useEffect(() => {
+    if (isSessionActive) return;
+    if (selectedSubject?.name === 'Serbest Çalışma') return;
     const trackSubjects = getDefaultSubjectsForTrack(profile.studyTrack || 'Sayısal');
     if (trackSubjects.length > 0) {
       const isStillValid = trackSubjects.some((s) => s.name === selectedSubject?.name);
@@ -216,7 +220,7 @@ export default function App() {
         setSelectedSubject(trackSubjects[0]);
       }
     }
-  }, [profile.studyTrack]);
+  }, [profile.studyTrack, isSessionActive, selectedSubject?.name]);
 
   // Fast loading safety timeout: unlock within max 500ms so user never waits
   useEffect(() => {
@@ -272,7 +276,7 @@ export default function App() {
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
               totalFocusHours: parseNumericField(data.totalFocusHours, 0),
               cheersReceived: parseNumericField(data.cheersReceived, 0),
-              weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || [0]),
+              weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || []),
               customRestDates: Array.isArray(data.customRestDates) ? data.customRestDates : (immediateProfile.customRestDates || []),
               hasCompletedOnboarding: true,
             });
@@ -516,6 +520,9 @@ export default function App() {
   const handleSelectModeFromHub = (mode: FocusModeType) => {
     setCurrentActiveMode(mode);
     setTransitioningToMode(mode);
+    if (mode === 'clock') {
+      setTimerType('stopwatch');
+    }
   };
 
   const handleTransitionCurtainMidpoint = () => {
@@ -529,17 +536,28 @@ export default function App() {
   };
 
   const handleStartSession = () => {
-    const subToUse = selectedSubject || subjects[0];
-    if (!subToUse) return;
-    if (!selectedSubject) setSelectedSubject(subToUse);
+    let subToUse = selectedSubject;
+    if (!selectedTask) {
+      subToUse = SERBEST_CALISMA_SUBJECT;
+      setSelectedSubject(SERBEST_CALISMA_SUBJECT);
+    } else if (!subToUse) {
+      subToUse = subjects.find((s) => s.name === selectedTask.subjectName) || SERBEST_CALISMA_SUBJECT;
+      setSelectedSubject(subToUse);
+    }
+    setLocalMinimizedSession(null);
     setIsSessionActive(true);
-    updateCloudStatus('studying', subToUse.name);
+    updateCloudStatus('studying', subToUse?.name || 'Serbest Çalışma');
   };
 
   const handleSessionComplete = async (newSession: FocusSession) => {
-    const updated = saveSession(newSession);
+    const finalSession: FocusSession = {
+      ...newSession,
+      subjectName: newSession.taskId ? newSession.subjectName : 'Serbest Çalışma',
+    };
+    const updated = saveSession(finalSession);
     setSessions(updated);
     setIsSessionActive(false);
+    setLocalMinimizedSession(null);
 
     try {
       localStorage.removeItem('fokus_active_session_running');
@@ -1008,8 +1026,36 @@ export default function App() {
             onSessionComplete={handleSessionComplete}
             onAbandonSession={handleAbandonSession}
             onToggleAudioModal={() => setIsAudioModalOpen(true)}
-            onMinimize={() => setIsSessionActive(false)}
             isAudioPlaying={Boolean(currentAmbientTrack)}
+            onMinimize={() => {
+              let elapsed = 0;
+              try {
+                const raw = localStorage.getItem('fokus_active_session_running');
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (parsed?.elapsedCountUp) elapsed = parsed.elapsedCountUp;
+                  else if (parsed?.elapsedSeconds) elapsed = parsed.elapsedSeconds;
+                }
+              } catch {}
+
+              const data: ActiveFocusData = {
+                mode: currentActiveMode,
+                subject: selectedTask ? selectedSubject : SERBEST_CALISMA_SUBJECT,
+                plannedMinutes: durationMinutes,
+                startedAt: Date.now() - elapsed * 1000,
+                elapsedSeconds: elapsed,
+                isPaused: false,
+                timerType: timerType,
+                selectedTaskId: selectedTask?.id,
+                selectedTaskTitle: selectedTask?.title,
+                selectedTreeSpecies,
+                originAirport,
+                destAirport,
+              };
+
+              setLocalMinimizedSession(data);
+              setIsSessionActive(false);
+            }}
             desktopNotificationsEnabled={Boolean(dynamicProfile.desktopNotifications)}
             liveNotificationsEnabled={Boolean(dynamicProfile.liveNotifications)}
             selectedTreeSpecies={selectedTreeSpecies}
@@ -1222,9 +1268,9 @@ export default function App() {
       )}
 
       {/* Multi-Device & Minimized Floating Mini Focus Pill (Matches User Photo) */}
-      {cloudActiveSession && !isSessionActive && (
+      {(localMinimizedSession || cloudActiveSession) && !isSessionActive && (
         <FloatingMiniFocusPill
-          session={cloudActiveSession}
+          session={(localMinimizedSession || cloudActiveSession)!}
           isMobile={isMobile}
           isAudioPlaying={Boolean(currentAmbientTrack)}
           onToggleAudio={() => {
@@ -1237,39 +1283,51 @@ export default function App() {
             }
           }}
           onTogglePause={async () => {
-            const nextPaused = !cloudActiveSession.isPaused;
-            setCloudActiveSession((prev) => (prev ? { ...prev, isPaused: nextPaused } : null));
-            if (currentUser) {
-              try {
-                await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
-                  isPaused: nextPaused,
-                  updatedAt: Date.now(),
-                });
-              } catch {}
+            if (localMinimizedSession) {
+              setLocalMinimizedSession((prev) => (prev ? { ...prev, isPaused: !prev.isPaused } : null));
+            }
+            if (cloudActiveSession) {
+              const nextPaused = !cloudActiveSession.isPaused;
+              setCloudActiveSession((prev) => (prev ? { ...prev, isPaused: nextPaused } : null));
+              if (currentUser) {
+                try {
+                  await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
+                    isPaused: nextPaused,
+                    updatedAt: Date.now(),
+                  });
+                } catch {}
+              }
             }
           }}
           onComplete={async () => {
-            const completedSecs = Math.max(60, cloudActiveSession.elapsedSeconds || 60);
+            const activeSession = localMinimizedSession || cloudActiveSession;
+            if (!activeSession) return;
+            const completedSecs = Math.max(10, activeSession.elapsedSeconds || 10);
             const now = new Date();
             const pad = (n: number) => String(n).padStart(2, '0');
             const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
             const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            const finalSubjectName = activeSession.selectedTaskId
+              ? activeSession.subject?.name || 'Serbest Çalışma'
+              : 'Serbest Çalışma';
             const newSession: FocusSession = {
               id: `sess-${Date.now()}`,
               userId: currentUser?.uid || 'guest',
-              mode: cloudActiveSession.mode,
-              subjectId: cloudActiveSession.subject?.id || 'sub-genel',
-              subjectName: cloudActiveSession.subject?.name || 'Serbest Çalışma',
-              subjectColor: cloudActiveSession.subject?.color || '#ff5500',
-              plannedMinutes: cloudActiveSession.plannedMinutes || 45,
+              mode: activeSession.mode,
+              subjectId: activeSession.selectedTaskId ? activeSession.subject?.id || 'sub-serbest-calisma' : 'sub-serbest-calisma',
+              subjectName: finalSubjectName,
+              subjectColor: activeSession.selectedTaskId ? activeSession.subject?.color || '#6366f1' : '#6366f1',
+              plannedMinutes: activeSession.plannedMinutes || 45,
               completedSeconds: completedSecs,
-              breakSeconds: cloudActiveSession.breakSeconds || 0,
+              breakSeconds: activeSession.breakSeconds || 0,
               completed: true,
               dateString: dateStr,
               startTimeString: timeStr,
               endTimeString: timeStr,
               timestamp: Date.now(),
-              note: 'Hızlı yüzen çubuk üzerinden başarıyla tamamlandı.',
+              note: activeSession.selectedTaskTitle || `${finalSubjectName} seansı`,
+              taskId: activeSession.selectedTaskId,
+              taskTitle: activeSession.selectedTaskTitle,
             };
             const updated = saveSession(newSession);
             setSessions(updated);
@@ -1284,19 +1342,23 @@ export default function App() {
             try {
               localStorage.removeItem('fokus_active_session_running');
             } catch {}
+            setLocalMinimizedSession(null);
             setCloudActiveSession(null);
           }}
           onMaximize={() => {
-            setCurrentActiveMode(cloudActiveSession.mode);
-            setSelectedSubject(cloudActiveSession.subject);
-            setDurationMinutes(cloudActiveSession.plannedMinutes);
-            setTimerType(cloudActiveSession.timerType);
-            if (cloudActiveSession.selectedTaskId) {
-              setSelectedTask(tasks.find((t) => t.id === cloudActiveSession.selectedTaskId) || null);
+            const sess = localMinimizedSession || cloudActiveSession;
+            if (!sess) return;
+            setCurrentActiveMode(sess.mode);
+            setSelectedSubject(sess.subject || SERBEST_CALISMA_SUBJECT);
+            setDurationMinutes(sess.plannedMinutes);
+            setTimerType(sess.timerType);
+            if (sess.selectedTaskId) {
+              setSelectedTask(tasks.find((t) => t.id === sess.selectedTaskId) || null);
             }
-            if (cloudActiveSession.originAirport) setOriginAirport(cloudActiveSession.originAirport);
-            if (cloudActiveSession.destAirport) setDestAirport(cloudActiveSession.destAirport);
-            if (cloudActiveSession.selectedTreeSpecies) setSelectedTreeSpecies(cloudActiveSession.selectedTreeSpecies);
+            if (sess.originAirport) setOriginAirport(sess.originAirport);
+            if (sess.destAirport) setDestAirport(sess.destAirport);
+            if (sess.selectedTreeSpecies) setSelectedTreeSpecies(sess.selectedTreeSpecies);
+            setLocalMinimizedSession(null);
             setIsSessionActive(true);
           }}
         />

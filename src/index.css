@@ -1,1 +1,37 @@
 @import "tailwindcss";
+
+@keyframes flipFoldTop {
+  0% {
+    transform: rotateX(0deg);
+    filter: brightness(1);
+  }
+  100% {
+    transform: rotateX(-90deg);
+    filter: brightness(0.35);
+  }
+}
+
+@keyframes flipUnfoldBottom {
+  0% {
+    transform: rotateX(90deg);
+    filter: brightness(0.35);
+  }
+  100% {
+    transform: rotateX(0deg);
+    filter: brightness(1);
+  }
+}
+
+.animate-flip-top {
+  animation: flipFoldTop 0.25s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+  transform-origin: 50% 100%;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.animate-flip-bottom {
+  animation: flipUnfoldBottom 0.25s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0.15s forwards;
+  transform-origin: 50% 0%;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}

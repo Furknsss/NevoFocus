@@ -37,6 +37,15 @@ export const FOCUS_MODES: FocusModeConfig[] = [
     description: 'Balıkçı teknesinden kaçan balıkla derin denizdeki Balık Şehri\'ne dal.',
     iconName: 'Waves',
   },
+  {
+    id: 'clock',
+    title: 'Dijital Saat',
+    subtitle: 'Kronometre & Flip Clock',
+    accentColor: '#ffffff',
+    glowColor: 'rgba(255, 255, 255, 0.4)',
+    description: 'Sade siyah arka planda kronometre ve flip clock ile sıfır dikkat dağınıklığı.',
+    iconName: 'Clock',
+  },
 ];
 
 export const DEFAULT_SUBJECTS: SubjectItem[] = [
@@ -202,7 +211,7 @@ export function getStoredProfile(): UserProfile {
     desktopNotifications: false,
     liveNotifications: false,
     theme: 'dark',
-    weeklyRestDays: [0], // Default: Pazar
+    weeklyRestDays: [], // Default: Mola günü seçilmedikçe takvimde mola günü gösterilmez
     customRestDates: [],
     excludedRestDates: [],
   };
@@ -224,7 +233,7 @@ export function getStoredProfile(): UserProfile {
       currentStreakDays: safeNum(parsed.currentStreakDays, 0),
       totalFocusHours: safeNum(parsed.totalFocusHours, 0),
       cheersReceived: safeNum(parsed.cheersReceived, 0),
-      weeklyRestDays: Array.isArray(parsed.weeklyRestDays) ? parsed.weeklyRestDays : [0],
+      weeklyRestDays: Array.isArray(parsed.weeklyRestDays) ? parsed.weeklyRestDays : [],
       customRestDates: Array.isArray(parsed.customRestDates) ? parsed.customRestDates : [],
       excludedRestDates: Array.isArray(parsed.excludedRestDates) ? parsed.excludedRestDates : [],
     };

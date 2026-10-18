@@ -24,12 +24,15 @@ import {
   Bell,
   Coffee,
   Sun,
+  Clock,
 } from 'lucide-react';
 import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
 import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
+import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
+import { SpotifyFocusWidget } from './visuals/SpotifyFocusWidget';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
@@ -125,6 +128,17 @@ const MODE_BREAK_CONFIG: Record<
     themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
     ambientSound: 'forest',
   },
+  clock: {
+    buttonIcon: Coffee,
+    startLabel: 'Mola Ver',
+    resumeLabel: 'Devam Et',
+    hudTitle: 'Mola',
+    hudDesc: 'Mola veriyorsun.',
+    themePillBg: 'bg-neutral-900 border-neutral-700 text-neutral-200',
+    themeActiveBtn: 'bg-white text-black border-neutral-300',
+    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-white border-neutral-700',
+    ambientSound: 'white_noise',
+  },
 };
 
 export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
@@ -153,14 +167,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       const raw = localStorage.getItem('fokus_active_session_running');
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.mode === mode && parsed.subject?.name === subject.name) {
+      if (parsed && parsed.mode === mode) {
         return parsed;
       }
     } catch {
       // ignore
     }
     return null;
-  }, [mode, subject.name]);
+  }, [mode]);
 
   const totalSeconds = plannedMinutes * 60;
   const [currentTimerType, setCurrentTimerType] = useState<'countdown' | 'stopwatch'>(() => {
@@ -205,6 +219,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const [isPaused, setIsPaused] = useState<boolean>(() => {
     return savedState ? Boolean(savedState.isPaused) : false;
   });
+
+  const handleTogglePause = () => {
+    soundEngine.playClick();
+    setIsPaused((prev) => !prev);
+  };
   const { isWakeLockActive } = useScreenWakeLock(!isPaused);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAbandonModal, setShowAbandonModal] = useState(false);
@@ -240,6 +259,21 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   // Mini task checklist: ONLY when stopwatch is active
   const [showTasksPanel, setShowTasksPanel] = useState(false);
+  const [clockStyle, setClockStyle] = useState<'ipad' | 'flip'>('ipad');
+
+  // Today's date formatted in Turkish (e.g. 18 Ekim 2026 Pazar)
+  const todayFormattedTurkish = useMemo(() => {
+    const d = new Date();
+    const day = d.getDate();
+    const months = [
+      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+    ];
+    const days = [
+      'Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'
+    ];
+    return `${day} ${months[d.getMonth()]} ${d.getFullYear()} ${days[d.getDay()]}`;
+  }, []);
 
   const quoteRef = useRef(
     MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
@@ -505,12 +539,22 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     );
     const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
 
+    const resolvedSubjectName = selectedTaskTitle
+      ? subject.name
+      : (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock')
+      ? 'Serbest Çalışma'
+      : subject.name;
+
+    const resolvedSubjectColor = (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock')
+      ? '#6366f1'
+      : subject.color;
+
     const session: FocusSession = {
       id: `session-${Date.now()}`,
       mode,
-      subjectId: subject.id,
-      subjectName: subject.name,
-      subjectColor: subject.color,
+      subjectId: (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock') ? 'sub-serbest-calisma' : subject.id,
+      subjectName: resolvedSubjectName,
+      subjectColor: resolvedSubjectColor,
       plannedMinutes,
       completedSeconds: actualCompletedSeconds,
       breakSeconds,
@@ -519,7 +563,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       dateString: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
       startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
       endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-      note: selectedTaskTitle || `${subject.name} seansı (${actualCompletedMinutes} dk çalışıldı)`,
+      note: selectedTaskTitle || `${resolvedSubjectName} seansı (${actualCompletedMinutes} dk çalışıldı)`,
       taskId: selectedTaskId,
       taskTitle: selectedTaskTitle,
       flightInfo:
@@ -658,6 +702,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   return (
     <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 w-full h-full min-h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none">
+      {/* Sol Üstte Zarif Spotify Widget (Canlı Müzik Çaları) */}
+      <SpotifyFocusWidget />
+
       {/* Visual Canvas Backdrop - Fullscreen edge-to-edge */}
       <div className="absolute inset-0 z-0 w-full h-full overflow-hidden">
         {mode === 'forest' && (
@@ -695,41 +742,117 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             elapsedSeconds={elapsedSeconds}
           />
         )}
+        {mode === 'clock' && (
+          <ActiveClockCanvas
+            elapsedSeconds={elapsedSeconds}
+            isPaused={isPaused}
+            onTogglePause={handleTogglePause}
+            onFinish={() => handleFinish(true)}
+            onAbandon={() => setShowAbandonModal(true)}
+            onTakeBreak={toggleThematicBreak}
+            isBreakActive={isCampActive}
+            breakSeconds={breakSeconds}
+            timerType={currentTimerType}
+            remainingSeconds={secondsRemaining}
+            clockStyle={clockStyle}
+            onToggleClockStyle={setClockStyle}
+          />
+        )}
       </div>
 
       {/* Top Floating Info Bar (Clean Non-Overlapping Header) */}
-      <div className="relative z-10 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
-        {/* Left: Mode Title & Subject Badge & Thematic Break Button */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
-            {mode === 'forest' && <Trees className="w-4 h-4 text-emerald-400" />}
-            {mode === 'climb' && <Mountain className="w-4 h-4 text-orange-400" />}
-            {mode === 'flight' && <Plane className="w-4 h-4 text-sky-400" />}
-            {mode === 'dive' && <Waves className="w-4 h-4 text-teal-400" />}
-            <span className="capitalize">
-              {mode === 'forest' ? `Kadim Orman (${selectedTreeSpecies})` : mode === 'climb' ? 'Dağcı Kampı' : mode === 'flight' ? 'Focus Flight 2D' : 'Derin Dalış'}
+      <div className="relative z-30 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+        {/* Left: Mode Title & Subject Badge OR Clean Date for Clock Mode */}
+        <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${mode === 'clock' ? 'pl-14 sm:pl-16' : ''}`}>
+          {mode === 'clock' ? (
+            /* Sol Üstte Sadece Günün Tarihi (Kullanıcı Talebi: Dijital Saat yazısı kaldırıldı, örn: 18 Ekim 2026 Pazar) */
+            <span className="text-xs sm:text-sm font-medium text-neutral-400 select-none tracking-wide">
+              {todayFormattedTurkish}
             </span>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
+                {mode === 'forest' && <Trees className="w-4 h-4 text-emerald-400" />}
+                {mode === 'climb' && <Mountain className="w-4 h-4 text-orange-400" />}
+                {mode === 'flight' && <Plane className="w-4 h-4 text-sky-400" />}
+                {mode === 'dive' && <Waves className="w-4 h-4 text-teal-400" />}
+                <span className="capitalize">
+                  {mode === 'forest'
+                    ? `Kadim Orman (${selectedTreeSpecies})`
+                    : mode === 'climb'
+                    ? 'Dağcı Kampı'
+                    : mode === 'flight'
+                    ? 'Focus Flight 2D'
+                    : 'Derin Dalış'}
+                </span>
+              </div>
 
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold shadow-lg text-white"
-            style={{ backgroundColor: `${subject.color}33`, borderColor: subject.color, borderWidth: 1 }}
-          >
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />
-            <span>{subject.name}</span>
-          </div>
+              <div
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold shadow-lg text-white"
+                style={{ backgroundColor: `${subject.color}33`, borderColor: subject.color, borderWidth: 1 }}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: subject.color }} />
+                <span>{subject.name}</span>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Right: Quick Action Controls (Wake Lock, Audio, Minimize & Fullscreen) */}
-        <div className="flex items-center gap-2">
-          {/* Wake Lock Status Badge */}
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/60 border border-white/10 text-xs text-neutral-300 backdrop-blur-md shadow-sm"
-            title="Ekran Açık Tutuluyor: Odaklanma boyunca telefon/tablet ekranı kapanmaz."
-          >
-            <Sun className={`w-3.5 h-3.5 ${isWakeLockActive ? 'text-amber-400 animate-pulse' : 'text-neutral-400'}`} />
-            <span className="text-[11px] font-medium hidden sm:inline">Ekran Açık</span>
+        {/* Center: Clock Style Switcher (Kronometre vs Flip Clock) - Doğrudan tıklanır, saat kaldığı yerden canlı devam eder */}
+        {mode === 'clock' && (
+          <div className="inline-flex p-1 rounded-full bg-neutral-900/90 border border-neutral-800 backdrop-blur-xl shadow-2xl">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                setClockStyle('ipad');
+              }}
+              className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                clockStyle === 'ipad'
+                  ? 'bg-neutral-800 text-white shadow-md border border-neutral-700'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              ⏱️ Kronometre
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                setClockStyle('flip');
+              }}
+              className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                clockStyle === 'flip'
+                  ? 'bg-neutral-800 text-white shadow-md border border-neutral-700'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Flip Clock
+            </button>
           </div>
+        )}
+
+        {/* Right: Quick Action Controls (Görevler, Audio, ve SADECE BİR TANE Büyüt/Küçült Butonu) */}
+        <div className="flex items-center gap-2">
+          {/* Görevler Button */}
+          <button
+            type="button"
+            onClick={() => setShowTasksPanel(!showTasksPanel)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border transition-all cursor-pointer ${
+              showTasksPanel
+                ? 'bg-sky-500/25 border-sky-400 text-sky-200 shadow-md shadow-sky-950/40'
+                : 'bg-black/60 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
+            }`}
+            title="Günün Görevleri"
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+            <span>Görevler</span>
+            {todayTasks.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-neutral-800 text-[10px] text-neutral-300 font-mono">
+                {todayTasks.filter((t) => t.isCompleted).length}/{todayTasks.length}
+              </span>
+            )}
+          </button>
 
           {/* Audio trigger */}
           <button
@@ -744,22 +867,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <Volume2 className="w-4 h-4" />
           </button>
 
-          {/* Minimize / Floating Pill Mode */}
-          {onMinimize && (
-            <button
-              onClick={onMinimize}
-              className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
-              title="Oturumu Küçült (Sağ altta yüzen çubuk olarak devam eder)"
-            >
-              <Minimize2 className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Fullscreen */}
+          {/* SADECE BİR TUŞ: Büyütüldüğünde küçült tuşu, küçültüldüğünde büyüt tuşu (Kullanıcı Talebi) */}
           <button
             onClick={handleToggleFullscreen}
             className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
-            title="Tarayıcı Tam Ekranı"
+            title={isFullscreen ? 'Küçült' : 'Büyüt'}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -800,64 +912,66 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       )}
 
       {/* Center Focus Timer Display */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 pointer-events-none">
-        <div className="pointer-events-auto flex flex-col items-center">
-          <div className="relative flex items-center justify-center p-6 sm:p-10 rounded-full">
-            <div
-              className="absolute inset-0 rounded-full blur-3xl opacity-25 transition-all"
-              style={{
-                backgroundColor:
-                  mode === 'forest'
-                    ? '#10b981'
-                    : mode === 'climb'
-                    ? '#f97316'
-                    : mode === 'flight'
-                    ? '#38bdf8'
-                    : '#2dd4bf',
-              }}
-            />
+      {mode !== 'clock' && (
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 pointer-events-none">
+          <div className="pointer-events-auto flex flex-col items-center">
+            <div className="relative flex items-center justify-center p-6 sm:p-10 rounded-full">
+              <div
+                className="absolute inset-0 rounded-full blur-3xl opacity-25 transition-all"
+                style={{
+                  backgroundColor:
+                    mode === 'forest'
+                      ? '#10b981'
+                      : mode === 'climb'
+                      ? '#f97316'
+                      : mode === 'flight'
+                      ? '#38bdf8'
+                      : '#2dd4bf',
+                }}
+              />
 
-            <div className="text-center">
-              {/* Task name header if attached */}
-              {selectedTaskTitle && (
-                <div className="mb-2 text-xs font-bold text-sky-400 bg-sky-950/60 border border-sky-800/40 px-3 py-1 rounded-full inline-block backdrop-blur-sm">
-                  {selectedTaskTitle}
+              <div className="text-center">
+                {/* Task name header if attached */}
+                {selectedTaskTitle && (
+                  <div className="mb-2 text-xs font-bold text-sky-400 bg-sky-950/60 border border-sky-800/40 px-3 py-1 rounded-full inline-block backdrop-blur-sm">
+                    {selectedTaskTitle}
+                  </div>
+                )}
+
+                <div className="font-mono text-6xl sm:text-8xl md:text-9xl font-black tracking-tight text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)] tabular-nums">
+                  {timeFormatted}
                 </div>
-              )}
 
-              <div className="font-mono text-6xl sm:text-8xl md:text-9xl font-black tracking-tight text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)] tabular-nums">
-                {timeFormatted}
-              </div>
-
-              <div className="mt-2 flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setCurrentTimerType((prev) => (prev === 'countdown' ? 'stopwatch' : 'countdown'));
-                  }}
-                  className="text-xs sm:text-sm font-semibold tracking-wide text-neutral-300 bg-black/60 hover:bg-black/80 px-3 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5 cursor-pointer transition-all pointer-events-auto"
-                  title="Sayaç ve kronometre arasında geçiş yap"
-                >
-                  <span>{currentTimerType === 'stopwatch' ? '⏱️ Kronometre' : '⏳ Geri Sayım'}</span>
-                  <span className="text-neutral-500">·</span>
-                  <span>
-                    {isCampActive
-                      ? '⛺ Kamp Molası Aktif'
-                      : isPaused
-                      ? '⏸ Duraklatıldı'
-                      : `%${Math.round(progress * 100)}`}
-                  </span>
-                </button>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setCurrentTimerType((prev) => (prev === 'countdown' ? 'stopwatch' : 'countdown'));
+                    }}
+                    className="text-xs sm:text-sm font-semibold tracking-wide text-neutral-300 bg-black/60 hover:bg-black/80 px-3 py-1 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-1.5 cursor-pointer transition-all pointer-events-auto"
+                    title="Sayaç ve kronometre arasında geçiş yap"
+                  >
+                    <span>{currentTimerType === 'stopwatch' ? '⏱️ Kronometre' : '⏳ Geri Sayım'}</span>
+                    <span className="text-neutral-500">·</span>
+                    <span>
+                      {isCampActive
+                        ? '⛺ Kamp Molası Aktif'
+                        : isPaused
+                        ? '⏸ Duraklatıldı'
+                        : `%${Math.round(progress * 100)}`}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <p className="mt-3 max-w-lg text-center text-xs sm:text-sm text-neutral-300/80 italic font-medium px-4 py-1.5 rounded-xl bg-black/40 backdrop-blur-sm">
-            "{quoteRef.current}"
-          </p>
+            <p className="mt-3 max-w-lg text-center text-xs sm:text-sm text-neutral-300/80 italic font-medium px-4 py-1.5 rounded-xl bg-black/40 backdrop-blur-sm">
+              "{quoteRef.current}"
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Floating Task Drawer */}
       {showTasksPanel && (
@@ -903,42 +1017,44 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       )}
 
       {/* Bottom Floating Action Bar: Sadece [ Mola Ver ] [ Tamamla ] [ Vazgeç ] */}
-      <div className="relative z-10 w-full px-4 sm:px-8 pb-6 sm:pb-8 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        {/* 1. Mola Ver / Devam Et */}
-        <button
-          type="button"
-          onClick={toggleThematicBreak}
-          className={`flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border backdrop-blur-md ${
-            isCampActive
-              ? 'bg-amber-500 text-black border-amber-400 shadow-amber-500/25 animate-pulse'
-              : 'bg-neutral-900/90 hover:bg-neutral-800 text-amber-300 border-amber-500/30 hover:border-amber-500/50'
-          }`}
-        >
-          <Coffee className="w-4 h-4" />
-          <span>{isCampActive ? 'Devam Et' : 'Mola Ver'}</span>
-        </button>
+      {mode !== 'clock' && (
+        <div className="relative z-10 w-full px-4 sm:px-8 pb-6 sm:pb-8 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          {/* 1. Mola Ver / Devam Et */}
+          <button
+            type="button"
+            onClick={toggleThematicBreak}
+            className={`flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer border backdrop-blur-md ${
+              isCampActive
+                ? 'bg-amber-500 text-black border-amber-400 shadow-amber-500/25 animate-pulse'
+                : 'bg-neutral-900/90 hover:bg-neutral-800 text-amber-300 border-amber-500/30 hover:border-amber-500/50'
+            }`}
+          >
+            <Coffee className="w-4 h-4" />
+            <span>{isCampActive ? 'Devam Et' : 'Mola Ver'}</span>
+          </button>
 
-        {/* 2. Tamamla */}
-        <button
-          type="button"
-          onClick={() => handleFinish(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-sm font-bold transition-all backdrop-blur-md cursor-pointer shadow-lg shadow-emerald-950/40"
-          title="Seansı Başarıyla Tamamla"
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Tamamla</span>
-        </button>
+          {/* 2. Tamamla */}
+          <button
+            type="button"
+            onClick={() => handleFinish(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-sm font-bold transition-all backdrop-blur-md cursor-pointer shadow-lg shadow-emerald-950/40"
+            title="Seansı Başarıyla Tamamla"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Tamamla</span>
+          </button>
 
-        {/* 3. Vazgeç */}
-        <button
-          type="button"
-          onClick={() => setShowAbandonModal(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-full bg-black/60 hover:bg-red-950/40 text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 text-sm font-semibold transition-all backdrop-blur-md cursor-pointer"
-        >
-          <RotateCcw className="w-4 h-4" />
-          <span>Vazgeç</span>
-        </button>
-      </div>
+          {/* 3. Vazgeç */}
+          <button
+            type="button"
+            onClick={() => setShowAbandonModal(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-full bg-black/60 hover:bg-red-950/40 text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 text-sm font-semibold transition-all backdrop-blur-md cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Vazgeç</span>
+          </button>
+        </div>
+      )}
 
       {/* Abandon Modal */}
       {showAbandonModal && (
@@ -953,6 +1069,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'climb' && 'Zirveye bu kadar yaklaşmışken ana kampa dönmek istediğine emin misin?'}
               {mode === 'flight' && 'Uçuş rotası tamamlanmadan iniş yapmak üzeresin.'}
               {mode === 'dive' && 'Balık Şehri\'ne ulaşmadan su yüzeyine dönmek istediğine emin misin?'}
+              {mode === 'clock' && 'Kronometre çalışma seansını sonlandırmak istediğine emin misin?'}
             </p>
 
             <div className="flex gap-2">
@@ -992,13 +1109,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'climb' && '🚩 Zirveye ulaştın ve Zafer Bayrağını diktin!'}
               {mode === 'flight' && `🛬 ${destAirport.city} (${destAirport.code}) Havalimanına başarıyla inildi!`}
               {mode === 'dive' && '🏰 Balık Şehri\'ne ulaşıldı ve sualtı sarayına giriş yapıldı!'}
+              {mode === 'clock' && '⏱️ Dijital saat çalışma seansın başarıyla kaydedildi!'}
             </p>
 
             {/* Recap */}
             <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-neutral-900/80 border border-neutral-800 mb-6 text-left">
               <div>
-                <span className="text-[11px] text-neutral-400">Ders</span>
-                <p className="text-sm font-bold text-white truncate">{subject.name}</p>
+                <span className="text-[11px] text-neutral-400">Ders / Alan</span>
+                <p className="text-sm font-bold text-white truncate">
+                  {completedSessionData?.subjectName || (selectedTaskTitle ? subject.name : 'Serbest Çalışma')}
+                </p>
               </div>
               <div>
                 <span className="text-[11px] text-neutral-400">Net Süre</span>

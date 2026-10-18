@@ -95,7 +95,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Rest Days (Haftalık Mola & Dinlenme Günleri)
   const [weeklyRestDays, setWeeklyRestDays] = useState<number[]>(
-    Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : [0]
+    Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []
   );
   const [customRestDates, setCustomRestDates] = useState<string[]>(
     Array.isArray(profile.customRestDates) ? profile.customRestDates : []
@@ -107,7 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Keep in sync with profile updates
   React.useEffect(() => {
-    setWeeklyRestDays(Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : [0]);
+    setWeeklyRestDays(Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []);
     setCustomRestDates(Array.isArray(profile.customRestDates) ? profile.customRestDates : []);
     setExcludedRestDates(Array.isArray(profile.excludedRestDates) ? profile.excludedRestDates : []);
   }, [profile.weeklyRestDays, profile.customRestDates, profile.excludedRestDates]);

@@ -1,86 +1,70 @@
-# Fokus PWA, Kalıcı Cihaz Hatırlama, Arayüz Sadeleştirme ve Sinematik Dağ Tasarım Stüdyosu Planı
+# Spotify PKCE OAuth Doğrudan Bağlantı & Mola Arayüzü İyileştirme Planı
 
-Bu plan, kullanıcının belirttiği 4 temel başlığı kapsar:
-1. **Chrome PWA (Uygulama Olarak Yükle) ve Kalıcı Cihaz Hatırlaması:** Masaüstü ve mobilde bağımsız uygulama (standalone) olarak yüklenebilme, başlıkta "Uygulamayı Yükle" butonu, karşılama bildirim çubuğu ve tarayıcı kapatılıp açıldığında oturumu sürekli açık tutan kalıcı cihaz saklama (`browserLocalPersistence`).
-2. **Arayüz Temizliği (Yeşil Nokta ve Alt 'Bugün' Alanı):** Sağ üst köşedeki "Bugün" sayacının solunda yer alan yeşil nabız noktasının kaldırılması; ana sayfanın en altında yer alan "Bugün" istatistik şeridinin tamamen kaldırılması.
-3. **Odak Modlarında Sade Kontrol Düzeni:** Odak seanslarındaki tematik/ekstra ("gölgenin altında" vb.) karmaşık metin ve butonların kaldırılması; kontrollerin yalnızca yan yana **[ Mola Ver ] [ Tamamla ] [ Vazgeç ]** butonlarından oluşacak şekilde sadeleştirilmesi.
-4. **Sinematik Görsel & Dağ Tasarım Stüdyosu:** Sitenin sinematikliğinden ve animasyonlarından sorumlu, dağları (zirve keskinliği, karlı/alpin atmosfer, sis/bulut partikülleri, günbatımı ve günışığı tonları, tırmanış irtifa detayları) canlı önizlemeyle özelleştiren ve tırmanış moduna doğrudan yansıtan uygulama içi tasarım paneli.
+Bu plan, kullanıcının bildirdiği Spotify OAuth `response_type must be code` hatasını kalıcı olarak çözmek, manuel token ve demo modlarını kaldırarak saf gerçek Spotify bağlantısı sağlamak ve mola arayüzündeki gereksiz yazı ve rozetleri temizlemek için hazırlanmıştır.
 
 ---
 
-## 1. Mimari ve Bileşen Yapısı
+## 1. Tespit Edilen Sorunlar ve Çözüm Mimarisi
 
-### A. PWA ve Oturum Kalıcılığı (`pwa-integration` standardı)
-- **`public/manifest.webmanifest` & `public/manifest.json`:**
-  - `name`: "FOKUS - Derin Odaklanma & Çalışma İstasyonu"
-  - `short_name`: "Fokus" (≤ 12 karakter standardı)
-  - `start_url`: "/"
-  - `display`: "standalone"
-  - `theme_color`: "#07090e"
-  - `background_color`: "#07090e"
-  - İkonlar: 192x192 ve 512x512 maskable/any PWA standart ikonları.
-- **`public/sw.js` (Service Worker):**
-  - Çevrimdışı önbellekleme ve hızlı başlatma desteği.
-- **PWA Yükleme Kancası (`usePWAInstall` hook):**
-  - `beforeinstallprompt` olayını yakalar.
-  - Başlıkta (Header) "Uygulama Olarak Yükle" butonu sunar.
-  - İlk girişte hafif, şık bir "Fokus'u bilgisayarına / telefonuna uygulama olarak yükle" bildirim çubuğu gösterir.
-- **Kalıcı Cihaz Hatırlama (`firebase.ts` & `src/utils/storage.ts`):**
-  - `browserLocalPersistence` ve yerel cihaz anahtarı ile kullanıcının hesabı tarayıcı kapansa bile cihazda hatırlanır.
+### A. Spotify `response_type must be code` Hatası ve Çözümü
+- **Neden**: Spotify, web uygulamalarında artık `response_type=token` (Implicit Grant) akışını desteklememekte ve zorunlu olarak **Authorization Code Flow with PKCE (`response_type=code`)** talep etmektedir. `response_type=token` gönderildiğinde Spotify sunucusu doğrudan `"response_type must be code"` hatası verip beyaz sayfada kalmaktadır.
+- **Çözüm**: 
+  1. `crypto.subtle` ile standart Spotify PKCE (`code_verifier` & `code_challenge` - S256) üretilecek.
+  2. Kullanıcı "Spotify Hesabına Git & İzin Ver" dediğinde `https://accounts.spotify.com/authorize?client_id=...&response_type=code&redirect_uri=...&code_challenge_method=S256&code_challenge=...` adresi açılacak.
+  3. Kullanıcı izin verip siteye döndüğünde URL'deki `?code=...` parametresi yakalanacak.
+  4. `https://accounts.spotify.com/api/token` adresine doğrudan POST isteği yapılarak `access_token` ve `refresh_token` alınacak (Spotify PKCE istemci tarafında `client_secret` gerektirmez).
+  5. Token başarıyla kaydedildiğinde anında Spotify API'den kullanıcının çalan şarkısı (`/v1/me/player/currently-playing`) çekilmeye başlanacak.
 
-### B. Header ve Ana Sayfa Sadeleştirmesi
-- **`src/components/Header.tsx`:**
-  - "Bugün:" sayacının solundaki `<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />` kaldırılacak; yalnızca saat simgesi ve süre kalacak.
-  - Başlık sağ üst eylemlerine PWA "Yükle" butonu entegre edilecek.
-  - Özel Tasarım Stüdyosu butonu (palet/sinematik ikonu) eklenecek.
-- **`src/components/ModeHubSelection.tsx`:**
-  - En alttaki `Daily Progress Ribbon at bottom` ("Bugün: ... Seri: ... Hedef: ...") tamamen kaldırılacak; kartlar ve sayfa tertemiz kalacak.
+### B. Spotify Arayüzündeki Fazlalıkların Kaldırılması
+- "Hızlı Canlı Spotify Bağlantısı" (demo modu) tamamen kaldırılacak.
+- Manuel "Access Token Yapıştır" kutusu ve ilgili karmaşık açıklamalar tamamen kaldırılacak.
+- Sade, tek odaklı ve şık bir modal:
+  - Client ID girişi (kullanıcı kendi Spotify Developer Dashboard'undan aldığı ID'yi kaydedebilir)
+  - Otomatik tespit edilen Redirect URI (1-tıkla kopyalama butonuyla)
+  - Tek bir ana eylem butonu: **"Spotify ile Oturum Aç & İzin Ver"**
+  - Bağlandıktan sonra kulaklıkta/telefonda/bilgisayarda Spotify'dan müzik açıldığında doğrudan uygulamada anlık yansıyacak.
 
-### C. Odak Seansı Kontrolleri (`ActiveFocusSession.tsx`)
-- Üst çubuktaki ve alt çubuktaki karmaşık tematik metinler ("Ağaç Gölgesinde Dinlen", "Transit Mola Ver", "Resife Sığın") ve ekstra hud açıklamaları kaldırılacak.
-- Alt kontrol çubuğu kullanıcının net talebine göre düzenlenecek:
-  - **[ Mola Ver ]** (Mola sırasında: **[ Devam Et ]**)
-  - **[ Tamamla ]** (Görevi veya seansı bitirme)
-  - **[ Vazgeç ]** (Seansı sonlandırma)
+### C. Mola ve Durdur Butonları Altındaki Yazıların Kaldırılması
+- `ActiveClockCanvas.tsx` içerisinde:
+  - Sol Turuncu Mola Butonunun altındaki `"Mola Al"` / `"Molayı Bitir"` yazısı kaldırılacak.
+  - Sağ Durdur/Başlat Butonunun altındaki `"Duraklat"` / `"Devam Et"` yazısı kaldırılacak.
+  - Sadece sade, temiz dairesel Apple stili butonlar kalacak.
 
-### D. Sinematik Dağ & Görsel Tasarım Stüdyosu (`src/components/MountainVisualStudioModal.tsx`)
-- Kullanıcının doğrudan seçtiği **"Uygulama içi görsel ve sinematik dağ tasarım paneli"**:
-  - **Dağ Zirvesi Stili:** Karlı Alpler (Snowy Alps), Mistik Sisli Everest (Misty Fog Summit), Volkanik Obsidyen (Volcanic Basalt), Altın Zirve Günbatımı (Golden Hour Peak).
-  - **Hava & Atmosfer Yoğunluğu:** Sis miktarı, rüzgarlı kar partikülü hızı, gökyüzü sinematik tonu.
-  - **Tırmanış İrtifa Efektleri:** Tırmanış rotası ışıltısı, dağcı kampı ışığı.
-  - **Canlı Canvas Önizlemesi:** Kullanıcı panelde ayar değiştirdikçe dağın sinematik renderını anlık görür.
-  - **Entegrasyon:** Seçilen ayarlar `ActiveClimbCanvas.tsx` tırmanış motoruna aktarılır; seanstaki dağ manzarası kullanıcının tasarladığı şekilde hayat bulur.
+### D. Üst ve Alt Mola Rozetlerinin Temizlenmesi
+- Saat ekranında mola verildiğinde:
+  - Üstte çıkan `☕ Mola Aktif — Kronometre Duraklatıldı` rozeti tamamen kaldırılacak.
+  - `ActiveFocusSession.tsx` ekranındaki `isCampActive` durumunda beliren `Mola Verildi` HUD alt afişi saat modunda gösterilmeyecek.
+  - **SADECE** saatin altındaki listede: `1. Mola : sayıyor... 00:05` alanı kalacak ve saniyeleri canlı olarak saymaya devam edecek (kullanıcının tam istediği gibi).
 
 ---
 
-## 2. Değiştirilecek ve Oluşturulacak Dosyalar
+## 2. Değişiklik Yapılacak Dosyalar
 
-1. **`public/manifest.webmanifest` & `public/manifest.json`:** PWA yapılandırması ve standart ikon referansları.
-2. **`public/sw.js` & `index.html`:** Service worker kaydı ve PWA meta etiketleri (`theme-color`, `apple-mobile-web-app-capable`).
-3. **`src/hooks/usePWAInstall.ts`:** PWA yükleme olayı (`beforeinstallprompt`) dinleyicisi ve yükleme tetikleyicisi.
-4. **`src/components/Header.tsx`:** 
-   - Yeşil noktanın kaldırılması.
-   - PWA Yükle butonu.
-   - Sinematik Tasarım Stüdyosu tetikleyici butonu.
-5. **`src/components/ModeHubSelection.tsx`:** En alttaki "Bugün" şeridinin kaldırılması.
-6. **`src/components/ActiveFocusSession.tsx`:** Yalnızca [Mola Ver] [Tamamla] [Vazgeç] kontrol dizilimi; tematik karmaşıklıkların temizlenmesi.
-7. **`src/components/MountainVisualStudioModal.tsx` (Yeni):** Sinematik dağ ve görsel tasarım stüdyosu.
-8. **`src/components/visuals/ActiveClimbCanvas.tsx`:** Tasarlanan dağ stili, kar partikülleri ve sinematik renk paletini destekleyecek şekilde güncellenmesi.
-9. **`src/firebase.ts`:** `browserLocalPersistence` ve cihaz oturum güvencesi.
+1. `src/services/spotifyService.ts`:
+   - `code_verifier` (rastgele 64 karakter) ve `code_challenge` (SHA-256 Base64URL) üretimi ekleme.
+   - `startSpotifyLogin` fonksiyonunu `response_type=code` ve `code_challenge` ile güncelleme.
+   - URL'de veya popup'ta dönen `?code=...` kodunu yakalayıp `https://accounts.spotify.com/api/token` ile takas eden `exchangeCodeForToken` metodunu uygulama.
+   - `isDemoSpotifyConnected` ve demo akışını tamamen temizleme.
+
+2. `src/components/visuals/SpotifyFocusWidget.tsx`:
+   - "Hızlı Canlı Spotify Bağlantısı" kartını kaldırma.
+   - "Spotify Web API Access Token" yapıştırma alanını ve butonunu kaldırma.
+   - Sadeleştirilmiş doğrudan OAuth giriş butonunu sunma.
+   - Canlı müzik senkronizasyonunu saf Spotify Web API'ye bağlama.
+
+3. `src/components/visuals/ActiveClockCanvas.tsx`:
+   - Mola butonunun altındaki `Mola Al` / `Molayı Bitir` yazısını kaldırma.
+   - Durdur butonunun altındaki `Duraklat` / `Devam Et` yazısını kaldırma.
+   - Üstteki `☕ Mola Aktif — Kronometre Duraklatıldı` bildirimini kaldırma.
+   - Saatin altındaki `1. Mola : sayıyor...` canlı listesini eksiksiz koruma.
+
+4. `src/components/ActiveFocusSession.tsx`:
+   - `mode === 'clock'` iken altta açılan `Mola Verildi` HUD kartını gizleme.
 
 ---
 
-## 3. Doğrulama ve Test Adımları
+## 3. Doğrulama Adımları
 
-1. **PWA Testi:**
-   - Chrome'da adres çubuğunda "Uygulamayı Yükle" simgesinin çıkması ve başlıktaki butonla native yükleme iletişim kutusunun tetiklenmesi.
-   - Çıkıp tekrar girildiğinde oturumun korunması.
-2. **Arayüz Temizlik Testi:**
-   - Sağ üstteki yeşil noktanın tamamen kaybolduğu, yalnızca sürenin kaldığı doğrulanır.
-   - Ana sayfa en altındaki "Bugün" şeridinin kaldırıldığı doğrulanır.
-3. **Odak Kontrol Testi:**
-   - Odak seansı başlatılır; altta yalnızca [Mola Ver], [Tamamla], [Vazgeç] butonlarının çalıştığı, seans mola ve devam durumlarının kusursuz işlediği test edilir.
-4. **Dağ Tasarım Stüdyosu Testi:**
-   - Tasarım stüdyosu açılır; dağ stili veya kar/sis partikülü değiştirilip kaydedilir; tırmanış moduna girildiğinde dağın seçilen tasarıma göre sinematik olarak çizildiği teyit edilir.
-5. **Derleme Doğrulaması:**
-   - `compile_applet` ve `lint_applet` çalıştırılarak sıfır hata ile üretim kalitesinde tamamlanır.
+1. Kodların derlenmesi (`compile_applet`) ve TypeScript tip kontrolü (`lint_applet`).
+2. Spotify PKCE URL oluşturma mantığının `response_type=code` ve `code_challenge` parametrelerini doğru içerdiğinin doğrulanması.
+3. Mola ve Durdur butonlarının altında hiçbir yazı kalmadığının, üstteki ve alttaki mükerrer mola kutularının gizlendiğinin ve sadece saatin altındaki canlı mola satırının çalıştığının doğrulanması.

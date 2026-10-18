@@ -23,6 +23,7 @@ import {
   Layers,
   Coffee,
   Activity,
+  X,
 } from 'lucide-react';
 import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
@@ -50,6 +51,29 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
 
   const [hoveredSession, setHoveredSession] = useState<FocusSession | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [isRestDayModalOpen, setIsRestDayModalOpen] = useState(false);
+
+  // Weekly rest day calculation
+  const currentRestDayNumber = useMemo(() => {
+    if (Array.isArray(profile.weeklyRestDays) && profile.weeklyRestDays.length > 0) {
+      return profile.weeklyRestDays[0];
+    }
+    return null;
+  }, [profile.weeklyRestDays]);
+
+  const currentRestDayLabel = useMemo(() => {
+    if (currentRestDayNumber === null) return 'Mola Günü Yok';
+    const dayNames: Record<number, string> = {
+      1: 'Pazartesi',
+      2: 'Salı',
+      3: 'Çarşamba',
+      4: 'Perşembe',
+      5: 'Cuma',
+      6: 'Cumartesi',
+      0: 'Pazar',
+    };
+    return dayNames[currentRestDayNumber] || 'Belirlendi';
+  }, [currentRestDayNumber]);
 
   // --- 1. GÜNLÜK TAKİP (DAILY VIEW) ---
   const targetDate = useMemo(() => {
@@ -522,17 +546,6 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                   </p>
                 </div>
               </div>
-              {onOpenSettings && (
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    onOpenSettings();
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold border border-amber-500/40 transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto"
-                >
-                  Mola Günlerini Düzenle
-                </button>
-              )}
             </div>
           )}
 
@@ -737,48 +750,67 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
       {/* 2. WEEKLY VIEW (PAZARTESİDEN PAZARA DİNAMİK HAFTA GEÇİŞİ) */}
       {activeTab === 'weekly' && (
         <div className="space-y-6">
-          {/* Week Navigation Bar with Left/Right Arrows */}
-          <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-neutral-900/90 border border-neutral-800 shadow-lg">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setWeekOffset((prev) => prev - 1);
-              }}
-              className="p-2.5 rounded-xl text-neutral-300 hover:text-white hover:bg-neutral-800 active:scale-95 transition-all cursor-pointer"
-              title="Önceki Hafta"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
+          {/* Week Navigation Bar with Left/Right Arrows + Mola Günü Butonu */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-neutral-900/90 border border-neutral-800 shadow-lg">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  setWeekOffset((prev) => prev - 1);
+                }}
+                className="p-2 sm:p-2.5 rounded-xl text-neutral-300 hover:text-white hover:bg-neutral-800 active:scale-95 transition-all cursor-pointer"
+                title="Önceki Hafta"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
 
-            <div className="flex items-center gap-3 text-center">
-              <CalendarDays className="w-5 h-5 text-[#ff5500] shrink-0" />
-              <div>
-                <span className="text-base sm:text-lg font-extrabold text-white block">
-                  {selectedWeekFormatted}
-                </span>
-                {weekOffset !== 0 && (
-                  <button
-                    onClick={() => {
-                      soundEngine.playClick();
-                      setWeekOffset(0);
-                    }}
-                    className="text-[10px] font-bold text-[#ff5500] hover:underline cursor-pointer"
-                  >
-                    (Bu Haftaya Dön)
-                  </button>
-                )}
+              <div className="flex items-center gap-2 sm:gap-3 text-center sm:text-left">
+                <CalendarDays className="w-5 h-5 text-[#ff5500] shrink-0" />
+                <div>
+                  <span className="text-sm sm:text-lg font-extrabold text-white block">
+                    {selectedWeekFormatted}
+                  </span>
+                  {weekOffset !== 0 && (
+                    <button
+                      onClick={() => {
+                        soundEngine.playClick();
+                        setWeekOffset(0);
+                      }}
+                      className="text-[10px] font-bold text-[#ff5500] hover:underline cursor-pointer"
+                    >
+                      (Bu Haftaya Dön)
+                    </button>
+                  )}
+                </div>
               </div>
+
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  setWeekOffset((prev) => prev + 1);
+                }}
+                className="p-2 sm:p-2.5 rounded-xl text-neutral-300 hover:text-white hover:bg-neutral-800 active:scale-95 transition-all cursor-pointer"
+                title="Sonraki Hafta"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
 
+            {/* Sağ Üst: Mola Günü Seçim Butonu (Kullanıcı Talebi) */}
             <button
+              type="button"
               onClick={() => {
                 soundEngine.playClick();
-                setWeekOffset((prev) => prev + 1);
+                setIsRestDayModalOpen(true);
               }}
-              className="p-2.5 rounded-xl text-neutral-300 hover:text-white hover:bg-neutral-800 active:scale-95 transition-all cursor-pointer"
-              title="Sonraki Hafta"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer active:scale-95 ml-auto sm:ml-0"
+              title="Haftalık mola gününü belirle veya kaldır"
             >
-              <ChevronRight className="w-5 h-5" />
+              <Coffee className="w-4 h-4 text-amber-400" />
+              <span>Mola Günü:</span>
+              <span className="underline decoration-amber-400/50 underline-offset-2">
+                {currentRestDayLabel}
+              </span>
             </button>
           </div>
 
@@ -1008,19 +1040,18 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                   <span>☕</span>
                   <span>mola günü</span>
                 </div>
-                {onOpenSettings && (
-                  <button
-                    onClick={() => {
-                      soundEngine.playClick();
-                      onOpenSettings();
-                    }}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-all cursor-pointer hover:border-amber-500/60 hover:text-amber-300"
-                    title="Haftalık mola günlerini ayarla"
-                  >
-                    <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Mola Günlerini Ayarla</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setIsRestDayModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-all cursor-pointer hover:border-amber-500/60 hover:text-amber-300"
+                  title="Haftalık mola gününü belirle veya kaldır"
+                >
+                  <Coffee className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Mola Gününü Değiştir</span>
+                </button>
               </div>
             </div>
 
@@ -1190,6 +1221,98 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* HAFTALIK MOLA GÜNÜ SEÇİM MODALI (KULLANICI TALEBİ) */}
+      {isRestDayModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                  <Coffee className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Haftalık Mola Günü</h3>
+                  <p className="text-xs text-neutral-400">Haftanın 1 gününü dinlenme günü olarak belirle</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRestDayModalOpen(false)}
+                className="p-1.5 rounded-full text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              Mola gününde çalışma yapmasan bile istikrar serin (streak) korunur ve aylık takvimde kahve emojisi ile dinlenme günü olarak işaretlenir.
+            </p>
+
+            {/* 7 Günlük Liste + Mola Günü Yok */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {[
+                { id: 1, name: 'Pazartesi' },
+                { id: 2, name: 'Salı' },
+                { id: 3, name: 'Çarşamba' },
+                { id: 4, name: 'Perşembe' },
+                { id: 5, name: 'Cuma' },
+                { id: 6, name: 'Cumartesi' },
+                { id: 0, name: 'Pazar' },
+              ].map((day) => {
+                const isSelected = currentRestDayNumber === day.id;
+                return (
+                  <button
+                    key={day.id}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      if (onUpdateProfile) {
+                        onUpdateProfile({ weeklyRestDays: [day.id] });
+                      }
+                      setIsRestDayModalOpen(false);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-amber-500/25 border-amber-500 text-amber-200 font-bold shadow-md shadow-amber-950/40 ring-1 ring-amber-400'
+                        : 'bg-neutral-950/70 border-neutral-800 hover:border-neutral-700 text-neutral-300'
+                    }`}
+                  >
+                    <span className="text-sm">{day.name}</span>
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />}
+                  </button>
+                );
+              })}
+
+              {/* Mola Günü Yok Seçeneği (Kullanıcı Talebi) */}
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  if (onUpdateProfile) {
+                    onUpdateProfile({ weeklyRestDays: [] });
+                  }
+                  setIsRestDayModalOpen(false);
+                }}
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between col-span-2 ${
+                  currentRestDayNumber === null
+                    ? 'bg-rose-500/20 border-rose-500/60 text-rose-200 font-bold ring-1 ring-rose-400'
+                    : 'bg-neutral-950/70 border-neutral-800 hover:border-rose-900/60 text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🚫</span>
+                  <div>
+                    <span className="text-sm font-bold block">Mola Günü Yok</span>
+                    <span className="text-[10px] text-neutral-400 block">Haftalık mola günü belirleme, her gün çalışma hedefi</span>
+                  </div>
+                </div>
+                {currentRestDayNumber === null && <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />}
+              </button>
+            </div>
           </div>
         </div>
       )}

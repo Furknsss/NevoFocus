@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { FocusModeType } from '../../types';
 import { soundEngine } from '../../utils/audio';
-import { Plane, Trees, Mountain, Waves, Sparkles, Lock } from 'lucide-react';
+import { Plane, Trees, Mountain, Waves, Sparkles, Lock, Clock } from 'lucide-react';
 
 interface CinematicTransitionCurtainProps {
   mode: FocusModeType;
@@ -51,6 +51,14 @@ const MODE_META: Record<
     accent: '#14b8a6',
     borderGlow: 'rgba(20, 184, 166, 0.5)',
     badge: 'HİDROFON BASINÇ ODASI',
+  },
+  clock: {
+    title: 'Dijital Saat',
+    sub: 'Kesintisiz Canlı Müzik & Sade Odak',
+    icon: Clock,
+    accent: '#ffffff',
+    borderGlow: 'rgba(255, 255, 255, 0.5)',
+    badge: 'DİJİTAL SAAT',
   },
 };
 

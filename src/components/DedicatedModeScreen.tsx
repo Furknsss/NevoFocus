@@ -17,7 +17,7 @@ import {
   Hourglass,
   Calendar
 } from 'lucide-react';
-import { FocusModeType, SubjectItem, FocusTask, FlightAirport, UserProfile } from '../types';
+import { FocusModeType, SubjectItem, FocusTask, FlightAirport, UserProfile, SERBEST_CALISMA_SUBJECT } from '../types';
 import { ALL_AIRPORTS, TURKEY_AIRPORTS, WORLD_AIRPORTS } from '../utils/airports';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
@@ -95,8 +95,15 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 
   const handleStart = () => {
     soundEngine.playClick();
-    if (!selectedSubject && subjects.length > 0) {
-      onSelectSubject(subjects[0]);
+    if (!selectedTask) {
+      onSelectSubject(SERBEST_CALISMA_SUBJECT);
+    } else {
+      const sub = subjects.find((s) => s.name === selectedTask.subjectName);
+      if (sub) {
+        onSelectSubject(sub);
+      } else if (!selectedSubject) {
+        onSelectSubject(SERBEST_CALISMA_SUBJECT);
+      }
     }
     onStartActiveSession();
   };
@@ -131,6 +138,8 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
                     onChangeDuration(t.plannedMinutes);
                     const sub = subjects.find((s) => s.name === t.subjectName);
                     if (sub) onSelectSubject(sub);
+                  } else {
+                    onSelectSubject(SERBEST_CALISMA_SUBJECT);
                   }
                 }}
                 className="w-full px-4 py-3 rounded-2xl bg-neutral-900 border border-neutral-700/80 hover:border-neutral-600 text-xs sm:text-sm font-bold text-white focus:outline-none focus:border-[#ff5500] transition-colors cursor-pointer"
@@ -210,6 +219,61 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           </div>
         </div>
 
+        {/* Geri Sayım Seçilince Süre Seçme Çıkacak (Kullanıcı Talebi) */}
+        {timerType === 'countdown' && (
+          <div className="pt-3 border-t border-neutral-800/80 space-y-2 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
+                <Hourglass className="w-3.5 h-3.5 text-[#ff5500]" />
+                <span>Odaklanma Süresi</span>
+              </label>
+              <span className="text-xs font-mono font-bold text-[#ff5500]">
+                Seçilen: {durationMinutes} Dakika
+              </span>
+            </div>
+
+            {/* Hazır Süre Butonları */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {[15, 25, 30, 45, 60, 90, 120].map((mins) => (
+                <button
+                  key={mins}
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    onChangeDuration(mins);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                    durationMinutes === mins
+                      ? 'bg-[#ff5500] text-white shadow-md shadow-[#ff5500]/30 ring-1 ring-white/30 scale-105'
+                      : 'bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
+                  }`}
+                >
+                  {mins} dk
+                </button>
+              ))}
+
+              {/* Özel Dakika Girişi */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-neutral-900 border border-neutral-800 ml-auto">
+                <span className="text-[11px] text-neutral-500 font-mono">Özel:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="360"
+                  value={durationMinutes}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val > 0) {
+                      onChangeDuration(val);
+                    }
+                  }}
+                  className="w-12 text-center text-xs font-mono font-bold text-white bg-transparent focus:outline-none"
+                />
+                <span className="text-[11px] text-neutral-400 font-mono">dk</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 3. BAŞLAT (Start Session Action Button) */}
         <div className="pt-2 text-center">
           <button
@@ -255,6 +319,11 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           {mode === 'dive' && (
             <span className="text-xs font-mono font-bold text-teal-400 bg-teal-950/60 border border-teal-800/40 px-3 py-1 rounded-full">
               🌊 Okyanus Araştırma
+            </span>
+          )}
+          {mode === 'clock' && (
+            <span className="text-xs font-mono font-bold text-white bg-neutral-900 border border-neutral-700 px-3 py-1 rounded-full">
+              ⏱️ Dijital Saat & Flip Clock
             </span>
           )}
         </div>
@@ -508,6 +577,96 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           {renderUnifiedTaskTimerBar(
             `Tohumu Ek & ${selectedTreeSpecies.split(' ')[0]} Büyüt`,
             'bg-gradient-to-r from-emerald-500 to-teal-600 shadow-emerald-500/30'
+          )}
+        </div>
+      )}
+
+      {/* 5. DIJITAL SAAT TERMINALI */}
+      {mode === 'clock' && (
+        <div className="space-y-6">
+          <div className="text-center max-w-2xl mx-auto mb-2">
+            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+              Dijital Saat
+            </h1>
+            <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+              Sade siyah arka plan, dijital kronometre ve Flip Clock seçeneğiyle maksimum odak.
+            </p>
+          </div>
+
+          {/* Stopwatch Visual Preview Card */}
+          <div className="w-full rounded-3xl border border-neutral-800 bg-[#000000] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col items-center justify-center min-h-[260px] sm:min-h-[300px]">
+            {/* Top Left Mini Spotify Indicator */}
+            <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-900/80 border border-neutral-800 text-xs text-neutral-300">
+              <span className="w-2 h-2 rounded-full bg-[#1DB954] animate-pulse" />
+              <span className="text-[11px] font-medium text-white">Spotify Entegre</span>
+            </div>
+
+            {/* Mode Tag */}
+            <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-neutral-900/80 border border-neutral-800 text-[11px] font-mono text-neutral-400">
+              Sade Odak
+            </div>
+
+            {/* Digital Watch Digits Mockup */}
+            <div className="relative z-10 flex items-baseline justify-center tracking-tight font-mono">
+              <span className="text-6xl sm:text-8xl md:text-9xl text-white font-light">
+                00:45
+              </span>
+              <span className="text-3xl sm:text-5xl md:text-6xl text-neutral-500 mx-1 sm:mx-2 font-extralight">
+                :
+              </span>
+              <span className="text-3xl sm:text-5xl md:text-6xl text-neutral-400 font-normal">
+                00
+              </span>
+            </div>
+
+            <p className="relative z-10 mt-3 text-xs font-mono text-neutral-400 tracking-wider">
+              SAAT : DAKİKA : <span className="text-neutral-500">SANİYE (KÜÇÜK & SAKİN)</span>
+            </p>
+          </div>
+
+          {/* Feature Highlights Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-neutral-800 text-white flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white">Kronometre</h4>
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  Sade ve zarif kronometre tasarımı, mola takibi ve akıcı kontrol butonları.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white">Spotify API Entegre</h4>
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  Soldaki Spotify ikonuna dokunarak kulaklığınızdaki canlı müziği yönetin veya Lo-Fi çalın.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                <Hourglass className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white">Flip Clock</h4>
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  Tek dokunuşla çalışan mekanik çevirmeli masa saati görünümüne geçiş yapın.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Unified Controls: Task Selection + Countdown/Stopwatch + Launch */}
+          {renderUnifiedTaskTimerBar(
+            'Dijital Saati Başlat',
+            'bg-neutral-900 hover:bg-neutral-800 text-white border-2 border-neutral-700/80 hover:border-neutral-500 shadow-xl shadow-black active:scale-95'
           )}
         </div>
       )}

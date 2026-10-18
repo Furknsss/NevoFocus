@@ -30,6 +30,8 @@ export const ModeHubSelection = React.memo<ModeHubSelectionProps>(({
         return <Plane className="w-5 h-5 text-sky-400" />;
       case 'dive':
         return <Waves className="w-5 h-5 text-teal-400" />;
+      case 'clock':
+        return <Clock className="w-5 h-5 text-white" />;
     }
   };
 
@@ -43,6 +45,8 @@ export const ModeHubSelection = React.memo<ModeHubSelectionProps>(({
         return 'Şehirler Arası Uçuş Radarı & İniş';
       case 'dive':
         return 'Tekneden Kaçış · Balık Şehri';
+      case 'clock':
+        return 'Kronometre · Flip Clock';
     }
   };
 
@@ -50,7 +54,7 @@ export const ModeHubSelection = React.memo<ModeHubSelectionProps>(({
   const todayRemainingMins = todayMinutes % 60;
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-14 animate-in fade-in duration-300 flex flex-col justify-center min-h-[calc(100vh-140px)]">
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-14 animate-in fade-in duration-300 flex flex-col justify-center min-h-[calc(100vh-140px)]">
       {/* Editorial Header */}
       <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-14">
         <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-xs font-bold text-[#ff5500]">
@@ -65,8 +69,8 @@ export const ModeHubSelection = React.memo<ModeHubSelectionProps>(({
         </p>
       </div>
 
-      {/* 4 Mode Big Feature Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6 mb-12">
+      {/* 5 Modes Feature Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-5 mb-12">
         {FOCUS_MODES.map((mode) => {
           return (
             <button

@@ -12,6 +12,7 @@ import {
   Volume2,
   VolumeX,
   Sparkles,
+  Clock,
 } from 'lucide-react';
 import { FocusModeType, SubjectItem } from '../types';
 import { soundEngine } from '../utils/audio';
@@ -88,6 +89,8 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
         return <Plane className="w-5 h-5 text-sky-400" />;
       case 'dive':
         return <Waves className="w-5 h-5 text-teal-400" />;
+      case 'clock':
+        return <Clock className="w-5 h-5 text-white" />;
       default:
         return <Sparkles className="w-5 h-5 text-cyan-400" />;
     }

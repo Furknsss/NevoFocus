@@ -1,6 +1,6 @@
 {
-  "summary": "PWA (uygulama olarak yükleme), kalıcı cihaz hatırlaması, arayüz sadeleştirmeleri (sağ üstteki yeşil noktanın ve ana sayfa altındaki Bugün şeridinin kaldırılması, odak modlarında yalnızca 'Mola Ver - Tamamla - Vazgeç' kontrollerinin kalması) ve sinematik dağ/görsel tasarım stüdyosu uygulama planı.",
-  "updatedAt": "2026-10-16T11:21:12.156297447Z",
+  "summary": "Spotify PKCE OAuth doğrudan yetkilendirme akışı, hata düzeltmeleri, demo/token kaldırma ve mola arayüzü sadeleştirme planı.",
+  "updatedAt": "2026-10-18T16:29:49.879646744Z",
   "requestFeedback": true,
   "userFacing": true
 }
