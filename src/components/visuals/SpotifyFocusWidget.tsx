@@ -145,20 +145,23 @@ export const SpotifyFocusWidget: React.FC = () => {
     };
   }, [isSeeking]);
 
-  // High-frequency smooth tick for progress bar (runs every 100ms for 0 latency / 0 jitter)
+  // High-frequency smooth tick for progress bar (runs every 50ms for 0 latency / 0 jitter)
   useEffect(() => {
+    if (!currentTrack || !currentTrack.isPlaying) return;
+
     const timer = setInterval(() => {
       if (isSeeking) return;
-      if (!currentTrack || !currentTrack.isPlaying) return;
 
       const sync = lastSyncRef.current;
+      if (!sync.isPlaying) return;
+
       const elapsed = Date.now() - sync.timestamp;
       const nextProgress = Math.min(
         currentTrack.durationMs || 180000,
         sync.baseProgressMs + elapsed
       );
       setSeekValue(nextProgress);
-    }, 100);
+    }, 50);
 
     return () => clearInterval(timer);
   }, [isSeeking, currentTrack]);
@@ -180,7 +183,6 @@ export const SpotifyFocusWidget: React.FC = () => {
 
   // Zero-latency instant Play/Pause
   const handlePlayPause = () => {
-    soundEngine.playClick();
     if (currentTrack?.source === 'spotify') {
       const willPlay = !currentTrack.isPlaying;
       // 0ms instant optimistic UI
@@ -203,7 +205,6 @@ export const SpotifyFocusWidget: React.FC = () => {
 
   // Zero-latency instant Next Track
   const handleNext = () => {
-    soundEngine.playClick();
     if (currentTrack?.source === 'spotify') {
       setSeekValue(0);
       lastSyncRef.current = {
@@ -219,7 +220,6 @@ export const SpotifyFocusWidget: React.FC = () => {
 
   // Zero-latency instant Previous Track
   const handlePrevious = () => {
-    soundEngine.playClick();
     if (currentTrack?.source === 'spotify') {
       setSeekValue(0);
       lastSyncRef.current = {
@@ -275,7 +275,8 @@ export const SpotifyFocusWidget: React.FC = () => {
   };
 
   const trackDuration = currentTrack?.durationMs || 180000;
-  const currentProgress = isSeeking ? seekValue : currentTrack?.progressMs || 0;
+  // Always use seekValue for synchronized 0-latency live progress
+  const currentProgress = isSeeking ? seekValue : (currentTrack?.isPlaying ? seekValue : (currentTrack?.progressMs || seekValue || 0));
   const progressPercent = Math.min(100, Math.max(0, (currentProgress / trackDuration) * 100));
 
   return (
@@ -394,7 +395,7 @@ export const SpotifyFocusWidget: React.FC = () => {
           <div className="space-y-1.5">
             <div className="relative w-full h-2 rounded-full bg-neutral-800/80 overflow-hidden cursor-pointer group">
               <div
-                className="h-full bg-gradient-to-r from-[#1DB954] to-[#1ed760] transition-all duration-150 rounded-full"
+                className="h-full bg-gradient-to-r from-[#1DB954] to-[#1ed760] rounded-full"
                 style={{ width: `${progressPercent}%` }}
               />
               <input

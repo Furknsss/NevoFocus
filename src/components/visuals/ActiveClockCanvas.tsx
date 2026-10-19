@@ -77,9 +77,8 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
     }
   }, [parentBreakActive]);
 
-  // Handle Mola toggle
+  // Handle Mola toggle (Kullanıcı talebi: Molaya basınca ses ÇALMAZ; sadece sağ üst ses menüsünden seçilince çalar)
   const handleToggleMola = () => {
-    soundEngine.playClick();
 
     if (!isBreakRunning) {
       if (!isPaused) {

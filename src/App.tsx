@@ -410,13 +410,17 @@ export default function App() {
           (snapshot) => {
             if (snapshot.exists()) {
               const data = snapshot.data();
-              if (data && data.mode && data.subject) {
+              if (data && data.mode && data.subject && !data.isFinished) {
                 const startedAt = parseNumericField(data.startedAt, Date.now());
-                const isStale = Date.now() - startedAt > 2 * 60 * 60 * 1000;
-                if (isStale || data.isFinished) {
+                const updatedAt = parseNumericField(data.updatedAt, startedAt);
+                // Stale check: if session hasn't been touched in over 15 minutes or older than 6 hours
+                const isStale =
+                  Date.now() - startedAt > 6 * 60 * 60 * 1000 ||
+                  (Date.now() - updatedAt > 15 * 60 * 1000 && !data.isPaused);
+                if (isStale) {
                   setCloudActiveSession(null);
                   try {
-                    safeSetDoc(activeFocusDoc, {}, { merge: false });
+                    deleteDoc(activeFocusDoc).catch(() => {});
                   } catch {}
                   return;
                 }
@@ -435,6 +439,8 @@ export default function App() {
                   destAirport: data.destAirport,
                   selectedTaskId: data.selectedTaskId,
                 });
+              } else {
+                setCloudActiveSession(null);
               }
             } else {
               setCloudActiveSession(null);
@@ -558,6 +564,12 @@ export default function App() {
       setSelectedSubject(subToUse);
     }
     setLocalMinimizedSession(null);
+    setCloudActiveSession(null);
+    if (currentUser) {
+      try {
+        deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
+      } catch {}
+    }
     setIsSessionActive(true);
     updateCloudStatus('studying', subToUse?.name || 'Serbest Çalışma');
   };
@@ -571,6 +583,7 @@ export default function App() {
     setSessions(updated);
     setIsSessionActive(false);
     setLocalMinimizedSession(null);
+    setCloudActiveSession(null);
 
     try {
       localStorage.removeItem('fokus_active_session_running');
@@ -579,6 +592,11 @@ export default function App() {
     }
 
     if (currentUser) {
+      try {
+        // Wipe running session in Firestore so no phantom floating pill renders
+        await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
+      } catch {}
+
       try {
         const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', newSession.id);
         await safeSetDoc(sessionDocRef, {
@@ -621,6 +639,21 @@ export default function App() {
   };
 
   const handleAbandonSession = async (partialSession?: FocusSession) => {
+    setIsSessionActive(false);
+    setLocalMinimizedSession(null);
+    setCloudActiveSession(null);
+    try {
+      localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
+    }
+
+    if (currentUser) {
+      try {
+        await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
+      } catch {}
+    }
+
     if (partialSession && partialSession.completedSeconds >= 5) {
       const updated = saveSession(partialSession);
       setSessions(updated);
@@ -659,12 +692,6 @@ export default function App() {
       setProfile(updatedProfile);
     }
 
-    setIsSessionActive(false);
-    try {
-      localStorage.removeItem('fokus_active_session_running');
-    } catch {
-      // ignore
-    }
     updateCloudStatus('idle');
   };
 

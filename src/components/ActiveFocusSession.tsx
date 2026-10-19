@@ -211,9 +211,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }, []);
 
-  // Today's tasks from user task list
+  // Sadece o gün eklenen / o güne ait olan görevler (Kullanıcı Talebi)
   const todayTasks = useMemo(() => {
-    return tasksList.filter((t) => !t.dateString || t.dateString === todayStr);
+    return tasksList.filter((t) => {
+      if (t.dateString) return t.dateString === todayStr;
+      if (t.createdAt) {
+        const td = new Date(t.createdAt);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${td.getFullYear()}-${pad(td.getMonth() + 1)}-${pad(td.getDate())}` === todayStr;
+      }
+      return false;
+    });
   }, [tasksList, todayStr]);
 
   const [isPaused, setIsPaused] = useState<boolean>(() => {
@@ -426,13 +434,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   }, [isPaused, isCampActive, showCompletionModal, currentTimerType, timeFormatted, subject.name]);
 
   const toggleThematicBreak = () => {
-    soundEngine.playClick();
+    // Kullanıcı talebi: Molaya basılınca ses ÇALMAZ; sadece sağ üst ses menüsünden seçilince çalar
     if (!isCampActive) {
       setIsCampActive(true);
       setBreakCount((prev) => prev + 1);
-      if (breakConfig.ambientSound) {
-        soundEngine.playAmbient(breakConfig.ambientSound);
-      }
     } else {
       setIsCampActive(false);
     }
@@ -523,6 +528,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     // Clear background running session state locally and in cloud
     try {
+      localStorage.setItem('fokus_last_completed_at', String(Date.now()));
       localStorage.removeItem('fokus_active_session_running');
       const userId = auth.currentUser?.uid;
       if (userId) {
@@ -549,12 +555,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    // Calculate actual worked seconds accurately (erken bitirmede net süre esas alınır):
+    // Calculate actual worked seconds accurately (kronometrede sayaçta ne göründüyse eksiksiz ve hatasız o süre kaydedilir):
     const actualCompletedSeconds = Math.max(
       10,
       currentTimerType === 'stopwatch'
         ? elapsedCountUp
-        : Math.min(totalSeconds, totalSeconds - secondsRemaining)
+        : Math.min(totalSeconds, Math.max(10, totalSeconds - secondsRemaining))
     );
     const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
 
