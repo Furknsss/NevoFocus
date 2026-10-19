@@ -13,6 +13,7 @@ import {
   VolumeX,
   Sparkles,
   Clock,
+  X,
 } from 'lucide-react';
 import { FocusModeType, SubjectItem } from '../types';
 import { soundEngine } from '../utils/audio';
@@ -41,6 +42,7 @@ interface FloatingMiniFocusPillProps {
   onToggleAudio: () => void;
   isAudioPlaying?: boolean;
   onComplete: () => void;
+  onDismiss?: () => void;
   isMobile?: boolean;
 }
 
@@ -51,6 +53,7 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
   onToggleAudio,
   isAudioPlaying = false,
   onComplete,
+  onDismiss,
   isMobile = false,
 }) => {
   // Real-time ticking counter inside the floating pill
@@ -205,6 +208,22 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
           >
             <Maximize2 className="w-4 h-4 stroke-[2.5]" />
           </button>
+
+          {/* 5. Dismiss / Discard button */}
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onDismiss();
+              }}
+              className="w-9 h-9 rounded-xl border border-neutral-700/60 bg-neutral-900/60 hover:bg-rose-950/40 text-neutral-400 hover:text-rose-400 flex items-center justify-center cursor-pointer transition-all active:scale-95"
+              title="Kapat"
+              aria-label="Kapat"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

@@ -1,70 +1,71 @@
-# Spotify PKCE OAuth Doğrudan Bağlantı & Mola Arayüzü İyileştirme Planı
+# Fokus Kapsamlı Sistem Checkup & Spotify / Zamanlayıcı Onarım Planı
 
-Bu plan, kullanıcının bildirdiği Spotify OAuth `response_type must be code` hatasını kalıcı olarak çözmek, manuel token ve demo modlarını kaldırarak saf gerçek Spotify bağlantısı sağlamak ve mola arayüzündeki gereksiz yazı ve rozetleri temizlemek için hazırlanmıştır.
+Bu plan; kullanıcının paylaştığı ekran görüntüsündeki Spotify Google Auth Bridge 403 hatasını çözmek, WebSocket hatalarını kökten bastırmak, mini odak hapının kullanıcı başlatmadan zamansız açılmasını önlemek ve odak ekranına canlı yerel saat göstergesini entegre etmek üzere hazırlanmıştır.
 
 ---
 
 ## 1. Tespit Edilen Sorunlar ve Çözüm Mimarisi
 
-### A. Spotify `response_type must be code` Hatası ve Çözümü
-- **Neden**: Spotify, web uygulamalarında artık `response_type=token` (Implicit Grant) akışını desteklememekte ve zorunlu olarak **Authorization Code Flow with PKCE (`response_type=code`)** talep etmektedir. `response_type=token` gönderildiğinde Spotify sunucusu doğrudan `"response_type must be code"` hatası verip beyaz sayfada kalmaktadır.
-- **Çözüm**: 
-  1. `crypto.subtle` ile standart Spotify PKCE (`code_verifier` & `code_challenge` - S256) üretilecek.
-  2. Kullanıcı "Spotify Hesabına Git & İzin Ver" dediğinde `https://accounts.spotify.com/authorize?client_id=...&response_type=code&redirect_uri=...&code_challenge_method=S256&code_challenge=...` adresi açılacak.
-  3. Kullanıcı izin verip siteye döndüğünde URL'deki `?code=...` parametresi yakalanacak.
-  4. `https://accounts.spotify.com/api/token` adresine doğrudan POST isteği yapılarak `access_token` ve `refresh_token` alınacak (Spotify PKCE istemci tarafında `client_secret` gerektirmez).
-  5. Token başarıyla kaydedildiğinde anında Spotify API'den kullanıcının çalan şarkısı (`/v1/me/player/currently-playing`) çekilmeye başlanacak.
+### A. Spotify Bağlantısındaki Google Auth Bridge 403 / 404 Hatası
+- **Kök Neden**: AI Studio geliştirme konteyneri (`https://ais-dev-*.run.app`) bir iframe içerisinde çalışmaktadır. Harici bir popup penceresinde bu adrese doğrudan yönlendirme (`redirect_uri`) yapıldığında, Google Cloud Run proxy'si oturum çerezlerini göremediği için `google.com/applet-auth-bridge` üzerinden 403 Forbidden hatası vermektedir.
+- **Çözüm**:
+  1. **İkili Güvenli Bağlantı Akışı**:
+     - Standart PKCE Popup akışında `redirect_uri` olarak hem `window.location.origin` hem de alternatif iframe-dostu köprü desteklenecek.
+     - **Otomatik & Manuel Kod Girişi Yedeklemesi**: Eğer Google proxy popup'ı engellerse veya 403 verirse; kullanıcıya tek tıkla "Adres çubuğundaki linki veya code'u yapıştır" imkanı sunularak 2 saniyede token takası (`exchangeCodeForToken`) gerçekleştirilecek. Kullanıcı hiçbir zaman beyaz ekranda veya hata sayfasında takılı kalmayacak.
+  2. **Yerel Saklama ve Oturum Doğrulaması**:
+     - `code_verifier`, `code_challenge`, `client_id` ve `redirect_uri` hem `localStorage` hem `sessionStorage` içinde güvenle saklanacak; yetkilendirme bittiğinde anında temizlenip canlı dinleyiciye geçilecek.
 
-### B. Spotify Arayüzündeki Fazlalıkların Kaldırılması
-- "Hızlı Canlı Spotify Bağlantısı" (demo modu) tamamen kaldırılacak.
-- Manuel "Access Token Yapıştır" kutusu ve ilgili karmaşık açıklamalar tamamen kaldırılacak.
-- Sade, tek odaklı ve şık bir modal:
-  - Client ID girişi (kullanıcı kendi Spotify Developer Dashboard'undan aldığı ID'yi kaydedebilir)
-  - Otomatik tespit edilen Redirect URI (1-tıkla kopyalama butonuyla)
-  - Tek bir ana eylem butonu: **"Spotify ile Oturum Aç & İzin Ver"**
-  - Bağlandıktan sonra kulaklıkta/telefonda/bilgisayarda Spotify'dan müzik açıldığında doğrudan uygulamada anlık yansıyacak.
+### B. WebSocket Hatalarının Kökten Çözülmesi
+- **Kök Neden**: AI Studio çalışma ortamında HMR (Hot Module Replacement) devre dışıdır. Tarayıcı veya Vite istemcisi arka planda WebSocket (`ws://...`) bağlantısı denediğinde ara sıra konsola veya ekrana bağlantı hatası fırlatmaktadır.
+- **Çözüm**:
+  - `src/main.tsx` ve `index.html` içerisine global `window.addEventListener('error')` ve `unhandledrejection` filtreleri eklenecek.
+  - WebSocket veya `@vite/client` kaynaklı bağlantı kopma olayları yakalanıp kullanıcıya hiçbir hata mesajı yansıtılmadan sessizce yönetilecek.
 
-### C. Mola ve Durdur Butonları Altındaki Yazıların Kaldırılması
-- `ActiveClockCanvas.tsx` içerisinde:
-  - Sol Turuncu Mola Butonunun altındaki `"Mola Al"` / `"Molayı Bitir"` yazısı kaldırılacak.
-  - Sağ Durdur/Başlat Butonunun altındaki `"Duraklat"` / `"Devam Et"` yazısı kaldırılacak.
-  - Sadece sade, temiz dairesel Apple stili butonlar kalacak.
+### C. Küçük Ekran Çalışma Widget'ının (Mini Focus Pill) Zamansız Başlaması
+- **Kök Neden**: `App.tsx` içerisinde Firestore `users/{uid}/active_focus/current` dinleyicisi bulunmaktadır. Kullanıcı daha önce bir oturumu yarıda bıraktığında veya eski bir oturum Firestore'da kaldığında, sayfa açılır açılmaz bu bayat oturum `cloudActiveSession` olarak yüklenmekte ve kullanıcı henüz başlatmadığı halde mini sayaç dönmeye başlamaktadır.
+- **Çözüm**:
+  1. Bayat oturum kontrolü: Oturum başlangıç zamanı (`startedAt`) 2 saatten eskiyse veya kullanıcı tarafından aktif başlatılmamışsa otomatik temizlenecek (`safeSetDoc` ile Firestore'dan silinecek).
+  2. `FloatingMiniFocusPill` bileşenine bir kapatma (`X`) butonu eklenecek; kullanıcı istemediği oturumu tek tıkla sonlandırabilecek.
+  3. Yalnızca kullanıcı açıkça bir odak modu başlattığında sayaç tetiklenecek.
 
-### D. Üst ve Alt Mola Rozetlerinin Temizlenmesi
-- Saat ekranında mola verildiğinde:
-  - Üstte çıkan `☕ Mola Aktif — Kronometre Duraklatıldı` rozeti tamamen kaldırılacak.
-  - `ActiveFocusSession.tsx` ekranındaki `isCampActive` durumunda beliren `Mola Verildi` HUD alt afişi saat modunda gösterilmeyecek.
-  - **SADECE** saatin altındaki listede: `1. Mola : sayıyor... 00:05` alanı kalacak ve saniyeleri canlı olarak saymaya devam edecek (kullanıcının tam istediği gibi).
+### D. Focus Ekranında Sol Üste Gerçek Saat Göstergesi
+- **İstek**: Sol üstteki tarihin altına aynı boy ve stilde `Saat: SS:DD` (Örn: `Saat: 10:24`) eklenmesi.
+- **Çözüm**:
+  - `ActiveFocusSession.tsx` bileşenine saniyelik yerel saat state'i (`wallClockTime`) eklenecek.
+  - Tarih alanının hemen altına aynı tipografi ve renkte (`text-xs sm:text-sm font-medium text-neutral-400 select-none tracking-wide`) `Saat: {wallClockTime}` olarak yerleştirilecek.
 
 ---
 
 ## 2. Değişiklik Yapılacak Dosyalar
 
-1. `src/services/spotifyService.ts`:
-   - `code_verifier` (rastgele 64 karakter) ve `code_challenge` (SHA-256 Base64URL) üretimi ekleme.
-   - `startSpotifyLogin` fonksiyonunu `response_type=code` ve `code_challenge` ile güncelleme.
-   - URL'de veya popup'ta dönen `?code=...` kodunu yakalayıp `https://accounts.spotify.com/api/token` ile takas eden `exchangeCodeForToken` metodunu uygulama.
-   - `isDemoSpotifyConnected` ve demo akışını tamamen temizleme.
+1. **`src/services/spotifyService.ts`**:
+   - OAuth PKCE parametrelerinin ve URL'lerinin pekiştirilmesi.
+   - Kod / URL yapıştırarak anında token takası yapabilen `exchangeCodeOrUrl` metodunun eklenmesi.
+   - Hata durumunda net durum bildirimi.
 
-2. `src/components/visuals/SpotifyFocusWidget.tsx`:
-   - "Hızlı Canlı Spotify Bağlantısı" kartını kaldırma.
-   - "Spotify Web API Access Token" yapıştırma alanını ve butonunu kaldırma.
-   - Sadeleştirilmiş doğrudan OAuth giriş butonunu sunma.
-   - Canlı müzik senkronizasyonunu saf Spotify Web API'ye bağlama.
+2. **`src/components/visuals/SpotifyFocusWidget.tsx`**:
+   - Modal içerisine tek tıkla URL/kod yapıştırma desteğinin eklenmesi (403 ekranı durumunda tam koruma).
+   - Bağlantı tamamlandığında modalın anında kapanması ve Spotify canlı çaların devreye girmesi.
 
-3. `src/components/visuals/ActiveClockCanvas.tsx`:
-   - Mola butonunun altındaki `Mola Al` / `Molayı Bitir` yazısını kaldırma.
-   - Durdur butonunun altındaki `Duraklat` / `Devam Et` yazısını kaldırma.
-   - Üstteki `☕ Mola Aktif — Kronometre Duraklatıldı` bildirimini kaldırma.
-   - Saatin altındaki `1. Mola : sayıyor...` canlı listesini eksiksiz koruma.
+3. **`src/main.tsx`**:
+   - WebSocket ve Vite HMR bağlantı hatalarını kökten bastıran global hata dinleyicisinin entegrasyonu.
 
-4. `src/components/ActiveFocusSession.tsx`:
-   - `mode === 'clock'` iken altta açılan `Mola Verildi` HUD kartını gizleme.
+4. **`src/App.tsx`**:
+   - Firestore'dan gelen bayat `active_focus` verilerinin filtrelenmesi ve temizlenmesi.
+   - Mini pill gösterim mantığının sadece gerçek aktif seanslara sınırlandırılması.
+
+5. **`src/components/FloatingMiniFocusPill.tsx`**:
+   - İsteğe bağlı kapatma/iptal butonu (`X`) eklenmesi.
+
+6. **`src/components/ActiveFocusSession.tsx`**:
+   - Sol üstteki tarihin altına aynı boy ve stilde `Saat: SS:DD` göstergesinin eklenmesi.
 
 ---
 
-## 3. Doğrulama Adımları
+## 3. Doğrulama ve Test Adımları
 
-1. Kodların derlenmesi (`compile_applet`) ve TypeScript tip kontrolü (`lint_applet`).
-2. Spotify PKCE URL oluşturma mantığının `response_type=code` ve `code_challenge` parametrelerini doğru içerdiğinin doğrulanması.
-3. Mola ve Durdur butonlarının altında hiçbir yazı kalmadığının, üstteki ve alttaki mükerrer mola kutularının gizlendiğinin ve sadece saatin altındaki canlı mola satırının çalıştığının doğrulanması.
+1. `compile_applet` ve `lint_applet` ile tip ve derleme kontrolü.
+2. Odak ekranında sol üstte tarih ve altında `Saat: SS:DD` formatının kontrol edilmesi.
+3. Mini sayaç bileşeninin kullanıcı başlatmadan kendiliğinden açılmadığının doğrulanması.
+4. WebSocket hata yakalayıcısının çalıştığının doğrulanması.
+5. Spotify modalında hem otomatik PKCE hem de yedek hızlı kod doğrulamasının test edilmesi.

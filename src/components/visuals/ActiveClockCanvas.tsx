@@ -130,18 +130,9 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
 
   return (
     <div className="relative w-full h-full min-h-screen bg-[#000000] text-white flex flex-col justify-between select-none overflow-hidden font-sans">
-      {/* Mola Durum Rozeti (Mola devredeyse gösterilir) */}
-      <div className="relative z-10 w-full pt-1 sm:pt-2 flex flex-col items-center justify-center">
-        {isBreakRunning && (
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-mono animate-pulse shadow-lg">
-            <span>☕</span>
-            <span>Mola Aktif — Kronometre Duraklatıldı</span>
-          </div>
-        )}
-      </div>
 
-      {/* Center Stage: Saati çok ufak aşşağıya alıp (pt-18 sm:pt-26 md:pt-32) birazcık büyüt ve tam sağdan ve soldan ortala */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-start pt-16 sm:pt-24 md:pt-28 lg:pt-32 px-4 w-full max-w-6xl mx-auto">
+      {/* Center Stage: Saati çok ufak aşşağıya alıp (pt-20 sm:pt-28 md:pt-32 lg:pt-36) birazcık büyüt ve tam sağdan ve soldan ortala */}
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-start pt-20 sm:pt-28 md:pt-32 lg:pt-36 px-4 w-full max-w-7xl mx-auto">
         {clockStyle === 'ipad' ? (
           /* IPAD STOPWATCH STYLE (PURE SİPSİYAH, ZERO GLOW, BÜYÜTÜLMÜŞ PREMIUM APPLE TYPOGRAPHY, ROCK-SOLID CENTERING) */
           <div className="flex flex-col items-center justify-center w-full">
@@ -161,29 +152,29 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
             >
               {hours > 0 && (
                 <>
-                  <div className="inline-flex items-baseline text-8xl sm:text-[10.5rem] md:text-[12.5rem] lg:text-[14rem] leading-none text-white font-extralight">
+                  <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
                     <span className="inline-block w-[0.6em] text-center">{hoursPadded[0]}</span>
                     <span className="inline-block w-[0.6em] text-center">{hoursPadded[1]}</span>
                   </div>
-                  <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl leading-none text-neutral-600 font-thin select-none">
+                  <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
                     :
                   </span>
                 </>
               )}
 
               {/* Dakika: Büyütülmüş ve her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-8xl sm:text-[10.5rem] md:text-[12.5rem] lg:text-[14rem] leading-none text-white font-extralight">
+              <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[1]}</span>
               </div>
 
               {/* İki nokta ayırıcı */}
-              <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl leading-none text-neutral-600 font-thin select-none">
+              <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
                 :
               </span>
 
               {/* Saniye: Büyütülmüş ama saat/dakikadan sakin ve dengeli, her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-5xl sm:text-7xl md:text-8xl lg:text-9xl leading-none text-neutral-300 font-light">
+              <div className="inline-flex items-baseline text-5xl sm:text-7xl md:text-8xl lg:text-9xl xl:text-[10.5rem] leading-none text-neutral-300 font-light">
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[1]}</span>
               </div>
@@ -277,9 +268,6 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
                 </span>
               </div>
             </button>
-            <span className="text-[10px] text-[#ff9f0a]/80 font-mono">
-              {isBreakRunning ? 'Molayı Bitir' : 'Mola Al'}
-            </span>
           </div>
 
           {/* Orta İkili Butonlar: Vazgeç ve Bitir */}
@@ -334,9 +322,6 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
                 )}
               </div>
             </button>
-            <span className="text-[10px] text-neutral-500 font-mono">
-              {isPaused || isBreakRunning ? 'Devam Et' : 'Duraklat'}
-            </span>
           </div>
         </div>
       </div>

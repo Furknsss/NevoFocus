@@ -1,6 +1,6 @@
 {
-  "summary": "Spotify PKCE OAuth doğrudan yetkilendirme akışı, hata düzeltmeleri, demo/token kaldırma ve mola arayüzü sadeleştirme planı.",
-  "updatedAt": "2026-10-18T16:29:49.879646744Z",
+  "summary": "Sistem genelinde A'dan Z'ye checkup ve hata onarım planı:\n1. WebSocket/HMR hatalarının kökten çözümü ve global hata yakalama.\n2. Küçük ekran çalışma widget'ının (FloatingMiniFocusPill) kullanıcı başlatmadan kendiliğinden çalışmasının önlenmesi ve Firestore bayat oturum temizliği.\n3. Spotify bağlantısında Google Auth Bridge 403 ve yönlendirme sorunlarının giderilmesi, güvenli token/kod aktarımı.\n4. Focus ekranında sol üstteki tarihin altına aynı boy ve stilde canlı 'Saat: SS:DD' göstergesinin eklenmesi.",
+  "updatedAt": "2026-10-19T07:27:15.192284224Z",
   "requestFeedback": true,
   "userFacing": true
 }

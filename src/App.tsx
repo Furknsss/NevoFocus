@@ -39,6 +39,7 @@ import {
   syncAllToFirestore,
   restoreAllFromFirestore,
 } from './services/syncService';
+import { spotifyService } from './services/spotifyService';
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth';
 import {
   doc,
@@ -172,6 +173,9 @@ export default function App() {
 
   // Load initial local storage data
   useEffect(() => {
+    // Check Spotify OAuth redirect code (?code=...) on app load
+    spotifyService.checkRedirectCode();
+
     const loadedSessions = getStoredSessions();
     const loadedTasks = getStoredTasks();
     const loadedProfile = getStoredProfile();
@@ -407,11 +411,20 @@ export default function App() {
             if (snapshot.exists()) {
               const data = snapshot.data();
               if (data && data.mode && data.subject) {
+                const startedAt = parseNumericField(data.startedAt, Date.now());
+                const isStale = Date.now() - startedAt > 2 * 60 * 60 * 1000;
+                if (isStale || data.isFinished) {
+                  setCloudActiveSession(null);
+                  try {
+                    safeSetDoc(activeFocusDoc, {}, { merge: false });
+                  } catch {}
+                  return;
+                }
                 setCloudActiveSession({
                   mode: data.mode,
                   subject: data.subject,
                   plannedMinutes: parseNumericField(data.plannedMinutes, 45),
-                  startedAt: parseNumericField(data.startedAt, Date.now()),
+                  startedAt,
                   elapsedSeconds: parseNumericField(data.elapsedSeconds, 0),
                   isPaused: Boolean(data.isPaused),
                   isCampActive: Boolean(data.isCampActive),
@@ -1360,6 +1373,18 @@ export default function App() {
             if (sess.selectedTreeSpecies) setSelectedTreeSpecies(sess.selectedTreeSpecies);
             setLocalMinimizedSession(null);
             setIsSessionActive(true);
+          }}
+          onDismiss={async () => {
+            setLocalMinimizedSession(null);
+            setCloudActiveSession(null);
+            try {
+              localStorage.removeItem('fokus_active_session_running');
+            } catch {}
+            if (currentUser) {
+              try {
+                await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'));
+              } catch {}
+            }
           }}
         />
       )}

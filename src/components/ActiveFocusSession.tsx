@@ -275,6 +275,25 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     return `${day} ${months[d.getMonth()]} ${d.getFullYear()} ${days[d.getDay()]}`;
   }, []);
 
+  // Live Wall Clock Time (e.g. "10:24" for "Saat: 10:24")
+  const [wallClockTime, setWallClockTime] = useState(() => {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  });
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      setWallClockTime(`${h}:${m}`);
+    };
+    const timer = setInterval(updateClock, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const quoteRef = useRef(
     MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
   );
@@ -765,10 +784,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         {/* Left: Mode Title & Subject Badge OR Clean Date for Clock Mode */}
         <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${mode === 'clock' ? 'pl-14 sm:pl-16' : ''}`}>
           {mode === 'clock' ? (
-            /* Sol Üstte Sadece Günün Tarihi (Kullanıcı Talebi: Dijital Saat yazısı kaldırıldı, örn: 18 Ekim 2026 Pazar) */
-            <span className="text-xs sm:text-sm font-medium text-neutral-400 select-none tracking-wide">
-              {todayFormattedTurkish}
-            </span>
+            /* Sol Üstte Günün Tarihi ve Altında Gerçek Saat (Kullanıcı Talebi: Birazcık daha aşağıda, çok ufak büyütülmüş, beyaz, PC/tablet/mobil uyumlu) */
+            <div className="flex flex-col gap-0.5 sm:gap-1">
+              <span className="text-[11px] sm:text-xs md:text-sm font-medium text-neutral-400 select-none tracking-wide">
+                {todayFormattedTurkish}
+              </span>
+              <span className="text-xs sm:text-sm md:text-base font-semibold text-white select-none tracking-wide drop-shadow-sm mt-0.5 sm:mt-1">
+                <span className="text-neutral-300 font-medium">Saat :</span>{' '}
+                <span className="text-white font-bold">{wallClockTime}</span>
+              </span>
+            </div>
           ) : (
             <>
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-white text-xs sm:text-sm font-bold shadow-lg">
@@ -798,39 +823,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           )}
         </div>
 
-        {/* Center: Clock Style Switcher (Kronometre vs Flip Clock) - Doğrudan tıklanır, saat kaldığı yerden canlı devam eder */}
-        {mode === 'clock' && (
-          <div className="inline-flex p-1 rounded-full bg-neutral-900/90 border border-neutral-800 backdrop-blur-xl shadow-2xl">
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playClick();
-                setClockStyle('ipad');
-              }}
-              className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-                clockStyle === 'ipad'
-                  ? 'bg-neutral-800 text-white shadow-md border border-neutral-700'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              ⏱️ Kronometre
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playClick();
-                setClockStyle('flip');
-              }}
-              className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-                clockStyle === 'flip'
-                  ? 'bg-neutral-800 text-white shadow-md border border-neutral-700'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              Flip Clock
-            </button>
-          </div>
-        )}
+        {/* Center: Kronometre ve Flip Clock seçicisi kullanıcı talebi doğrultusunda şimdilik kaldırıldı */}
 
         {/* Right: Quick Action Controls (Görevler, Audio, ve SADECE BİR TANE Büyüt/Küçült Butonu) */}
         <div className="flex items-center gap-2">
@@ -867,6 +860,22 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <Volume2 className="w-4 h-4" />
           </button>
 
+          {/* Küçült Tuşu (Oturumu arkaplanda sürdürerek mini ekrana alır) */}
+          {onMinimize && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playClick();
+                onMinimize();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-neutral-800 border border-white/10 text-neutral-300 hover:text-white transition-all cursor-pointer text-xs font-semibold backdrop-blur-md active:scale-95 shadow-sm"
+              title="Seansı Küçült (Mini Ekrana Geç)"
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-sky-400" />
+              <span>Küçült</span>
+            </button>
+          )}
+
           {/* SADECE BİR TUŞ: Büyütüldüğünde küçült tuşu, küçültüldüğünde büyüt tuşu (Kullanıcı Talebi) */}
           <button
             onClick={handleToggleFullscreen}
@@ -878,38 +887,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         </div>
       </div>
 
-      {/* ACTIVE BREAK HUD BANNER */}
-      {isCampActive && (
-        <div className="relative z-20 w-full max-w-sm mx-auto px-4 mt-2 animate-in fade-in slide-in-from-top-3 duration-200">
-          <div className="p-3 rounded-2xl border border-amber-500/40 bg-black/85 backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
-                <Coffee className="w-4 h-4 animate-pulse" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <h4 className="text-xs font-bold text-white">Mola Verildi</h4>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/60 text-amber-300 border border-amber-500/30 shrink-0">
-                    {breakCount}. Mola
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-sm font-mono font-bold text-amber-300">
-                {String(Math.floor(breakSeconds / 60)).padStart(2, '0')}:{String(breakSeconds % 60).padStart(2, '0')}
-              </span>
-              <button
-                type="button"
-                onClick={toggleThematicBreak}
-                className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-black transition-all cursor-pointer shadow-sm"
-              >
-                Molayı Bitir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Mola Verildi HUD afişi kullanıcı talebi doğrultusunda kaldırıldı; sadece 1. Mola sayacı kalacak */}
 
       {/* Center Focus Timer Display */}
       {mode !== 'clock' && (
@@ -954,13 +932,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
                   >
                     <span>{currentTimerType === 'stopwatch' ? '⏱️ Kronometre' : '⏳ Geri Sayım'}</span>
                     <span className="text-neutral-500">·</span>
-                    <span>
-                      {isCampActive
-                        ? '⛺ Kamp Molası Aktif'
-                        : isPaused
-                        ? '⏸ Duraklatıldı'
-                        : `%${Math.round(progress * 100)}`}
-                    </span>
+                    <span>%{Math.round(progress * 100)}</span>
                   </button>
                 </div>
               </div>
@@ -1030,7 +1002,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             }`}
           >
             <Coffee className="w-4 h-4" />
-            <span>{isCampActive ? 'Devam Et' : 'Mola Ver'}</span>
+            <span>{isCampActive ? 'Devam Et' : 'Mola'}</span>
           </button>
 
           {/* 2. Tamamla */}
