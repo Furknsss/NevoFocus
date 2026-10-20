@@ -54,6 +54,25 @@ export function isDateRestDay(dateInput: string | Date, profile?: UserProfile): 
  * If user hasn't studied today yet, but studied yesterday, the streak remains intact from yesterday back.
  * If user missed without an authorized rest day, streak is 0.
  */
+/**
+ * Returns YYYY-MM-DD formatted string in user's local timezone (not UTC).
+ * Prevents timezone mismatches where sessions between 00:00-03:00 get attributed to the wrong day.
+ */
+export function getLocalDateString(dateInput: Date | number = new Date()): string {
+  const d = typeof dateInput === 'number' ? new Date(dateInput) : dateInput;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Calculates genuine day-by-day streak based exclusively on completed study sessions.
+ * If user studied today, streak is counted from today back.
+ * If today or yesterday was an authorized rest day (mola günü), streak is protected!
+ * If user hasn't studied today yet, but studied yesterday, the streak remains intact from yesterday back.
+ * If user missed without an authorized rest day, streak is 0.
+ */
 export function calculateRealStreak(sessions: FocusSession[], profile?: UserProfile): number {
   if (!sessions || sessions.length === 0) return 0;
 
@@ -64,13 +83,13 @@ export function calculateRealStreak(sessions: FocusSession[], profile?: UserProf
   const studiedDates = new Set(validSessions.map((s) => s.dateString));
 
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = getLocalDateString(today);
 
-  const yesterday = new Date(today.getTime() - 24 * 3600 * 1000);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  const yesterdayStr = getLocalDateString(yesterday);
 
-  const dayBeforeYesterday = new Date(today.getTime() - 48 * 3600 * 1000);
-  const dayBeforeYesterdayStr = dayBeforeYesterday.toISOString().split('T')[0];
+  const dayBeforeYesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2);
+  const dayBeforeYesterdayStr = getLocalDateString(dayBeforeYesterday);
 
   // Determine starting date for streak walk
   let anchorDate: Date | null = null;
@@ -93,7 +112,7 @@ export function calculateRealStreak(sessions: FocusSession[], profile?: UserProf
 
   // Traverse backwards day-by-day up to a full year
   for (let i = 0; i < 365; i++) {
-    const dStr = runner.toISOString().split('T')[0];
+    const dStr = getLocalDateString(runner);
     if (studiedDates.has(dStr)) {
       streak++;
       runner.setDate(runner.getDate() - 1);
@@ -120,11 +139,11 @@ export function calculateTotalFocusHours(sessions: FocusSession[]): number {
 }
 
 /**
- * Calculates today's studied minutes from real sessions.
+ * Calculates today's studied minutes from real sessions using local calendar day.
  */
 export function calculateTodayMinutes(sessions: FocusSession[]): number {
   if (!sessions || sessions.length === 0) return 0;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString(new Date());
   const todaySeconds = sessions
     .filter((s) => s.dateString === todayStr && s.completed)
     .reduce((acc, s) => acc + s.completedSeconds, 0);

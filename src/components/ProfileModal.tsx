@@ -139,7 +139,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <Mail className="w-4 h-4 text-neutral-500 shrink-0" />
             <span className="text-neutral-400">E-posta:</span>
             <span className="font-mono font-bold text-white truncate">
-              {currentUser?.email || profile.email || 'Giriş Yapılmadı'}
+              {currentUser?.email || profile.email || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') : '') || (profile.userId ? 'Kayıtlı Öğrenci' : 'Giriş Yapılmadı')}
             </span>
           </div>
 

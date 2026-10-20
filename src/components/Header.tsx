@@ -90,8 +90,17 @@ export const Header: React.FC<HeaderProps> = ({
 
   const rawDisplayName = profile.name && profile.name.trim() !== '' ? profile.name : (currentUser?.displayName || 'Öğrenci');
   const firstName = rawDisplayName.trim().split(' ')[0] || rawDisplayName;
+  const isUserLoggedIn = Boolean(
+    currentUser ||
+    profile.userId ||
+    (typeof window !== 'undefined' && (
+      localStorage.getItem('fokus_user_authenticated') === 'true' ||
+      localStorage.getItem('fokus_user_uid')
+    ))
+  );
   const effectiveAvatar = profile.avatarUrl || currentUser?.photoURL || '';
-  const displayEmail = currentUser?.email || profile.email || 'Giriş yapılmadı';
+  const storedEmail = typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '';
+  const displayEmail = currentUser?.email || profile.email || storedEmail || (isUserLoggedIn ? 'Kayıtlı Öğrenci' : 'Giriş yapılmadı');
 
   return (
     <header className="sticky top-0 z-40 w-full backdrop-blur-md bg-black/60 border-b border-neutral-800/80 px-4 sm:px-6 py-3 flex items-center justify-between transition-colors">
@@ -383,7 +392,7 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Divider & Auth */}
               <div className="my-1.5 border-t border-neutral-800" />
 
-              {currentUser ? (
+              {isUserLoggedIn ? (
                 <button
                   onClick={() => {
                     setIsDropdownOpen(false);

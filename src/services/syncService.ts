@@ -10,6 +10,7 @@ import {
   getStoredProfile,
   updateStoredProfile,
 } from '../utils/storage';
+import { getLocalDateString } from '../utils/stats';
 
 const LAST_SYNC_KEY = 'fokus_last_sync_timestamp';
 
@@ -178,11 +179,12 @@ export async function restoreAllFromFirestore(
     const cloudSessions: FocusSession[] = [];
     sessionsSnap.forEach((docSnap) => {
       const s = docSnap.data() as any;
-      if (s) {
+      if (s && s.id) {
         cloudSessions.push({
           ...s,
-          durationMinutes: parseNumericField(s.durationMinutes, 25),
-          actualSeconds: parseNumericField(s.actualSeconds, 1500),
+          plannedMinutes: parseNumericField(s.plannedMinutes ?? s.durationMinutes, 45),
+          completedSeconds: parseNumericField(s.completedSeconds ?? s.actualSeconds, 0),
+          breakSeconds: parseNumericField(s.breakSeconds, 0),
           timestamp: parseNumericField(s.timestamp, Date.now()),
         } as unknown as FocusSession);
       }
@@ -194,11 +196,10 @@ export async function restoreAllFromFirestore(
     const cloudTasks: FocusTask[] = [];
     tasksSnap.forEach((docSnap) => {
       const t = docSnap.data() as any;
-      if (t && !t.deleted) {
+      if (t && t.id && !t.deleted) {
         cloudTasks.push({
           ...t,
-          estimatedPomodoros: parseNumericField(t.estimatedPomodoros, 1),
-          completedPomodoros: parseNumericField(t.completedPomodoros, 0),
+          plannedMinutes: parseNumericField(t.plannedMinutes ?? t.estimatedPomodoros, 45),
           createdAt: parseNumericField(t.createdAt, Date.now()),
         } as unknown as FocusTask);
       }
@@ -279,7 +280,7 @@ export function exportLocalBackup(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const dateStr = new Date().toISOString().slice(0, 10);
+  const dateStr = getLocalDateString();
   a.download = `fokus_yedek_${dateStr}.json`;
   document.body.appendChild(a);
   a.click();

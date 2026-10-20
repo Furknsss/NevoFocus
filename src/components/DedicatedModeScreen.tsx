@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ArrowLeft,
   Play,
@@ -108,21 +108,40 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
     onStartActiveSession();
   };
 
+  // Sadece o gün eklenen / o güne ait görevler (Kullanıcı Talebi: odaklanılacak görev seçmede sadece o gün eklenen görevler çıkacak)
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }, []);
+
+  const todayTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (t.dateString) return t.dateString === todayStr;
+      if (t.createdAt) {
+        const td = new Date(t.createdAt);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${td.getFullYear()}-${pad(td.getMonth() + 1)}-${pad(td.getDate())}` === todayStr;
+      }
+      return false;
+    });
+  }, [tasks, todayStr]);
+
   // Reusable unified control bar (Görev Seçimi + Sayaç Tipi + Başlat)
   const renderUnifiedTaskTimerBar = (actionText: string, accentGradient: string) => {
     return (
       <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-neutral-900/90 to-neutral-950 p-5 sm:p-6 shadow-2xl space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-          {/* 1. GÖREV SEÇİMİ (Sadece Görev Seçimi) */}
+          {/* 1. GÖREV SEÇİMİ (Sadece Bugünün Görevleri) */}
           <div className="md:col-span-7 space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
                 <CheckSquare className="w-4 h-4 text-[#ff5500]" />
-                <span>Odaklanılacak Görev / Hedef</span>
+                <span>Odaklanılacak Görev (Bugün Eklenenler)</span>
               </label>
-              {tasks.length === 0 && (
+              {todayTasks.length === 0 && (
                 <span className="text-[11px] text-neutral-500">
-                  Görevler sekmesinden yeni görev ekleyebilirsin
+                  Bugün eklenmiş görev yok
                 </span>
               )}
             </div>
@@ -132,7 +151,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
               <select
                 value={selectedTask?.id || ''}
                 onChange={(e) => {
-                  const t = tasks.find((item) => item.id === e.target.value) || null;
+                  const t = todayTasks.find((item: FocusTask) => item.id === e.target.value) || null;
                   onSelectTask(t);
                   if (t) {
                     onChangeDuration(t.plannedMinutes);
@@ -145,7 +164,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
                 className="w-full px-4 py-3 rounded-2xl bg-neutral-900 border border-neutral-700/80 hover:border-neutral-600 text-xs sm:text-sm font-bold text-white focus:outline-none focus:border-[#ff5500] transition-colors cursor-pointer"
               >
                 <option value="">Bağımsız / Görevsiz Serbest Çalışma</option>
-                {tasks.map((t) => (
+                {todayTasks.map((t: FocusTask) => (
                   <option key={t.id} value={t.id}>
                     {t.title} · {t.plannedMinutes} dk ({t.subjectName})
                   </option>

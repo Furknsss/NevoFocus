@@ -23,7 +23,7 @@ import {
   setAllStoredTasks,
   FOCUS_MODES,
 } from './utils/storage';
-import { calculateRealStreak, calculateTotalFocusHours, calculateTodayMinutes } from './utils/stats';
+import { calculateRealStreak, calculateTotalFocusHours, calculateTodayMinutes, getLocalDateString } from './utils/stats';
 import { getDefaultSubjectsForTrack } from './utils/subjects';
 import { ALL_AIRPORTS, TURKEY_AIRPORTS, WORLD_AIRPORTS } from './utils/airports';
 import { soundEngine } from './utils/audio';
@@ -83,7 +83,7 @@ export default function App() {
   const [transitioningToMode, setTransitioningToMode] = useState<FocusModeType | null>(null);
 
   // Firebase auth state
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
 
@@ -146,7 +146,7 @@ export default function App() {
   const [selectedTreeSpecies, setSelectedTreeSpecies] = useState<string>('Meşe Ağacı');
 
   // Today's date string & calculated planned task minutes
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
   const todayPlannedMinutes = useMemo(() => {
     return tasks
       .filter((t) => !t.dateString || t.dateString === todayStr)
@@ -189,27 +189,12 @@ export default function App() {
       setSelectedSubject(initialSubjects[0]);
     }
 
-    // Check if an active focus session was running in localStorage
+    // Kendiliğinden odak başlatmayı engelle: Sayfa açıldığında veya yenilendiğinde
+    // kullanıcı bizzat odaklanmayı başlatmadıkça seans asla otomatik olarak başlatılmaz.
     try {
-      const runningRaw = localStorage.getItem('fokus_active_session_running');
-      if (runningRaw) {
-        const saved = JSON.parse(runningRaw);
-        if (saved && saved.mode) {
-          setCurrentActiveMode(saved.mode);
-          setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
-          setDurationMinutes(saved.plannedMinutes || 45);
-          setTimerType(saved.timerType || 'countdown');
-          if (saved.selectedTaskId) {
-            setSelectedTask(loadedTasks.find((t) => t.id === saved.selectedTaskId) || null);
-          }
-          if (saved.originAirport) setOriginAirport(saved.originAirport);
-          if (saved.destAirport) setDestAirport(saved.destAirport);
-          if (saved.selectedTreeSpecies) setSelectedTreeSpecies(saved.selectedTreeSpecies);
-          setIsSessionActive(true);
-        }
-      }
-    } catch {
       localStorage.removeItem('fokus_active_session_running');
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -226,11 +211,11 @@ export default function App() {
     }
   }, [profile.studyTrack, isSessionActive, selectedSubject?.name]);
 
-  // Fast loading safety timeout: unlock within max 500ms so user never waits
+  // Fast loading safety timeout: unlock within max 1500ms so auth has time to hydrate without showing wrong state
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsAuthChecking(false);
-    }, 500);
+    }, 1500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -285,6 +270,22 @@ export default function App() {
               hasCompletedOnboarding: true,
             });
             setProfile(mergedProfile);
+
+            if (!isSessionActive) {
+              safeSetDoc(
+                userDocRef,
+                {
+                  status: 'idle',
+                  currentSubject: '',
+                  currentSeconds: 0,
+                  lastActiveAt: Date.now(),
+                },
+                { merge: true }
+              ).catch(() => {});
+              try {
+                deleteDoc(doc(db, 'users', user.uid, 'active_focus', 'current')).catch(() => {});
+              } catch {}
+            }
           } else {
             // Document doesn't exist yet for this logged in user, create default safely with Google data
             const userPhoto = user.photoURL || '';
@@ -334,12 +335,24 @@ export default function App() {
           (snapshot) => {
             const cloudSessions: FocusSession[] = [];
             snapshot.forEach((d) => {
-              cloudSessions.push(d.data() as FocusSession);
+              const data = d.data() as FocusSession;
+              if (data && data.id) {
+                cloudSessions.push(data);
+              }
             });
-            cloudSessions.sort((a, b) => b.timestamp - a.timestamp);
             if (cloudSessions.length > 0) {
-              setSessions(cloudSessions);
-              setAllStoredSessions(cloudSessions);
+              // Cihazlar arası eksiksiz birleştirme: Bir cihazda olan seans diğerinde asla kaybolmaz!
+              const local = getStoredSessions();
+              const map = new Map<string, FocusSession>();
+              for (const s of local) {
+                if (s.id) map.set(s.id, s);
+              }
+              for (const s of cloudSessions) {
+                if (s.id) map.set(s.id, s);
+              }
+              const merged = Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+              setSessions(merged);
+              setAllStoredSessions(merged);
             }
           },
           (err) => {
@@ -472,13 +485,8 @@ export default function App() {
         setProfile(getStoredProfile());
         setCloudActiveSession(null);
 
-        try {
-          const isGuest = localStorage.getItem('fokus_guest_mode') === 'true';
-          if (!isGuest) {
-            localStorage.removeItem('fokus_user_authenticated');
-            localStorage.removeItem('fokus_user_uid');
-          }
-        } catch {}
+        // Oturum anahtarları SADECE kullanıcı açıkça 'Çıkış Yap' butonuna bastığında silinir (handleSignOut).
+        // Böylece tarayıcı veya PWA kapatılıp açıldığında hesap daima açık kalır.
       }
       setIsAuthChecking(false);
     });
@@ -515,15 +523,17 @@ export default function App() {
 
   // Sync user status to Firestore for real community visibility (safe setDoc)
   const updateCloudStatus = async (status: 'studying' | 'idle' | 'break', subjectName?: string) => {
-    if (!currentUser) return;
+    const effectiveUid = currentUser?.uid || auth.currentUser?.uid || (typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || profile.userId) : profile.userId);
+    if (!effectiveUid) return;
     try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
+      const userDocRef = doc(db, 'users', effectiveUid);
       await safeSetDoc(
         userDocRef,
         {
           status,
-          currentSubject: subjectName || '',
+          currentSubject: status === 'idle' ? '' : (subjectName || ''),
           currentMode: currentActiveMode || 'forest',
+          currentSeconds: status === 'idle' ? 0 : undefined,
           todayTotalMinutes: todayMinutes,
           streakDays: realStreak,
           lastActiveAt: Date.now(),
@@ -534,6 +544,13 @@ export default function App() {
       // ignore
     }
   };
+
+  // Seans aktif değilken kullanıcının kütüphanede veya toplulukta odaklanıyor gözükmesini kesin olarak engelle
+  useEffect(() => {
+    if (!isSessionActive) {
+      updateCloudStatus('idle', '');
+    }
+  }, [isSessionActive]);
 
   // Mode Selection Flow with Cinematic Shutter (Kepenk) Transition
   const handleSelectModeFromHub = (mode: FocusModeType) => {
@@ -591,37 +608,49 @@ export default function App() {
       // ignore
     }
 
-    if (currentUser) {
+    // HER FOCUS SEANSI BİTİMİNDE BULUTA YEDEKLEME:
+    const effectiveUser = currentUser || auth.currentUser;
+    const effectiveUid = effectiveUser?.uid || (typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || profile.userId) : profile.userId);
+
+    if (effectiveUid) {
       try {
         // Wipe running session in Firestore so no phantom floating pill renders
-        await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
+        deleteDoc(doc(db, 'users', effectiveUid, 'active_focus', 'current')).catch(() => {});
       } catch {}
 
       try {
-        const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', newSession.id);
-        await safeSetDoc(sessionDocRef, {
-          ...newSession,
-          note: newSession.note || '',
-          taskId: newSession.taskId || null,
-          userId: currentUser.uid,
+        const sessionDocRef = doc(db, 'users', effectiveUid, 'sessions', finalSession.id);
+        safeSetDoc(sessionDocRef, {
+          ...finalSession,
+          note: finalSession.note || '',
+          taskId: finalSession.taskId || null,
+          userId: effectiveUid,
+          syncedAt: Date.now(),
+        }).catch((err) => {
+          handleFirestoreError(err, OperationType.CREATE, `users/${effectiveUid}/sessions/${finalSession.id}`);
         });
 
-        // Update user's aggregate stats in Firestore (safe setDoc)
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        await safeSetDoc(
+        // Update user's aggregate stats in Firestore
+        const userDocRef = doc(db, 'users', effectiveUid);
+        safeSetDoc(
           userDocRef,
           {
             status: 'idle',
             currentSubject: '',
-            todayTotalMinutes: todayMinutes + Math.round(newSession.completedSeconds / 60),
-            totalFocusMinutes: Math.round(realTotalHours * 60 + newSession.completedSeconds / 60),
-            streakDays: calculateRealStreak([newSession, ...sessions], profile),
+            todayTotalMinutes: todayMinutes + Math.round(finalSession.completedSeconds / 60),
+            totalFocusMinutes: Math.round(realTotalHours * 60 + finalSession.completedSeconds / 60),
+            streakDays: calculateRealStreak([finalSession, ...sessions], profile),
             lastActiveAt: Date.now(),
           },
           { merge: true }
-        );
+        ).catch(() => {});
+
+        // Tüm kayıtları arka planda buluta tam senkronize et (cihazlar arası tam eşzamanlılık)
+        if (effectiveUser) {
+          syncAllToFirestore(effectiveUser, updated, tasks, dynamicProfile).catch(() => {});
+        }
       } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/sessions/${newSession.id}`);
+        handleFirestoreError(err, OperationType.CREATE, `users/${effectiveUid}/sessions/${finalSession.id}`);
       }
     }
 
@@ -693,6 +722,38 @@ export default function App() {
     }
 
     updateCloudStatus('idle');
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const updated = sessions.filter((s) => s.id !== sessionId);
+    setSessions(updated);
+    setAllStoredSessions(updated);
+
+    const effectiveUid = currentUser?.uid || auth.currentUser?.uid || (typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || profile.userId) : profile.userId);
+    if (effectiveUid) {
+      try {
+        await deleteDoc(doc(db, 'users', effectiveUid, 'sessions', sessionId));
+        const userDocRef = doc(db, 'users', effectiveUid);
+        safeSetDoc(
+          userDocRef,
+          {
+            todayTotalMinutes: calculateTodayMinutes(updated),
+            totalFocusMinutes: Math.round(calculateTotalFocusHours(updated) * 60),
+            streakDays: calculateRealStreak(updated, profile),
+            lastActiveAt: Date.now(),
+          },
+          { merge: true }
+        ).catch(() => {});
+      } catch (err) {
+        console.warn('Error deleting session from Firestore:', err);
+      }
+    }
+
+    const updatedProfile = updateStoredProfile({
+      totalFocusHours: calculateTotalFocusHours(updated),
+      currentStreakDays: calculateRealStreak(updated, profile),
+    });
+    setProfile(updatedProfile);
   };
 
   const handleAddTask = async (taskData: Omit<FocusTask, 'id' | 'createdAt'>) => {
@@ -891,6 +952,7 @@ export default function App() {
     try {
       localStorage.removeItem('fokus_user_authenticated');
       localStorage.removeItem('fokus_user_uid');
+      localStorage.removeItem('fokus_user_email');
       localStorage.removeItem('fokus_guest_mode');
       setIsGuestMode(false);
       await updateCloudStatus('idle');
@@ -898,6 +960,7 @@ export default function App() {
       setCurrentUser(null);
       const fresh = getStoredProfile();
       fresh.userId = '';
+      fresh.email = '';
       setProfile(fresh);
     } catch {
       // ignore
@@ -909,11 +972,13 @@ export default function App() {
     try {
       localStorage.removeItem('fokus_user_authenticated');
       localStorage.removeItem('fokus_user_uid');
+      localStorage.removeItem('fokus_user_email');
       localStorage.removeItem('fokus_guest_mode');
     } catch {}
     setIsGuestMode(false);
     const fresh = getStoredProfile();
     fresh.userId = '';
+    fresh.email = '';
     setProfile(fresh);
     setSessions([]);
     setTasks([]);
@@ -1170,6 +1235,7 @@ export default function App() {
                   setIsSettingsModalOpen(true);
                 }}
                 onUpdateProfile={handleUpdateProfile}
+                onDeleteSession={handleDeleteSession}
               />
             )}
 

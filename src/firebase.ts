@@ -21,8 +21,9 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Cihaz ve PWA kalıcı oturum: Tablet ve telefonda kapatılıp açılsa bile hesap kalıcı kalır
+// Cihaz ve PWA kalıcı oturum: Tarayıcı veya PWA kapatılıp açılsa bile hesap kalıcı kalır
 if (typeof window !== 'undefined') {
+  // Try indexedDBLocalPersistence first, with browserLocalPersistence fallback
   setPersistence(auth, indexedDBLocalPersistence)
     .catch(() => setPersistence(auth, browserLocalPersistence))
     .catch((err) => {

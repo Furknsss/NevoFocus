@@ -194,6 +194,8 @@ function safeNum(val: any, fallback = 0): number {
 
 export function getStoredProfile(): UserProfile {
   const defaultProfile: UserProfile = {
+    userId: typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') || '' : '',
+    email: typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '',
     name: 'Öğrenci',
     initials: 'Ö',
     avatarColor: '#ff5500',
@@ -223,10 +225,19 @@ export function getStoredProfile(): UserProfile {
       return defaultProfile;
     }
     const parsed = JSON.parse(raw);
+    const resolvedUserId = (typeof parsed.userId === 'string' && parsed.userId) 
+      ? parsed.userId 
+      : (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') || '' : '');
+    const resolvedEmail = (typeof parsed.email === 'string' && parsed.email) 
+      ? parsed.email 
+      : (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '');
+
     const merged: UserProfile = {
       ...defaultProfile,
       ...parsed,
-      name: typeof parsed.name === 'string' ? parsed.name : defaultProfile.name,
+      userId: resolvedUserId,
+      email: resolvedEmail,
+      name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : defaultProfile.name,
       targetExam: typeof parsed.targetExam === 'string' ? parsed.targetExam : defaultProfile.targetExam,
       studyTrack: typeof parsed.studyTrack === 'string' ? parsed.studyTrack : defaultProfile.studyTrack,
       dailyGoalHours: safeNum(parsed.dailyGoalHours, 6),

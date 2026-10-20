@@ -153,6 +153,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const userDisplayName = user.displayName || user.email?.split('@')[0] || 'Öğrenci';
       const firstNameOnly = userDisplayName.trim().split(' ')[0] || userDisplayName;
 
+      // Cihaz hatırlama / kalıcı giriş anahtarları
+      try {
+        localStorage.setItem('fokus_user_authenticated', 'true');
+        localStorage.setItem('fokus_user_uid', user.uid);
+        localStorage.setItem('fokus_user_email', user.email || '');
+        localStorage.removeItem('fokus_guest_mode');
+      } catch {}
+
       // 1. Hemen yerel profili Google verileriyle güncelle & anında üst bileşene ilet (sayfa yenileme GEREKTİRMEZ)
       const immediateProfile = updateStoredProfile({
         userId: user.uid,
@@ -287,6 +295,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const user = result.user;
         const stored = getStoredProfile();
 
+        // Cihaz hatırlama / kalıcı giriş anahtarları
+        try {
+          localStorage.setItem('fokus_user_authenticated', 'true');
+          localStorage.setItem('fokus_user_uid', user.uid);
+          localStorage.setItem('fokus_user_email', user.email || cleanEmail);
+          localStorage.removeItem('fokus_guest_mode');
+        } catch {}
+
+        const userDisplayName = displayName.trim() || cleanEmail.split('@')[0];
+        const registeredProfile = updateStoredProfile({
+          userId: user.uid,
+          email: user.email || cleanEmail,
+          name: userDisplayName,
+          hasCompletedOnboarding: true,
+        });
+        if (onProfileUpdate) {
+          onProfileUpdate(registeredProfile);
+        }
+
         const userRef = doc(db, 'users', user.uid);
         try {
           await safeSetDoc(
@@ -294,8 +321,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {
               userId: user.uid,
               email: user.email || cleanEmail,
-              displayName: displayName.trim() || cleanEmail.split('@')[0],
-              name: displayName.trim() || cleanEmail.split('@')[0],
+              displayName: userDisplayName,
+              name: userDisplayName,
               dailyGoalHours: stored.dailyGoalHours || 6,
               streakDays: Math.max(1, stored.currentStreakDays || 1),
               totalFocusMinutes: Math.round((stored.totalFocusHours || 0) * 60),
@@ -332,6 +359,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // Mevcut Kullanıcı Girişi
         const result = await signInWithEmailAndPassword(auth, cleanEmail, password);
         const user = result.user;
+
+        // Cihaz hatırlama / kalıcı giriş anahtarları
+        try {
+          localStorage.setItem('fokus_user_authenticated', 'true');
+          localStorage.setItem('fokus_user_uid', user.uid);
+          localStorage.setItem('fokus_user_email', user.email || cleanEmail);
+          localStorage.removeItem('fokus_guest_mode');
+        } catch {}
 
         const userPhoto = user.photoURL || '';
         const userDisplayName = user.displayName || user.email?.split('@')[0] || cleanEmail.split('@')[0];

@@ -39,6 +39,7 @@ import { POPULAR_AIRPORTS } from '../utils/airports';
 import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
 import { auth, db, safeSetDoc } from '../firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
+import { getLocalDateString } from '../utils/stats';
 
 interface ActiveFocusSessionProps {
   mode: FocusModeType;
@@ -183,9 +184,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   });
 
   // Calculate elapsed & remaining considering time spent while browser/tab was away
+  // UNUTULAN SEANS KORUMASI: Arka planda unutulan oturumların deltasını max 30 dk (1800 sn) ile sınırla
   const wallClockDelta = useMemo(() => {
     if (!savedState || !savedState.lastTickTime) return 0;
-    return Math.max(0, Math.round((Date.now() - savedState.lastTickTime) / 1000));
+    const diff = Math.max(0, Math.round((Date.now() - savedState.lastTickTime) / 1000));
+    return Math.min(1800, diff);
   }, [savedState]);
 
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
@@ -198,18 +201,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => {
     if (savedState) {
-      if (savedState.isPaused || savedState.isCampActive) return savedState.elapsedCountUp;
-      return savedState.elapsedCountUp + wallClockDelta;
+      if (savedState.isPaused || savedState.isCampActive) return savedState.elapsedCountUp || 0;
+      return (savedState.elapsedCountUp || 0) + wallClockDelta;
     }
     return 0;
   });
 
-  // Today's formatted date (YYYY-MM-DD)
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }, []);
+  // Today's formatted local date (YYYY-MM-DD)
+  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
 
   // Sadece o gün eklenen / o güne ait olan görevler (Kullanıcı Talebi)
   const todayTasks = useMemo(() => {
@@ -384,10 +383,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     // Document Visibility / Tab Switching Listener
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // When user returns to tab, resync delta immediately
+        // When user returns to tab, resync delta accurately without artificial truncation
         const now = Date.now();
-        const delta = Math.round((now - lastTickTimeRef.current) / 1000);
-        if (delta > 1) {
+        const delta = Math.max(0, Math.round((now - lastTickTimeRef.current) / 1000));
+        if (delta >= 1) {
           lastTickTimeRef.current = now;
           if (isCampActive) {
             setBreakSeconds((prev) => prev + delta);
@@ -555,13 +554,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    // Calculate actual worked seconds accurately (kronometrede sayaçta ne göründüyse eksiksiz ve hatasız o süre kaydedilir):
-    const actualCompletedSeconds = Math.max(
-      10,
-      currentTimerType === 'stopwatch'
-        ? elapsedCountUp
-        : Math.min(totalSeconds, Math.max(10, totalSeconds - secondsRemaining))
-    );
+    // Calculate actual worked seconds accurately without artificial 3-hour cap:
+    const rawCompletedSeconds = currentTimerType === 'stopwatch'
+      ? elapsedCountUp
+      : Math.min(totalSeconds, Math.max(10, totalSeconds - secondsRemaining));
+    const actualCompletedSeconds = Math.max(10, rawCompletedSeconds);
     const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
 
     const resolvedSubjectName = selectedTaskTitle
@@ -585,7 +582,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       breakSeconds,
       completed: isCompletedNaturally,
       timestamp: Date.now(),
-      dateString: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      dateString: getLocalDateString(startD),
       startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
       endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
       note: selectedTaskTitle || `${resolvedSubjectName} seansı (${actualCompletedMinutes} dk çalışıldı)`,
@@ -683,7 +680,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       breakSeconds,
       completed: false, // Incomplete session saved accurately
       timestamp: Date.now(),
-      dateString: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      dateString: getLocalDateString(startD),
       startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
       endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
       note: selectedTaskTitle || `${subject.name} seansı (Vazgeçildi: ${Math.round(elapsedSeconds / 60)} dk)`,

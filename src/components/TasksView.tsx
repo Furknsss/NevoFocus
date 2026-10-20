@@ -21,6 +21,7 @@ import {
 import { FocusTask, FocusTaskType, StudyAreaType, SubjectItem, FocusSession } from '../types';
 import { soundEngine } from '../utils/audio';
 import { getAllowedAreasForTrack, getSubjectsForAreaAndTrack, normalizeStudyTrack } from '../utils/subjects';
+import { getLocalDateString } from '../utils/stats';
 
 interface TasksViewProps {
   tasks: FocusTask[];
@@ -64,7 +65,7 @@ export const TasksView = React.memo<TasksViewProps>(({
   }, [dayOffset]);
 
   const selectedDateStr = useMemo(() => {
-    return selectedDate.toISOString().split('T')[0];
+    return getLocalDateString(selectedDate);
   }, [selectedDate]);
 
   const selectedDateFormatted = useMemo(() => {

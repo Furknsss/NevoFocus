@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { StudentPeer, StudyRoom, UserProfile, RoomChatMessage } from '../types';
 import { soundEngine } from '../utils/audio';
-import { db, handleFirestoreError, OperationType, safeSetDoc, parseNumericField } from '../firebase';
+import { auth, db, handleFirestoreError, OperationType, safeSetDoc, parseNumericField } from '../firebase';
 import { DEFAULT_ROOMS } from '../utils/storage';
 import {
   collection,
@@ -470,54 +470,96 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         usersCol,
         (snapshot) => {
           const cloudPeers: StudentPeer[] = [];
+          const myEffectiveUid =
+            currentUser?.uid ||
+            auth.currentUser?.uid ||
+            (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') : null) ||
+            profile.userId;
 
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            const isMe = currentUser ? docSnap.id === currentUser.uid : false;
-
             const peerName = data.name || data.displayName || 'Öğrenci';
-            const initials = peerName
-              .split(' ')
-              .map((p: string) => p[0])
-              .join('')
-              .toUpperCase()
-              .slice(0, 2) || 'Ö';
+            const initials =
+              peerName
+                .split(' ')
+                .map((p: string) => p[0])
+                .join('')
+                .toUpperCase()
+                .slice(0, 2) || 'Ö';
 
-            let finalStatus: 'studying' | 'break' | 'idle' = data.status === 'studying' ? 'studying' : data.status === 'break' ? 'break' : 'idle';
+            // Check if this document represents the currently logged in / active user
+            const isMe = Boolean(
+              (myEffectiveUid && (docSnap.id === myEffectiveUid || docSnap.id === profile.userId)) ||
+              (profile.email && data.email && profile.email.toLowerCase() === data.email.toLowerCase()) ||
+              (currentUser?.email && data.email && currentUser.email.toLowerCase() === data.email.toLowerCase()) ||
+              (profile.name && data.name && profile.name.trim().toLowerCase() === data.name.trim().toLowerCase())
+            );
+
+            // Stale check: if a remote peer's last activity is older than 30 minutes, they are idle
+            const lastActive = parseNumericField(data.lastActiveAt, 0);
+            const isStale = lastActive > 0 && Date.now() - lastActive > 30 * 60 * 1000;
+
+            let finalStatus: 'studying' | 'break' | 'idle' =
+              data.status === 'studying' && !isStale ? 'studying' : data.status === 'break' ? 'break' : 'idle';
+
             if (isMe) {
               finalStatus = isCurrentUserStudying ? 'studying' : 'idle';
+
+              // Self-healing: Kullanıcı şu an odaklanmıyorsa ancak bulut belgesinde 'studying' kalmışsa,
+              // veri tabanındaki kaydı hemen 'idle' ve 0 saniye olarak temizle (sahte sayaç ve hayalet odaklanmayı sıfırla).
+              if (!isCurrentUserStudying && (data.status === 'studying' || data.currentSeconds > 0)) {
+                safeSetDoc(
+                  doc(db, 'users', docSnap.id),
+                  {
+                    status: 'idle',
+                    currentSubject: '',
+                    currentSeconds: 0,
+                    lastActiveAt: Date.now(),
+                  },
+                  { merge: true }
+                ).catch(() => {});
+              }
             }
+
+            const currentSecs = isMe
+              ? (isCurrentUserStudying ? parseNumericField(data.currentSeconds, 0) : 0)
+              : (finalStatus === 'studying' ? parseNumericField(data.currentSeconds, 0) : 0);
+
+            const currentSubj = isMe
+              ? (isCurrentUserStudying ? (profile.currentSubject || data.currentSubject || 'Genel Odak') : '')
+              : (data.currentSubject || 'Genel Odak');
 
             cloudPeers.push({
               id: docSnap.id,
-              name: peerName,
-              initials,
+              name: isMe ? (profile.name?.trim().split(' ')[0] || profile.name) : peerName,
+              initials: isMe ? profile.initials : initials,
               avatarBg: data.avatarColor ? '' : 'bg-emerald-600',
-              avatarUrl: data.avatarUrl || '',
+              avatarUrl: isMe ? (profile.avatarUrl || data.avatarUrl || '') : (data.avatarUrl || ''),
               status: finalStatus,
-              currentSubject: data.currentSubject || (isMe && profile.currentSubject) || 'Genel Odak',
-              currentMode: data.currentMode || (isMe && profile.currentMode) || 'forest',
-              currentSeconds: parseNumericField(data.currentSeconds, 0),
-              todayTotalMinutes: parseNumericField(data.todayTotalMinutes, 0),
+              currentSubject: currentSubj,
+              currentMode: isMe ? (profile.currentMode || data.currentMode || 'forest') : (data.currentMode || 'forest'),
+              currentSeconds: currentSecs,
+              todayTotalMinutes: isMe ? parseNumericField(profile.todayTotalMinutes, parseNumericField(data.todayTotalMinutes, 0)) : parseNumericField(data.todayTotalMinutes, 0),
               roomName: data.targetExam || data.studyTrack || 'Sayısal',
               streakDays: parseNumericField(data.streakDays || data.currentStreakDays, 0),
               cheersReceived: parseNumericField(data.cheersReceived, 0),
-              targetUniversity: data.targetUniversity || '',
-              targetDepartment: data.targetDepartment || '',
-              targetExam: data.targetExam || '',
+              targetUniversity: isMe ? (profile.targetUniversity || data.targetUniversity || '') : (data.targetUniversity || ''),
+              targetDepartment: isMe ? (profile.targetDepartment || data.targetDepartment || '') : (data.targetDepartment || ''),
+              targetExam: isMe ? (profile.targetExam || data.targetExam || '') : (data.targetExam || ''),
               isCurrentUser: isMe,
             });
           });
 
-          if (currentUser && !cloudPeers.some((p) => p.id === currentUser.uid)) {
+          // If current user is not in the list, add them as idle / studying
+          if (!cloudPeers.some((p) => p.isCurrentUser || (myEffectiveUid && p.id === myEffectiveUid))) {
             cloudPeers.push({
-              id: currentUser.uid,
+              id: myEffectiveUid || 'user_current',
               name: profile.name?.trim().split(' ')[0] || profile.name,
               initials: profile.initials,
               avatarBg: 'bg-[#ff5500]',
               avatarUrl: profile.avatarUrl,
               status: isCurrentUserStudying ? 'studying' : 'idle',
-              currentSubject: profile.currentSubject || 'Genel Odak',
+              currentSubject: isCurrentUserStudying ? (profile.currentSubject || 'Genel Odak') : '',
               currentMode: profile.currentMode || 'forest',
               currentSeconds: 0,
               todayTotalMinutes: parseNumericField(profile.todayTotalMinutes, 0),

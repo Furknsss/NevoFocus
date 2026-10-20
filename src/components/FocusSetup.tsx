@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Play,
   Plus,
@@ -69,6 +69,24 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
 
   const presetDurations = [15, 25, 45, 60, 90, 120];
   const currentModeConfig = FOCUS_MODES.find((m) => m.id === selectedMode) || FOCUS_MODES[0];
+
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }, []);
+
+  const todayTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (t.dateString) return t.dateString === todayStr;
+      if (t.createdAt) {
+        const td = new Date(t.createdAt);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${td.getFullYear()}-${pad(td.getMonth() + 1)}-${pad(td.getDate())}` === todayStr;
+      }
+      return false;
+    });
+  }, [tasks, todayStr]);
 
   const getModeIcon = (modeId: FocusModeType) => {
     switch (modeId) {
@@ -234,18 +252,18 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
                   <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
                     Uçuş Görevi (Task Seç)
                   </label>
-                  {tasks.length > 0 ? (
+                  {todayTasks.length > 0 ? (
                     <select
                       value={selectedTask?.id || ''}
                       onChange={(e) => {
-                        const t = tasks.find((item) => item.id === e.target.value) || null;
+                        const t = todayTasks.find((item: FocusTask) => item.id === e.target.value) || null;
                         onSelectTask(t);
                         if (t) onChangeDuration(t.plannedMinutes);
                       }}
                       className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-neutral-900 border border-neutral-700 text-white focus:outline-none focus:border-sky-400"
                     >
                       <option value="">Doğrudan ders odaklanması</option>
-                      {tasks.map((t) => (
+                      {todayTasks.map((t: FocusTask) => (
                         <option key={t.id} value={t.id}>
                           {t.title} ({t.plannedMinutes} dk - {t.subjectName})
                         </option>
@@ -253,7 +271,7 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
                     </select>
                   ) : (
                     <p className="text-xs text-neutral-400 bg-neutral-900/60 p-2.5 rounded-xl border border-neutral-800">
-                      💡 Henüz bir görev eklenmemiş. Yukarıdaki "Görevler" sekmesinden veya aşağıdaki ders panelinden uçuş konunuzu seçebilirsiniz.
+                      💡 Bugün eklenmiş bir görev yok. Yukarıdaki "Görevler" sekmesinden bugüne görev ekleyebilir veya doğrudan uçuş başlatabilirsiniz.
                     </p>
                   )}
                 </div>

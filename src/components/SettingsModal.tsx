@@ -1152,7 +1152,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>Kayıtlı E-posta Adresi</span>
                 </p>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  Mevcut: <strong className="text-white font-mono">{currentUser?.email || profile.email || 'Giriş yapılmadı'}</strong>
+                  Mevcut: <strong className="text-white font-mono">{currentUser?.email || profile.email || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') : '') || (profile.userId ? 'Kayıtlı Öğrenci Hesabı' : 'Giriş yapılmadı')}</strong>
                 </p>
               </div>
 
@@ -1370,13 +1370,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span>Firestore Bulut Eşitleme</span>
                   </p>
                   <p className="text-xs text-neutral-400 mt-0.5">
-                    {currentUser
-                      ? `${currentUser.email || currentUser.displayName} hesabınızla bulut yedekleme aktif.`
+                    {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true')
+                      ? `${currentUser?.email || profile.email || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') : '') || profile.name} hesabınızla bulut yedekleme aktif.`
                       : 'Oturum açarak çalışma verilerinizi bulutta güvende tutun.'}
                   </p>
                 </div>
                 <div className="text-right">
-                  {currentUser ? (
+                  {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true') ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                       Bulut Aktif
@@ -1389,7 +1389,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {currentUser ? (
+              {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true') ? (
                 <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"

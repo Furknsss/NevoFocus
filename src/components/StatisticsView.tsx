@@ -24,10 +24,11 @@ import {
   Coffee,
   Activity,
   X,
+  Trash2,
 } from 'lucide-react';
 import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
-import { isDateRestDay } from '../utils/stats';
+import { isDateRestDay, getLocalDateString } from '../utils/stats';
 
 interface StatisticsViewProps {
   sessions: FocusSession[];
@@ -35,6 +36,8 @@ interface StatisticsViewProps {
   tasks?: FocusTask[];
   onOpenSettings?: () => void;
   onUpdateProfile?: (updated: Partial<UserProfile>) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onUpdateSession?: (session: FocusSession) => void;
 }
 
 export const StatisticsView = React.memo<StatisticsViewProps>(({
@@ -43,6 +46,8 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
   tasks = [],
   onOpenSettings,
   onUpdateProfile,
+  onDeleteSession,
+  onUpdateSession,
 }) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'forest_gallery'>('daily');
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
@@ -52,6 +57,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
   const [hoveredSession, setHoveredSession] = useState<FocusSession | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [isRestDayModalOpen, setIsRestDayModalOpen] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
   // Weekly rest day calculation
   const currentRestDayNumber = useMemo(() => {
@@ -193,7 +199,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
   const weekDaysData = useMemo(() => {
     const days: { dateStr: string; label: string; dateNum: number; totalMinutes: number; totalHours: string; isToday: boolean }[] = [];
     const dayNames = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString(new Date());
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(selectedWeekMonday);
@@ -307,7 +313,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
       days.push(null);
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString(new Date());
     const subjectMap: Record<string, number> = {};
     let totalMonthlySecs = 0;
     let totalBreakSecs = 0;
@@ -720,26 +726,88 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
               {dateSessions.length === 0 ? (
                 <p className="text-xs text-neutral-500 py-6 text-center">Bu tarihte kayıtlı seans yok.</p>
               ) : (
-                <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                  {dateSessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.subjectColor }} />
-                        <div>
-                          <p className="text-xs font-bold text-white leading-tight">{s.subjectName}</p>
-                          <span className="text-[10px] text-neutral-400">
-                            {s.startTimeString || '--:--'} - {s.endTimeString || '--:--'}
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {dateSessions.map((s) => {
+                    const isLongSession = s.completedSeconds >= 7200; // 2+ hours
+                    const isDeletingThis = deletingSessionId === s.id;
+                    const sessionMinutes = Math.round(s.completedSeconds / 60);
+
+                    return (
+                      <div
+                        key={s.id}
+                        className={`p-3 rounded-xl bg-neutral-950/70 border transition-all ${
+                          isLongSession ? 'border-amber-500/30' : 'border-neutral-800'
+                        } flex items-center justify-between gap-2`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: s.subjectColor }}
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-bold text-white leading-tight truncate">
+                                {s.subjectName}
+                              </p>
+                              {isLongSession && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium shrink-0">
+                                  Uzun Seans
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-neutral-400 block mt-0.5">
+                              {s.startTimeString || '--:--'} - {s.endTimeString || '--:--'}
+                              {s.note && s.note !== s.subjectName && ` · ${s.note}`}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-mono font-bold text-[#ff5500]">
+                            {sessionMinutes >= 60
+                              ? `${Math.floor(sessionMinutes / 60)} sa ${sessionMinutes % 60} dk`
+                              : `${sessionMinutes} dk`}
                           </span>
+
+                          {onDeleteSession && (
+                            <>
+                              {isDeletingThis ? (
+                                <div className="flex items-center gap-1 animate-in fade-in duration-150">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      soundEngine.playClick();
+                                      onDeleteSession(s.id);
+                                      setDeletingSessionId(null);
+                                    }}
+                                    className="px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-[10px] font-bold text-white transition-colors cursor-pointer"
+                                  >
+                                    Sil
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingSessionId(null)}
+                                    className="px-1.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-[10px] font-semibold text-neutral-300 transition-colors cursor-pointer"
+                                  >
+                                    İptal
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingSessionId(s.id)}
+                                  title="Bu seansı kayıtlardan sil"
+                                  className="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
-                      <span className="text-xs font-mono font-bold text-[#ff5500]">
-                        {Math.round(s.completedSeconds / 60)} dk
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
