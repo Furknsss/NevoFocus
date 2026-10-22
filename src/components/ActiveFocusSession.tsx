@@ -1,30 +1,21 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import {
-  Play,
-  Pause,
   RotateCcw,
   Volume2,
   Maximize2,
   Minimize2,
   CheckCircle2,
-  Sparkles,
   CheckSquare,
   AlertTriangle,
   ArrowRight,
-  Flame,
   Award,
-  Tent,
   Plane,
-  Globe2,
-  Compass,
   Waves,
   Mountain,
   Trees,
   Bell,
   Coffee,
-  Sun,
-  Clock,
 } from 'lucide-react';
 import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
 import { ActiveForestCanvas } from './visuals/ActiveForestCanvas';
@@ -37,9 +28,16 @@ import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
 import { POPULAR_AIRPORTS } from '../utils/airports';
 import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
-import { auth, db, safeSetDoc } from '../firebase';
-import { doc, deleteDoc } from 'firebase/firestore';
+import { auth, db, safeSetDoc, parseNumericField } from '../firebase';
+import { doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { getLocalDateString } from '../utils/stats';
+import {
+  backgroundFocus,
+  getDeviceId,
+  getDeviceName,
+  formatTimerDisplay,
+  LiveNotificationPayload,
+} from '../utils/backgroundFocus';
 
 interface ActiveFocusSessionProps {
   mode: FocusModeType;
@@ -71,75 +69,12 @@ const MOTIVATIONAL_QUOTES = [
   'Zihnini tek bir hedefe kitle; dünya etrafında dönmeye devam etsin.',
 ];
 
-const MODE_BREAK_CONFIG: Record<
-  FocusModeType,
-  {
-    buttonIcon: any;
-    startLabel: string;
-    resumeLabel: string;
-    hudTitle: string;
-    hudDesc: string;
-    themePillBg: string;
-    themeActiveBtn: string;
-    themeInactiveBtn: string;
-    ambientSound: 'campfire' | 'white_noise' | 'waves' | 'forest';
-  }
-> = {
-  climb: {
-    buttonIcon: Coffee,
-    startLabel: 'Mola Ver',
-    resumeLabel: 'Devam Et',
-    hudTitle: 'Mola',
-    hudDesc: 'Mola veriyorsun.',
-    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
-    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
-    ambientSound: 'campfire',
-  },
-  flight: {
-    buttonIcon: Coffee,
-    startLabel: 'Mola Ver',
-    resumeLabel: 'Devam Et',
-    hudTitle: 'Mola',
-    hudDesc: 'Mola veriyorsun.',
-    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
-    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
-    ambientSound: 'white_noise',
-  },
-  dive: {
-    buttonIcon: Coffee,
-    startLabel: 'Mola Ver',
-    resumeLabel: 'Devam Et',
-    hudTitle: 'Mola',
-    hudDesc: 'Mola veriyorsun.',
-    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
-    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
-    ambientSound: 'waves',
-  },
-  forest: {
-    buttonIcon: Coffee,
-    startLabel: 'Mola Ver',
-    resumeLabel: 'Devam Et',
-    hudTitle: 'Mola',
-    hudDesc: 'Mola veriyorsun.',
-    themePillBg: 'bg-amber-950/90 border-amber-500/50 text-amber-200',
-    themeActiveBtn: 'bg-amber-500 text-black border-amber-400',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-amber-400 border-amber-500/40',
-    ambientSound: 'forest',
-  },
-  clock: {
-    buttonIcon: Coffee,
-    startLabel: 'Mola Ver',
-    resumeLabel: 'Devam Et',
-    hudTitle: 'Mola',
-    hudDesc: 'Mola veriyorsun.',
-    themePillBg: 'bg-neutral-900 border-neutral-700 text-neutral-200',
-    themeActiveBtn: 'bg-white text-black border-neutral-300',
-    themeInactiveBtn: 'bg-neutral-900/80 hover:bg-neutral-800 text-white border-neutral-700',
-    ambientSound: 'white_noise',
-  },
+const MODE_LABELS: Record<FocusModeType, string> = {
+  forest: 'Kadim Orman',
+  climb: 'Dağcı Kampı',
+  flight: 'Focus Flight',
+  dive: 'Derin Dalış',
+  clock: 'Dijital Saat',
 };
 
 export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
@@ -158,17 +93,18 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   onToggleAudioModal,
   onMinimize,
   isAudioPlaying,
-  desktopNotificationsEnabled = true,
-  liveNotificationsEnabled = false,
   selectedTreeSpecies = 'Meşe Ağacı',
 }) => {
-  // Check if restoring an active session from localStorage
+  const myDeviceId = useMemo(() => getDeviceId(), []);
+  const myDeviceName = useMemo(() => getDeviceName(), []);
+
+  // Load persisted active session state from localStorage
   const savedState = useMemo(() => {
     try {
       const raw = localStorage.getItem('fokus_active_session_running');
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.mode === mode) {
+      if (parsed && parsed.mode === mode && !parsed.isFinished) {
         return parsed;
       }
     } catch {
@@ -183,34 +119,60 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     return timerType;
   });
 
-  // Calculate elapsed & remaining considering time spent while browser/tab was away
-  // UNUTULAN SEANS KORUMASI: Arka planda unutulan oturumların deltasını max 30 dk (1800 sn) ile sınırla
-  const wallClockDelta = useMemo(() => {
-    if (!savedState || !savedState.lastTickTime) return 0;
-    const diff = Math.max(0, Math.round((Date.now() - savedState.lastTickTime) / 1000));
-    return Math.min(1800, diff);
-  }, [savedState]);
+  // Wall-Clock Anchor Refs for zero-drift background & cross-device synchronization
+  const startTimeRef = useRef<number>(savedState?.startTime || Date.now());
+  const anchorTimestampRef = useRef<number>(
+    savedState?.anchorTimestamp || savedState?.lastTickTime || Date.now()
+  );
+  const accumulatedFocusSecondsRef = useRef<number>(
+    typeof savedState?.accumulatedFocusSeconds === 'number'
+      ? savedState.accumulatedFocusSeconds
+      : savedState?.elapsedCountUp || 0
+  );
+  const breakAnchorTimestampRef = useRef<number>(
+    savedState?.breakAnchorTimestamp || savedState?.lastTickTime || Date.now()
+  );
+  const accumulatedBreakSecondsRef = useRef<number>(
+    typeof savedState?.accumulatedBreakSeconds === 'number'
+      ? savedState.accumulatedBreakSeconds
+      : savedState?.breakSeconds || 0
+  );
 
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
-    if (savedState) {
-      if (savedState.isPaused || savedState.isCampActive) return savedState.secondsRemaining;
-      return Math.max(0, savedState.secondsRemaining - wallClockDelta);
-    }
-    return totalSeconds;
-  });
+  const [isPaused, setIsPaused] = useState<boolean>(() => Boolean(savedState?.isPaused));
+  const [isCampActive, setIsCampActive] = useState<boolean>(() => Boolean(savedState?.isCampActive));
+  const [breakCount, setBreakCount] = useState<number>(() => savedState?.breakCount || 0);
+  const [clockStyle, setClockStyle] = useState<'ipad' | 'flip'>(() => savedState?.clockStyle || 'ipad');
 
-  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => {
-    if (savedState) {
-      if (savedState.isPaused || savedState.isCampActive) return savedState.elapsedCountUp || 0;
-      return (savedState.elapsedCountUp || 0) + wallClockDelta;
+  const isPausedRef = useRef<boolean>(isPaused);
+  const isCampActiveRef = useRef<boolean>(isCampActive);
+  isPausedRef.current = isPaused;
+  isCampActiveRef.current = isCampActive;
+
+  const computeCurrentFocusSeconds = useCallback(() => {
+    if (isPausedRef.current || isCampActiveRef.current) {
+      return accumulatedFocusSecondsRef.current;
     }
-    return 0;
-  });
+    const delta = Math.max(0, Math.floor((Date.now() - anchorTimestampRef.current) / 1000));
+    return accumulatedFocusSecondsRef.current + delta;
+  }, []);
+
+  const computeCurrentBreakSeconds = useCallback(() => {
+    if (!isCampActiveRef.current || isPausedRef.current) {
+      return accumulatedBreakSecondsRef.current;
+    }
+    const delta = Math.max(0, Math.floor((Date.now() - breakAnchorTimestampRef.current) / 1000));
+    return accumulatedBreakSecondsRef.current + delta;
+  }, []);
+
+  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => computeCurrentFocusSeconds());
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(() =>
+    Math.max(0, totalSeconds - computeCurrentFocusSeconds())
+  );
+  const [breakSeconds, setBreakSeconds] = useState<number>(() => computeCurrentBreakSeconds());
 
   // Today's formatted local date (YYYY-MM-DD)
   const todayStr = useMemo(() => getLocalDateString(new Date()), []);
 
-  // Sadece o gün eklenen / o güne ait olan görevler (Kullanıcı Talebi)
   const todayTasks = useMemo(() => {
     return tasksList.filter((t) => {
       if (t.dateString) return t.dateString === todayStr;
@@ -223,15 +185,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     });
   }, [tasksList, todayStr]);
 
-  const [isPaused, setIsPaused] = useState<boolean>(() => {
-    return savedState ? Boolean(savedState.isPaused) : false;
-  });
-
-  const handleTogglePause = () => {
-    soundEngine.playClick();
-    setIsPaused((prev) => !prev);
-  };
-  const { isWakeLockActive } = useScreenWakeLock(!isPaused);
+  const { isWakeLockActive: _wakeLock } = useScreenWakeLock(!isPaused);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAbandonModal, setShowAbandonModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -240,35 +194,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Background Notification Preview Modal
   const [isNotificationPreviewOpen, setIsNotificationPreviewOpen] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('default');
-
-  // THEMATIC BREAK SYSTEM FOR ALL MODES
-  const [isCampActive, setIsCampActive] = useState<boolean>(() => {
-    return savedState ? Boolean(savedState.isCampActive) : false;
-  });
-  const [breakSeconds, setBreakSeconds] = useState<number>(() => {
-    if (savedState) {
-      if (!savedState.isPaused && savedState.isCampActive) {
-        return (savedState.breakSeconds || 0) + wallClockDelta;
-      }
-      return savedState.breakSeconds || 0;
-    }
-    return 0;
-  });
-  const [breakCount, setBreakCount] = useState<number>(() => {
-    return savedState?.breakCount || 0;
-  });
-
-  const breakConfig = MODE_BREAK_CONFIG[mode] || MODE_BREAK_CONFIG.climb;
-  const BreakIcon = breakConfig.buttonIcon;
-
-  // FLIGHT 3D GLOBE / COCKPIT TOGGLE
-  const [flightViewMode, setFlightViewMode] = useState<'cockpit' | 'globe'>('globe');
-
-  // Mini task checklist: ONLY when stopwatch is active
   const [showTasksPanel, setShowTasksPanel] = useState(false);
-  const [clockStyle, setClockStyle] = useState<'ipad' | 'flip'>('ipad');
 
-  // Today's date formatted in Turkish (e.g. 18 Ekim 2026 Pazar)
+  // Today's date formatted in Turkish
   const todayFormattedTurkish = useMemo(() => {
     const d = new Date();
     const day = d.getDate();
@@ -282,20 +210,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     return `${day} ${months[d.getMonth()]} ${d.getFullYear()} ${days[d.getDay()]}`;
   }, []);
 
-  // Live Wall Clock Time (e.g. "10:24" for "Saat: 10:24")
+  // Live Wall Clock Time
   const [wallClockTime, setWallClockTime] = useState(() => {
     const now = new Date();
-    const h = String(now.getHours()).padStart(2, '0');
-    const m = String(now.getMinutes()).padStart(2, '0');
-    return `${h}:${m}`;
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   });
 
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
-      const h = String(now.getHours()).padStart(2, '0');
-      const m = String(now.getMinutes()).padStart(2, '0');
-      setWallClockTime(`${h}:${m}`);
+      setWallClockTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
     };
     const timer = setInterval(updateClock, 1000);
     return () => clearInterval(timer);
@@ -304,12 +228,184 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const quoteRef = useRef(
     MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]
   );
-
-  const startTimeRef = useRef(savedState?.startTime || Date.now());
-  const lastTickTimeRef = useRef(Date.now());
   const lastCloudSyncRef = useRef<number>(0);
-  const lastPausedRef = useRef<boolean>(isPaused);
-  const lastCampRef = useRef<boolean>(isCampActive);
+
+  const getEffectiveUid = useCallback(() => {
+    return (
+      auth.currentUser?.uid ||
+      (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') : null)
+    );
+  }, []);
+
+  //Persist state immediately to localStorage and optionally force-sync to Firestore
+  const persistSessionState = useCallback(
+    (forceCloudSync = false) => {
+      if (showCompletionModal) return;
+      const now = Date.now();
+      const currentFocusSecs = computeCurrentFocusSeconds();
+      const currentBreakSecs = computeCurrentBreakSeconds();
+      const currentRemSecs = Math.max(0, totalSeconds - currentFocusSecs);
+
+      const stateToPersist = {
+        isActive: true,
+        isFinished: false,
+        deviceId: myDeviceId,
+        deviceName: myDeviceName,
+        mode,
+        subject,
+        plannedMinutes,
+        timerType: currentTimerType,
+        clockStyle,
+        originAirport,
+        destAirport,
+        selectedTaskId,
+        selectedTaskTitle,
+        selectedTreeSpecies,
+        startTime: startTimeRef.current,
+        anchorTimestamp: anchorTimestampRef.current,
+        accumulatedFocusSeconds: accumulatedFocusSecondsRef.current,
+        breakAnchorTimestamp: breakAnchorTimestampRef.current,
+        accumulatedBreakSeconds: accumulatedBreakSecondsRef.current,
+        lastTickTime: now,
+        elapsedCountUp: currentFocusSecs,
+        secondsRemaining: currentRemSecs,
+        breakSeconds: currentBreakSecs,
+        breakCount,
+        isCampActive: isCampActiveRef.current,
+        isPaused: isPausedRef.current,
+      };
+
+      try {
+        localStorage.setItem('fokus_active_session_running', JSON.stringify(stateToPersist));
+      } catch {
+        // ignore
+      }
+
+      const userId = getEffectiveUid();
+      if (userId && (forceCloudSync || now - lastCloudSyncRef.current > 4000)) {
+        lastCloudSyncRef.current = now;
+        const cloudPayload = {
+          deviceId: myDeviceId,
+          deviceName: myDeviceName,
+          lastUpdatedByDeviceId: myDeviceId,
+          mode,
+          subject,
+          plannedMinutes,
+          startedAt: startTimeRef.current,
+          anchorTimestamp: anchorTimestampRef.current,
+          accumulatedFocusSeconds: accumulatedFocusSecondsRef.current,
+          breakAnchorTimestamp: breakAnchorTimestampRef.current,
+          accumulatedBreakSeconds: accumulatedBreakSecondsRef.current,
+          elapsedSeconds: currentFocusSecs,
+          isPaused: isPausedRef.current,
+          isCampActive: isCampActiveRef.current,
+          breakSeconds: currentBreakSecs,
+          breakCount,
+          timerType: currentTimerType,
+          selectedTreeSpecies: selectedTreeSpecies || null,
+          originAirport: originAirport || null,
+          destAirport: destAirport || null,
+          selectedTaskId: selectedTaskId || null,
+          selectedTaskTitle: selectedTaskTitle || null,
+          updatedAt: now,
+          isFinished: false,
+        };
+        safeSetDoc(doc(db, 'users', userId, 'active_focus', 'current'), cloudPayload, { merge: true }).catch(() => {});
+      }
+    },
+    [
+      showCompletionModal,
+      computeCurrentFocusSeconds,
+      computeCurrentBreakSeconds,
+      totalSeconds,
+      myDeviceId,
+      myDeviceName,
+      mode,
+      subject,
+      plannedMinutes,
+      currentTimerType,
+      clockStyle,
+      originAirport,
+      destAirport,
+      selectedTaskId,
+      selectedTaskTitle,
+      selectedTreeSpecies,
+      breakCount,
+      getEffectiveUid,
+    ]
+  );
+
+  // Pause / Resume with exact Wall-Clock Anchor updates
+  const handleTogglePause = useCallback(() => {
+    soundEngine.playClick();
+    const now = Date.now();
+
+    if (!isPausedRef.current) {
+      // Going into pause: lock in elapsed time up to right now
+      if (!isCampActiveRef.current) {
+        const delta = Math.max(0, Math.floor((now - anchorTimestampRef.current) / 1000));
+        accumulatedFocusSecondsRef.current += delta;
+      } else {
+        const bDelta = Math.max(0, Math.floor((now - breakAnchorTimestampRef.current) / 1000));
+        accumulatedBreakSecondsRef.current += bDelta;
+      }
+      anchorTimestampRef.current = now;
+      breakAnchorTimestampRef.current = now;
+      isPausedRef.current = true;
+      setIsPaused(true);
+    } else {
+      // Resuming from pause: reset anchors to right now
+      anchorTimestampRef.current = now;
+      breakAnchorTimestampRef.current = now;
+      isPausedRef.current = false;
+      setIsPaused(false);
+      backgroundFocus.startKeepAlive();
+    }
+
+    setElapsedCountUp(computeCurrentFocusSeconds());
+    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
+    setBreakSeconds(computeCurrentBreakSeconds());
+    persistSessionState(true);
+  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState]);
+
+  // Thematic Break toggle with exact Wall-Clock Anchor updates
+  const toggleThematicBreak = useCallback(() => {
+    const now = Date.now();
+    if (!isCampActiveRef.current) {
+      // Entering break: accumulate focus seconds up to now, start break anchor
+      if (!isPausedRef.current) {
+        const delta = Math.max(0, Math.floor((now - anchorTimestampRef.current) / 1000));
+        accumulatedFocusSecondsRef.current += delta;
+      }
+      breakAnchorTimestampRef.current = now;
+      isCampActiveRef.current = true;
+      setIsCampActive(true);
+      setBreakCount((prev) => prev + 1);
+    } else {
+      // Exiting break: accumulate break seconds up to now, start focus anchor
+      if (!isPausedRef.current) {
+        const bDelta = Math.max(0, Math.floor((now - breakAnchorTimestampRef.current) / 1000));
+        accumulatedBreakSecondsRef.current += bDelta;
+      }
+      anchorTimestampRef.current = now;
+      isCampActiveRef.current = false;
+      setIsCampActive(false);
+    }
+
+    setElapsedCountUp(computeCurrentFocusSeconds());
+    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
+    setBreakSeconds(computeCurrentBreakSeconds());
+    persistSessionState(true);
+  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState]);
+
+  // Register pause handler for Lock-Screen MediaSession & Service Worker notification buttons
+  useEffect(() => {
+    backgroundFocus.setPauseHandler(handleTogglePause);
+    backgroundFocus.startKeepAlive();
+    return () => {
+      backgroundFocus.setPauseHandler(null);
+    };
+  }, [handleTogglePause]);
 
   // Check Notification permission support on mount
   useEffect(() => {
@@ -320,216 +416,182 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     }
   }, []);
 
+  const buildNotificationPayload = useCallback(
+    (forceShow = false): LiveNotificationPayload => ({
+      mode,
+      modeLabel: MODE_LABELS[mode] || 'Odak Modu',
+      subjectName: selectedTaskTitle ? subject.name : (mode === 'clock' && !selectedTaskId ? 'Serbest Çalışma' : subject.name),
+      taskTitle: selectedTaskTitle,
+      timerType: currentTimerType,
+      plannedMinutes,
+      anchorTimestamp: anchorTimestampRef.current,
+      accumulatedFocusSeconds: accumulatedFocusSecondsRef.current,
+      breakAnchorTimestamp: breakAnchorTimestampRef.current,
+      accumulatedBreakSeconds: accumulatedBreakSecondsRef.current,
+      isPaused: isPausedRef.current,
+      isCampActive: isCampActiveRef.current,
+      forceShow,
+    }),
+    [mode, subject.name, selectedTaskTitle, selectedTaskId, currentTimerType, plannedMinutes]
+  );
+
   const handleRequestNotificationPermission = async () => {
     if ('Notification' in window) {
       try {
         const perm = await Notification.requestPermission();
         setPermissionState(perm);
+        if (perm === 'granted') {
+          await backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+        }
       } catch {
         // ignore
       }
     }
   };
 
-  const elapsedSeconds = currentTimerType === 'stopwatch' ? elapsedCountUp : (totalSeconds - secondsRemaining);
-  const progress = Math.min(1, Math.max(0, elapsedSeconds / totalSeconds));
+  // Real-time Cross-Device Listener: If another device pauses, resumes, or finishes, sync immediately!
+  useEffect(() => {
+    const userId = getEffectiveUid();
+    if (!userId) return;
 
-  const displayMins = currentTimerType === 'stopwatch' ? Math.floor(elapsedCountUp / 60) : Math.floor(secondsRemaining / 60);
-  const displaySecs = currentTimerType === 'stopwatch' ? (elapsedCountUp % 60) : (secondsRemaining % 60);
-  const timeFormatted = `${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`;
+    const activeDocRef = doc(db, 'users', userId, 'active_focus', 'current');
+    const unsub = onSnapshot(
+      activeDocRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (!data) return;
+
+        // Only apply remote state changes if triggered by another device or if paused/camp state changed
+        if (
+          data.lastUpdatedByDeviceId &&
+          data.lastUpdatedByDeviceId !== myDeviceId
+        ) {
+          if (typeof data.anchorTimestamp === 'number') {
+            anchorTimestampRef.current = data.anchorTimestamp;
+          }
+          if (typeof data.accumulatedFocusSeconds === 'number') {
+            accumulatedFocusSecondsRef.current = data.accumulatedFocusSeconds;
+          }
+          if (typeof data.breakAnchorTimestamp === 'number') {
+            breakAnchorTimestampRef.current = data.breakAnchorTimestamp;
+          }
+          if (typeof data.accumulatedBreakSeconds === 'number') {
+            accumulatedBreakSecondsRef.current = data.accumulatedBreakSeconds;
+          }
+          const nextPaused = Boolean(data.isPaused);
+          const nextCamp = Boolean(data.isCampActive);
+          isPausedRef.current = nextPaused;
+          isCampActiveRef.current = nextCamp;
+          setIsPaused(nextPaused);
+          setIsCampActive(nextCamp);
+          if (data.timerType === 'stopwatch' || data.timerType === 'countdown') {
+            setCurrentTimerType(data.timerType);
+          }
+
+          const fSecs = computeCurrentFocusSeconds();
+          setElapsedCountUp(fSecs);
+          setSecondsRemaining(Math.max(0, totalSeconds - fSecs));
+          setBreakSeconds(computeCurrentBreakSeconds());
+        }
+      },
+      () => {
+        // ignore
+      }
+    );
+
+    return () => unsub();
+  }, [getEffectiveUid, myDeviceId, computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds]);
+
+  const elapsedSeconds = currentTimerType === 'stopwatch' ? elapsedCountUp : Math.max(0, totalSeconds - secondsRemaining);
+  const progress = Math.min(1, Math.max(0, elapsedSeconds / Math.max(1, totalSeconds)));
+  const displayRawSecs = currentTimerType === 'stopwatch' ? elapsedCountUp : secondsRemaining;
+  const timeFormatted = formatTimerDisplay(displayRawSecs);
 
   // Page Title Live Sync for Background Tab Viewing
   useEffect(() => {
     const originalTitle = document.title;
     document.title = `(${timeFormatted}) ${subject.name} | Fokus Premium`;
-
     return () => {
       document.title = originalTitle;
     };
   }, [timeFormatted, subject.name]);
 
-  // Delta-based Wall-Clock Precision Timer
+  // High-Precision Wall-Clock Timer + Visibility / Focus / PageShow Resync + Live Notification Sync
   useEffect(() => {
     if (showCompletionModal) return;
 
-    lastTickTimeRef.current = Date.now();
+    const syncTick = () => {
+      const currentFocus = computeCurrentFocusSeconds();
+      const currentBreak = computeCurrentBreakSeconds();
+      const currentRem = Math.max(0, totalSeconds - currentFocus);
 
-    const interval = window.setInterval(() => {
-      const now = Date.now();
-      const deltaSeconds = Math.round((now - lastTickTimeRef.current) / 1000);
+      setElapsedCountUp(currentFocus);
+      setSecondsRemaining(currentRem);
+      setBreakSeconds(currentBreak);
 
-      if (deltaSeconds >= 1) {
-        lastTickTimeRef.current = now;
+      // Update MediaSession & Service Worker notification
+      backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
-        if (isCampActive) {
-          setBreakSeconds((prev) => prev + deltaSeconds);
-        } else if (!isPaused) {
-          setElapsedCountUp((prev) => prev + deltaSeconds);
-
-          if (currentTimerType === 'countdown') {
-            setSecondsRemaining((prev) => {
-              if (prev <= deltaSeconds) {
-                window.clearInterval(interval);
-                handleFinish(true);
-                return 0;
-              }
-              return prev - deltaSeconds;
-            });
-          }
-        }
+      if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
+        handleFinish(true);
+        return;
       }
-    }, 1000);
 
-    // Document Visibility / Tab Switching Listener
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // When user returns to tab, resync delta accurately without artificial truncation
-        const now = Date.now();
-        const delta = Math.max(0, Math.round((now - lastTickTimeRef.current) / 1000));
-        if (delta >= 1) {
-          lastTickTimeRef.current = now;
-          if (isCampActive) {
-            setBreakSeconds((prev) => prev + delta);
-          } else if (!isPaused) {
-            setElapsedCountUp((prev) => prev + delta);
-            if (currentTimerType === 'countdown') {
-              setSecondsRemaining((prev) => {
-                if (prev <= delta) {
-                  handleFinish(true);
-                  return 0;
-                }
-                return prev - delta;
-              });
-            }
-          }
-        }
+      persistSessionState(false);
+    };
+
+    // Run immediately and then every 500ms for crisp wall-clock accuracy
+    syncTick();
+    const interval = window.setInterval(syncTick, 500);
+
+    const handleVisibilityOrFocus = () => {
+      syncTick();
+      if (document.hidden) {
+        // User just switched away from the app on phone/tablet/PC: push sticky notification immediately
+        persistSessionState(true);
+        backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
       } else {
-        // Tab went to background: if notification enabled in settings and permission granted
-        if (
-          (liveNotificationsEnabled || desktopNotificationsEnabled) &&
-          'Notification' in window &&
-          Notification.permission === 'granted' &&
-          !isPaused
-        ) {
-          try {
-            new Notification('Fokus Premium · Odaklanma Devam Ediyor ⏳', {
-              body: `${subject.name} seansı (${timeFormatted} kaldı) arka planda aktif tutuluyor.`,
-              icon: '/favicon.ico',
-              silent: true,
-            });
-          } catch {
-            // ignore
-          }
-        }
+        // User returned to the app: keep audio keep-alive active and resync immediately
+        backgroundFocus.startKeepAlive();
+        backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    window.addEventListener('pageshow', handleVisibilityOrFocus);
+    window.addEventListener('pagehide', () => persistSessionState(true));
+    window.addEventListener('beforeunload', () => persistSessionState(true));
 
     return () => {
       window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      window.removeEventListener('pageshow', handleVisibilityOrFocus);
     };
-  }, [isPaused, isCampActive, showCompletionModal, currentTimerType, timeFormatted, subject.name]);
-
-  const toggleThematicBreak = () => {
-    // Kullanıcı talebi: Molaya basılınca ses ÇALMAZ; sadece sağ üst ses menüsünden seçilince çalar
-    if (!isCampActive) {
-      setIsCampActive(true);
-      setBreakCount((prev) => prev + 1);
-    } else {
-      setIsCampActive(false);
-    }
-  };
-
-  // Continuous sync to localStorage so if tab is closed or reloaded, state is preserved
-  useEffect(() => {
-    if (showCompletionModal) return;
-    try {
-      const stateToPersist = {
-        mode,
-        subject,
-        plannedMinutes,
-        timerType: currentTimerType,
-        originAirport,
-        destAirport,
-        selectedTaskId,
-        selectedTaskTitle,
-        selectedTreeSpecies,
-        startTime: startTimeRef.current,
-        lastTickTime: Date.now(),
-        elapsedCountUp,
-        secondsRemaining,
-        breakSeconds,
-        breakCount,
-        isCampActive,
-        isPaused,
-      };
-      localStorage.setItem('fokus_active_session_running', JSON.stringify(stateToPersist));
-
-      // Sync active session to Firestore for cross-device tablet <-> phone sync
-      const userId = auth.currentUser?.uid;
-      if (userId) {
-        const now = Date.now();
-        if (
-          now - lastCloudSyncRef.current > 4000 ||
-          isPaused !== lastPausedRef.current ||
-          isCampActive !== lastCampRef.current
-        ) {
-          lastCloudSyncRef.current = now;
-          lastPausedRef.current = isPaused;
-          lastCampRef.current = isCampActive;
-          const cloudPayload = {
-            mode,
-            subject,
-            plannedMinutes,
-            startedAt: startTimeRef.current,
-            elapsedSeconds,
-            isPaused,
-            isCampActive,
-            breakSeconds,
-            timerType: currentTimerType,
-            selectedTreeSpecies: selectedTreeSpecies || null,
-            originAirport: originAirport || null,
-            destAirport: destAirport || null,
-            selectedTaskId: selectedTaskId || null,
-            selectedTaskTitle: selectedTaskTitle || null,
-            updatedAt: now,
-          };
-          safeSetDoc(doc(db, 'users', userId, 'active_focus', 'current'), cloudPayload, { merge: true }).catch(() => {});
-        }
-      }
-    } catch {
-      // ignore
-    }
   }, [
-    mode,
-    subject,
-    plannedMinutes,
-    currentTimerType,
-    originAirport,
-    destAirport,
-    selectedTaskId,
-    selectedTaskTitle,
-    selectedTreeSpecies,
-    elapsedCountUp,
-    secondsRemaining,
-    elapsedSeconds,
-    breakSeconds,
-    breakCount,
-    isCampActive,
-    isPaused,
     showCompletionModal,
+    computeCurrentFocusSeconds,
+    computeCurrentBreakSeconds,
+    totalSeconds,
+    currentTimerType,
+    buildNotificationPayload,
+    persistSessionState,
   ]);
 
   const handleFinish = (isCompletedNaturally: boolean) => {
     soundEngine.playCompletionBell();
+    backgroundFocus.stopAll();
+
+    const finalFocusSecs = computeCurrentFocusSeconds();
+    const finalBreakSecs = computeCurrentBreakSeconds();
 
     // Clear background running session state locally and in cloud
     try {
       localStorage.setItem('fokus_last_completed_at', String(Date.now()));
       localStorage.removeItem('fokus_active_session_running');
-      const userId = auth.currentUser?.uid;
+      const userId = getEffectiveUid();
       if (userId) {
         deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
       }
@@ -554,32 +616,36 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    // Calculate actual worked seconds accurately without artificial 3-hour cap:
-    const rawCompletedSeconds = currentTimerType === 'stopwatch'
-      ? elapsedCountUp
-      : Math.min(totalSeconds, Math.max(10, totalSeconds - secondsRemaining));
+    const rawCompletedSeconds =
+      currentTimerType === 'stopwatch'
+        ? finalFocusSecs
+        : Math.min(totalSeconds, Math.max(10, finalFocusSecs));
     const actualCompletedSeconds = Math.max(10, rawCompletedSeconds);
     const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
 
     const resolvedSubjectName = selectedTaskTitle
       ? subject.name
-      : (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock')
+      : !selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock'
       ? 'Serbest Çalışma'
       : subject.name;
 
-    const resolvedSubjectColor = (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock')
-      ? '#6366f1'
-      : subject.color;
+    const resolvedSubjectColor =
+      !selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock'
+        ? '#6366f1'
+        : subject.color;
 
     const session: FocusSession = {
       id: `session-${Date.now()}`,
       mode,
-      subjectId: (!selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock') ? 'sub-serbest-calisma' : subject.id,
+      subjectId:
+        !selectedTaskId || subject.name === 'TYT Matematik' || mode === 'clock'
+          ? 'sub-serbest-calisma'
+          : subject.id,
       subjectName: resolvedSubjectName,
       subjectColor: resolvedSubjectColor,
       plannedMinutes,
       completedSeconds: actualCompletedSeconds,
-      breakSeconds,
+      breakSeconds: finalBreakSecs,
       completed: isCompletedNaturally,
       timestamp: Date.now(),
       dateString: getLocalDateString(startD),
@@ -621,7 +687,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           : undefined,
     };
 
-    // When naturally finished, if a task was attached to this session, mark it completed!
     if (isCompletedNaturally && selectedTaskId && onToggleTaskDone) {
       const target = tasksList.find((t) => t.id === selectedTaskId);
       if (target && !target.isCompleted) {
@@ -643,20 +708,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     }
   };
 
-  const handleToggleTodayTask = (taskId: string) => {
-    soundEngine.playClick();
-    if (onToggleTaskDone) {
-      onToggleTaskDone(taskId);
-    }
-  };
-
   const handleConfirmAbandon = () => {
     soundEngine.playClick();
     setShowAbandonModal(false);
+    backgroundFocus.stopAll();
+
+    const finalFocusSecs = computeCurrentFocusSeconds();
+    const finalBreakSecs = computeCurrentBreakSeconds();
 
     try {
       localStorage.removeItem('fokus_active_session_running');
-      const userId = auth.currentUser?.uid;
+      const userId = getEffectiveUid();
       if (userId) {
         deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
       }
@@ -668,7 +730,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    // Save actual worked seconds accurately without faking full completion
     const partialSession: FocusSession = {
       id: `session-${Date.now()}`,
       mode,
@@ -676,14 +737,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       subjectName: subject.name,
       subjectColor: subject.color,
       plannedMinutes,
-      completedSeconds: elapsedSeconds,
-      breakSeconds,
-      completed: false, // Incomplete session saved accurately
+      completedSeconds: finalFocusSecs,
+      breakSeconds: finalBreakSecs,
+      completed: false,
       timestamp: Date.now(),
       dateString: getLocalDateString(startD),
       startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
       endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-      note: selectedTaskTitle || `${subject.name} seansı (Vazgeçildi: ${Math.round(elapsedSeconds / 60)} dk)`,
+      note: selectedTaskTitle || `${subject.name} seansı (Vazgeçildi: ${Math.round(finalFocusSecs / 60)} dk)`,
       taskId: selectedTaskId,
       taskTitle: selectedTaskTitle,
       flightInfo:
@@ -787,7 +848,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         {/* Left: Mode Title & Subject Badge OR Clean Date for Clock Mode */}
         <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${mode === 'clock' ? 'pl-14 sm:pl-16' : ''}`}>
           {mode === 'clock' ? (
-            /* Sol Üstte Günün Tarihi ve Altında Gerçek Saat (Kullanıcı Talebi: Birazcık daha aşağıda, çok ufak büyütülmüş, beyaz, PC/tablet/mobil uyumlu) */
             <div className="flex flex-col gap-0.5 sm:gap-1">
               <span className="text-[11px] sm:text-xs md:text-sm font-medium text-neutral-400 select-none tracking-wide">
                 {todayFormattedTurkish}
@@ -826,10 +886,31 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           )}
         </div>
 
-        {/* Center: Kronometre ve Flip Clock seçicisi kullanıcı talebi doğrultusunda şimdilik kaldırıldı */}
-
-        {/* Right: Quick Action Controls (Görevler, Audio, ve SADECE BİR TANE Büyüt/Küçült Butonu) */}
+        {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-2">
+          {/* Canlı Bildirim (Arka Plan & Kilit Ekranı Takibi) */}
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playClick();
+              setIsNotificationPreviewOpen(true);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border transition-all cursor-pointer ${
+              permissionState === 'granted'
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-black/60 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
+            }`}
+            title="Arka Plan & Kilit Ekranı Canlı Bildirim Sayacı"
+          >
+            <Bell className="w-3.5 h-3.5 text-[#ff5500]" />
+            <span className="hidden sm:inline">Canlı Bildirim</span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                permissionState === 'granted' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              }`}
+            />
+          </button>
+
           {/* Görevler Button */}
           <button
             type="button"
@@ -863,12 +944,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             <Volume2 className="w-4 h-4" />
           </button>
 
-          {/* Küçült Tuşu (Oturumu arkaplanda sürdürerek mini ekrana alır) */}
+          {/* Küçült Tuşu */}
           {onMinimize && (
             <button
               type="button"
               onClick={() => {
                 soundEngine.playClick();
+                persistSessionState(true);
                 onMinimize();
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-neutral-800 border border-white/10 text-neutral-300 hover:text-white transition-all cursor-pointer text-xs font-semibold backdrop-blur-md active:scale-95 shadow-sm"
@@ -879,7 +961,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             </button>
           )}
 
-          {/* SADECE BİR TUŞ: Büyütüldüğünde küçült tuşu, küçültüldüğünde büyüt tuşu (Kullanıcı Talebi) */}
+          {/* Tam Ekran Büyüt/Küçült */}
           <button
             onClick={handleToggleFullscreen}
             className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
@@ -889,8 +971,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Mola Verildi HUD afişi kullanıcı talebi doğrultusunda kaldırıldı; sadece 1. Mola sayacı kalacak */}
 
       {/* Center Focus Timer Display */}
       {mode !== 'clock' && (
@@ -912,7 +992,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               />
 
               <div className="text-center">
-                {/* Task name header if attached */}
                 {selectedTaskTitle && (
                   <div className="mb-2 text-xs font-bold text-sky-400 bg-sky-950/60 border border-sky-800/40 px-3 py-1 rounded-full inline-block backdrop-blur-sm">
                     {selectedTaskTitle}
@@ -991,7 +1070,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         </div>
       )}
 
-      {/* Bottom Floating Action Bar: Sadece [ Mola Ver ] [ Tamamla ] [ Vazgeç ] */}
+      {/* Bottom Floating Action Bar */}
       {mode !== 'clock' && (
         <div className="relative z-10 w-full px-4 sm:px-8 pb-6 sm:pb-8 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           {/* 1. Mola Ver / Devam Et */}
@@ -1043,7 +1122,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'forest' && 'Seansı erken bitirirsen fidanın kuruyabilir!'}
               {mode === 'climb' && 'Zirveye bu kadar yaklaşmışken ana kampa dönmek istediğine emin misin?'}
               {mode === 'flight' && 'Uçuş rotası tamamlanmadan iniş yapmak üzeresin.'}
-              {mode === 'dive' && 'Balık Şehri\'ne ulaşmadan su yüzeyine dönmek istediğine emin misin?'}
+              {mode === 'dive' && "Balık Şehri'ne ulaşmadan su yüzeyine dönmek istediğine emin misin?"}
               {mode === 'clock' && 'Kronometre çalışma seansını sonlandırmak istediğine emin misin?'}
             </p>
 
@@ -1055,10 +1134,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
                 Odaklanmaya Devam Et
               </button>
               <button
-                onClick={() => {
-                  setShowAbandonModal(false);
-                  onAbandonSession();
-                }}
+                onClick={handleConfirmAbandon}
                 className="py-2.5 px-4 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-xs font-bold text-red-400 transition-colors cursor-pointer"
               >
                 Vazgeç
@@ -1083,7 +1159,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'forest' && '🌳 Kadim bir ağaç tamamlandı ve sanal ormanına eklendi!'}
               {mode === 'climb' && '🚩 Zirveye ulaştın ve Zafer Bayrağını diktin!'}
               {mode === 'flight' && `🛬 ${destAirport.city} (${destAirport.code}) Havalimanına başarıyla inildi!`}
-              {mode === 'dive' && '🏰 Balık Şehri\'ne ulaşıldı ve sualtı sarayına giriş yapıldı!'}
+              {mode === 'dive' && "🏰 Balık Şehri'ne ulaşıldı ve sualtı sarayına giriş yapıldı!"}
               {mode === 'clock' && '⏱️ Dijital saat çalışma seansın başarıyla kaydedildi!'}
             </p>
 
@@ -1130,6 +1206,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         permissionState={permissionState}
         currentRemainingFormatted={timeFormatted}
         currentSubject={subject.name}
+        timerType={currentTimerType}
+        onSendTestNotification={() => {
+          backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+        }}
       />
     </div>
   );

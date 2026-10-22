@@ -73,6 +73,7 @@ import { useDeviceMode } from './hooks/useDeviceMode';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
 import { FloatingMiniFocusPill, ActiveFocusData } from './components/FloatingMiniFocusPill';
+import { getDeviceId, getDeviceName, backgroundFocus } from './utils/backgroundFocus';
 import { Flame, X, Download } from 'lucide-react';
 
 export default function App() {
@@ -189,12 +190,32 @@ export default function App() {
       setSelectedSubject(initialSubjects[0]);
     }
 
-    // Kendiliğinden odak başlatmayı engelle: Sayfa açıldığında veya yenilendiğinde
-    // kullanıcı bizzat odaklanmayı başlatmadıkça seans asla otomatik olarak başlatılmaz.
+    // Aynı cihazda devam eden bir odak seansı varsa (kullanıcı uygulamadan çıkıp geri girdiyse)
+    // direkt aynı focus ekranını aç ve duvar saati (wall-clock) üzerinden süreyi kaldığı saniyeden sürdür!
     try {
-      localStorage.removeItem('fokus_active_session_running');
+      const runningRaw = localStorage.getItem('fokus_active_session_running');
+      if (runningRaw) {
+        const saved = JSON.parse(runningRaw);
+        const startT = saved?.startTime || saved?.anchorTimestamp || 0;
+        const isExpired = Date.now() - startT > 24 * 3600 * 1000;
+        if (isExpired || saved?.isFinished || saved?.isActive === false) {
+          localStorage.removeItem('fokus_active_session_running');
+        } else if (saved && saved.mode) {
+          setCurrentActiveMode(saved.mode);
+          setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
+          setDurationMinutes(saved.plannedMinutes || 45);
+          setTimerType(saved.timerType || 'countdown');
+          if (saved.selectedTaskId) {
+            setSelectedTask(loadedTasks.find((t) => t.id === saved.selectedTaskId) || null);
+          }
+          if (saved.originAirport) setOriginAirport(saved.originAirport);
+          if (saved.destAirport) setDestAirport(saved.destAirport);
+          if (saved.selectedTreeSpecies) setSelectedTreeSpecies(saved.selectedTreeSpecies);
+          setIsSessionActive(true);
+        }
+      }
     } catch {
-      // ignore
+      localStorage.removeItem('fokus_active_session_running');
     }
   }, []);
 
@@ -271,7 +292,18 @@ export default function App() {
             });
             setProfile(mergedProfile);
 
-            if (!isSessionActive) {
+            // Check if an active focus is running locally or on another device before marking idle
+            let hasActiveFocusAnywhere = Boolean(localStorage.getItem('fokus_active_session_running'));
+            if (!hasActiveFocusAnywhere) {
+              try {
+                const activeSnap = await getDoc(doc(db, 'users', user.uid, 'active_focus', 'current'));
+                if (activeSnap.exists() && !activeSnap.data()?.isFinished) {
+                  hasActiveFocusAnywhere = true;
+                }
+              } catch {}
+            }
+
+            if (!hasActiveFocusAnywhere) {
               safeSetDoc(
                 userDocRef,
                 {
@@ -282,9 +314,6 @@ export default function App() {
                 },
                 { merge: true }
               ).catch(() => {});
-              try {
-                deleteDoc(doc(db, 'users', user.uid, 'active_focus', 'current')).catch(() => {});
-              } catch {}
             }
           } else {
             // Document doesn't exist yet for this logged in user, create default safely with Google data
@@ -416,7 +445,7 @@ export default function App() {
           }
         );
 
-        // Attach Firestore listener for cross-device active focus session sync (tablet <-> phone)
+        // Attach Firestore listener for cross-device active focus session sync (tablet <-> phone <-> PC)
         const activeFocusDoc = doc(db, 'users', user.uid, 'active_focus', 'current');
         const unsubActiveFocus = onSnapshot(
           activeFocusDoc,
@@ -425,11 +454,8 @@ export default function App() {
               const data = snapshot.data();
               if (data && data.mode && data.subject && !data.isFinished) {
                 const startedAt = parseNumericField(data.startedAt, Date.now());
-                const updatedAt = parseNumericField(data.updatedAt, startedAt);
-                // Stale check: if session hasn't been touched in over 15 minutes or older than 6 hours
-                const isStale =
-                  Date.now() - startedAt > 6 * 60 * 60 * 1000 ||
-                  (Date.now() - updatedAt > 15 * 60 * 1000 && !data.isPaused);
+                // Only treat as stale if older than 24 hours (never kill a valid background session after 15 mins!)
+                const isStale = Date.now() - startedAt > 24 * 60 * 60 * 1000;
                 if (isStale) {
                   setCloudActiveSession(null);
                   try {
@@ -437,20 +463,49 @@ export default function App() {
                   } catch {}
                   return;
                 }
+                const isPaused = Boolean(data.isPaused);
+                const isCampActive = Boolean(data.isCampActive);
+                const elapsedSeconds = parseNumericField(data.elapsedSeconds, 0);
+                const accumulatedFocusSeconds =
+                  typeof data.accumulatedFocusSeconds === 'number'
+                    ? data.accumulatedFocusSeconds
+                    : elapsedSeconds;
+                const anchorTimestamp =
+                  data.anchorTimestamp === null
+                    ? null
+                    : typeof data.anchorTimestamp === 'number'
+                    ? data.anchorTimestamp
+                    : !isPaused && !isCampActive
+                    ? parseNumericField(data.updatedAt, startedAt)
+                    : null;
+
+                const remoteDeviceId = typeof data.deviceId === 'string' ? data.deviceId : undefined;
+                const myDeviceId = getDeviceId();
+                const isRemoteDevice = Boolean(remoteDeviceId && remoteDeviceId !== myDeviceId);
+
                 setCloudActiveSession({
                   mode: data.mode,
                   subject: data.subject,
                   plannedMinutes: parseNumericField(data.plannedMinutes, 45),
                   startedAt,
-                  elapsedSeconds: parseNumericField(data.elapsedSeconds, 0),
-                  isPaused: Boolean(data.isPaused),
-                  isCampActive: Boolean(data.isCampActive),
+                  elapsedSeconds,
+                  anchorTimestamp,
+                  accumulatedFocusSeconds,
+                  breakAnchorTimestamp:
+                    typeof data.breakAnchorTimestamp === 'number' ? data.breakAnchorTimestamp : null,
+                  accumulatedBreakSeconds: parseNumericField(data.accumulatedBreakSeconds, 0),
+                  isPaused,
+                  isCampActive,
                   breakSeconds: parseNumericField(data.breakSeconds, 0),
                   timerType: data.timerType === 'stopwatch' ? 'stopwatch' : 'countdown',
                   selectedTreeSpecies: data.selectedTreeSpecies,
                   originAirport: data.originAirport,
                   destAirport: data.destAirport,
                   selectedTaskId: data.selectedTaskId,
+                  selectedTaskTitle: data.selectedTaskTitle,
+                  deviceId: remoteDeviceId,
+                  deviceName: typeof data.deviceName === 'string' ? data.deviceName : undefined,
+                  isRemoteDevice,
                 });
               } else {
                 setCloudActiveSession(null);
@@ -547,13 +602,60 @@ export default function App() {
 
   // Seans aktif değilken kullanıcının kütüphanede veya toplulukta odaklanıyor gözükmesini kesin olarak engelle
   useEffect(() => {
-    if (!isSessionActive) {
-      updateCloudStatus('idle', '');
+    if (!isSessionActive && !localMinimizedSession && !cloudActiveSession) {
+      let hasRunningInStorage = false;
+      try {
+        hasRunningInStorage = Boolean(localStorage.getItem('fokus_active_session_running'));
+      } catch {}
+      if (!hasRunningInStorage) {
+        updateCloudStatus('idle', '');
+      }
     }
-  }, [isSessionActive]);
+  }, [isSessionActive, localMinimizedSession, cloudActiveSession]);
 
   // Mode Selection Flow with Cinematic Shutter (Kepenk) Transition
+  // If user already has an active/minimized session in this mode, resume it immediately instead of resetting to 0!
   const handleSelectModeFromHub = (mode: FocusModeType) => {
+    const existingActive = localMinimizedSession || cloudActiveSession;
+    if (existingActive && existingActive.mode === mode) {
+      try {
+        localStorage.setItem(
+          'fokus_active_session_running',
+          JSON.stringify({
+            startTime: existingActive.startedAt,
+            anchorTimestamp: existingActive.anchorTimestamp,
+            accumulatedFocusSeconds: existingActive.accumulatedFocusSeconds ?? existingActive.elapsedSeconds ?? 0,
+            breakAnchorTimestamp: existingActive.breakAnchorTimestamp ?? null,
+            accumulatedBreakSeconds: existingActive.accumulatedBreakSeconds ?? existingActive.breakSeconds ?? 0,
+            mode: existingActive.mode,
+            subject: existingActive.subject || SERBEST_CALISMA_SUBJECT,
+            plannedMinutes: existingActive.plannedMinutes,
+            timerType: existingActive.timerType,
+            elapsedSeconds: existingActive.elapsedSeconds,
+            elapsedCountUp: existingActive.elapsedSeconds,
+            breakSeconds: existingActive.breakSeconds || 0,
+            isPaused: existingActive.isPaused,
+            isCampActive: Boolean(existingActive.isCampActive),
+            selectedTaskId: existingActive.selectedTaskId,
+            selectedTaskTitle: existingActive.selectedTaskTitle,
+            selectedTreeSpecies: existingActive.selectedTreeSpecies,
+            originAirport: existingActive.originAirport,
+            destAirport: existingActive.destAirport,
+            deviceId: existingActive.deviceId || getDeviceId(),
+            deviceName: existingActive.deviceName || getDeviceName(),
+            updatedAt: Date.now(),
+          })
+        );
+      } catch {}
+      setCurrentActiveMode(existingActive.mode);
+      setSelectedSubject(existingActive.subject || SERBEST_CALISMA_SUBJECT);
+      setDurationMinutes(existingActive.plannedMinutes);
+      setTimerType(existingActive.timerType);
+      setLocalMinimizedSession(null);
+      setIsSessionActive(true);
+      return;
+    }
+
     setCurrentActiveMode(mode);
     setTransitioningToMode(mode);
     if (mode === 'clock') {
@@ -580,13 +682,38 @@ export default function App() {
       subToUse = subjects.find((s) => s.name === selectedTask.subjectName) || SERBEST_CALISMA_SUBJECT;
       setSelectedSubject(subToUse);
     }
+    const now = Date.now();
+    try {
+      localStorage.setItem(
+        'fokus_active_session_running',
+        JSON.stringify({
+          startTime: now,
+          anchorTimestamp: now,
+          accumulatedFocusSeconds: 0,
+          breakAnchorTimestamp: null,
+          accumulatedBreakSeconds: 0,
+          mode: currentActiveMode || 'clock',
+          subject: subToUse || SERBEST_CALISMA_SUBJECT,
+          plannedMinutes: durationMinutes,
+          timerType,
+          elapsedSeconds: 0,
+          elapsedCountUp: 0,
+          breakSeconds: 0,
+          isPaused: false,
+          isCampActive: false,
+          selectedTaskId: selectedTask?.id,
+          selectedTaskTitle: selectedTask?.title,
+          selectedTreeSpecies,
+          originAirport,
+          destAirport,
+          deviceId: getDeviceId(),
+          deviceName: getDeviceName(),
+          updatedAt: now,
+        })
+      );
+    } catch {}
     setLocalMinimizedSession(null);
     setCloudActiveSession(null);
-    if (currentUser) {
-      try {
-        deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
-      } catch {}
-    }
     setIsSessionActive(true);
     updateCloudStatus('studying', subToUse?.name || 'Serbest Çalışma');
   };
@@ -1134,12 +1261,27 @@ export default function App() {
             isAudioPlaying={Boolean(currentAmbientTrack)}
             onMinimize={() => {
               let elapsed = 0;
+              let anchorTs: number | null = Date.now();
+              let accFocus = 0;
+              let breakAnchorTs: number | null = null;
+              let accBreak = 0;
+              let isPausedVal = false;
+              let isCampVal = false;
+              let startTs = Date.now();
               try {
                 const raw = localStorage.getItem('fokus_active_session_running');
                 if (raw) {
                   const parsed = JSON.parse(raw);
                   if (parsed?.elapsedCountUp) elapsed = parsed.elapsedCountUp;
                   else if (parsed?.elapsedSeconds) elapsed = parsed.elapsedSeconds;
+                  if (typeof parsed?.accumulatedFocusSeconds === 'number') accFocus = parsed.accumulatedFocusSeconds;
+                  else accFocus = elapsed;
+                  anchorTs = parsed?.anchorTimestamp !== undefined ? parsed.anchorTimestamp : Date.now();
+                  breakAnchorTs = parsed?.breakAnchorTimestamp ?? null;
+                  accBreak = parsed?.accumulatedBreakSeconds ?? parsed?.breakSeconds ?? 0;
+                  isPausedVal = Boolean(parsed?.isPaused);
+                  isCampVal = Boolean(parsed?.isCampActive);
+                  startTs = parsed?.startTime || Date.now() - elapsed * 1000;
                 }
               } catch {}
 
@@ -1147,15 +1289,23 @@ export default function App() {
                 mode: currentActiveMode,
                 subject: selectedTask ? selectedSubject : SERBEST_CALISMA_SUBJECT,
                 plannedMinutes: durationMinutes,
-                startedAt: Date.now() - elapsed * 1000,
+                startedAt: startTs,
                 elapsedSeconds: elapsed,
-                isPaused: false,
+                anchorTimestamp: anchorTs,
+                accumulatedFocusSeconds: accFocus,
+                breakAnchorTimestamp: breakAnchorTs,
+                accumulatedBreakSeconds: accBreak,
+                isPaused: isPausedVal,
+                isCampActive: isCampVal,
                 timerType: timerType,
                 selectedTaskId: selectedTask?.id,
                 selectedTaskTitle: selectedTask?.title,
                 selectedTreeSpecies,
                 originAirport,
                 destAirport,
+                deviceId: getDeviceId(),
+                deviceName: getDeviceName(),
+                isRemoteDevice: false,
               };
 
               setLocalMinimizedSession(data);
@@ -1389,26 +1539,88 @@ export default function App() {
             }
           }}
           onTogglePause={async () => {
+            const target = localMinimizedSession || cloudActiveSession;
+            if (!target) return;
+            const now = Date.now();
+            const nextPaused = !target.isPaused;
+            let nextAccFocus = target.accumulatedFocusSeconds ?? target.elapsedSeconds ?? 0;
+            let nextAnchor: number | null = target.anchorTimestamp ?? null;
+
+            if (nextPaused) {
+              if (target.anchorTimestamp) {
+                nextAccFocus += Math.max(0, Math.floor((now - target.anchorTimestamp) / 1000));
+              }
+              nextAnchor = null;
+            } else {
+              nextAnchor = now;
+            }
+
             if (localMinimizedSession) {
-              setLocalMinimizedSession((prev) => (prev ? { ...prev, isPaused: !prev.isPaused } : null));
+              setLocalMinimizedSession((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      isPaused: nextPaused,
+                      accumulatedFocusSeconds: nextAccFocus,
+                      anchorTimestamp: nextAnchor,
+                      elapsedSeconds: nextAccFocus,
+                    }
+                  : null
+              );
             }
             if (cloudActiveSession) {
-              const nextPaused = !cloudActiveSession.isPaused;
-              setCloudActiveSession((prev) => (prev ? { ...prev, isPaused: nextPaused } : null));
-              if (currentUser) {
-                try {
-                  await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
+              setCloudActiveSession((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      isPaused: nextPaused,
+                      accumulatedFocusSeconds: nextAccFocus,
+                      anchorTimestamp: nextAnchor,
+                      elapsedSeconds: nextAccFocus,
+                    }
+                  : null
+              );
+            }
+            try {
+              const raw = localStorage.getItem('fokus_active_session_running');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                localStorage.setItem(
+                  'fokus_active_session_running',
+                  JSON.stringify({
+                    ...parsed,
                     isPaused: nextPaused,
-                    updatedAt: Date.now(),
-                  });
-                } catch {}
+                    accumulatedFocusSeconds: nextAccFocus,
+                    anchorTimestamp: nextAnchor,
+                    elapsedSeconds: nextAccFocus,
+                    elapsedCountUp: nextAccFocus,
+                    updatedAt: now,
+                  })
+                );
               }
+            } catch {}
+            if (currentUser) {
+              try {
+                await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
+                  isPaused: nextPaused,
+                  accumulatedFocusSeconds: nextAccFocus,
+                  anchorTimestamp: nextAnchor,
+                  elapsedSeconds: nextAccFocus,
+                  updatedAt: now,
+                });
+              } catch {}
             }
           }}
           onComplete={async () => {
             const activeSession = localMinimizedSession || cloudActiveSession;
             if (!activeSession) return;
-            const completedSecs = Math.max(10, activeSession.elapsedSeconds || 10);
+            const nowMs = Date.now();
+            const liveElapsed =
+              !activeSession.isPaused && !activeSession.isCampActive && activeSession.anchorTimestamp
+                ? (activeSession.accumulatedFocusSeconds ?? 0) +
+                  Math.max(0, Math.floor((nowMs - activeSession.anchorTimestamp) / 1000))
+                : activeSession.accumulatedFocusSeconds ?? activeSession.elapsedSeconds ?? 0;
+            const completedSecs = Math.max(10, liveElapsed || 10);
             const now = new Date();
             const pad = (n: number) => String(n).padStart(2, '0');
             const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -1438,6 +1650,7 @@ export default function App() {
             const updated = saveSession(newSession);
             setSessions(updated);
             soundEngine.playCompletionBell();
+            backgroundFocus.stopAll();
 
             if (currentUser) {
               try {
@@ -1454,6 +1667,38 @@ export default function App() {
           onMaximize={() => {
             const sess = localMinimizedSession || cloudActiveSession;
             if (!sess) return;
+            // Write exact wall-clock anchor state to localStorage BEFORE mounting ActiveFocusSession
+            // so cross-device "Göster" or local maximize opens at the exact same second!
+            try {
+              localStorage.setItem(
+                'fokus_active_session_running',
+                JSON.stringify({
+                  startTime: sess.startedAt,
+                  anchorTimestamp: sess.anchorTimestamp,
+                  accumulatedFocusSeconds: sess.accumulatedFocusSeconds ?? sess.elapsedSeconds ?? 0,
+                  breakAnchorTimestamp: sess.breakAnchorTimestamp ?? null,
+                  accumulatedBreakSeconds: sess.accumulatedBreakSeconds ?? sess.breakSeconds ?? 0,
+                  mode: sess.mode,
+                  subject: sess.subject || SERBEST_CALISMA_SUBJECT,
+                  plannedMinutes: sess.plannedMinutes,
+                  timerType: sess.timerType,
+                  elapsedSeconds: sess.elapsedSeconds,
+                  elapsedCountUp: sess.elapsedSeconds,
+                  breakSeconds: sess.breakSeconds || 0,
+                  isPaused: sess.isPaused,
+                  isCampActive: Boolean(sess.isCampActive),
+                  selectedTaskId: sess.selectedTaskId,
+                  selectedTaskTitle: sess.selectedTaskTitle,
+                  selectedTreeSpecies: sess.selectedTreeSpecies,
+                  originAirport: sess.originAirport,
+                  destAirport: sess.destAirport,
+                  deviceId: sess.deviceId || getDeviceId(),
+                  deviceName: sess.deviceName || getDeviceName(),
+                  updatedAt: Date.now(),
+                })
+              );
+            } catch {}
+
             setCurrentActiveMode(sess.mode);
             setSelectedSubject(sess.subject || SERBEST_CALISMA_SUBJECT);
             setDurationMinutes(sess.plannedMinutes);
@@ -1468,6 +1713,7 @@ export default function App() {
             setIsSessionActive(true);
           }}
           onDismiss={async () => {
+            backgroundFocus.stopAll();
             setLocalMinimizedSession(null);
             setCloudActiveSession(null);
             try {
