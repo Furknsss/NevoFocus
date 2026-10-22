@@ -28,12 +28,11 @@ const SPOTIFY_STORAGE_KEYS = {
   LAST_SYNCED_CLIPBOARD: 'fokus_last_synced_clipboard_v1',
 };
 
+export const DEFAULT_SPOTIFY_CLIENT_ID = 'f86915e7a9b04889bb0c749007f353ad';
 export const UNIVERSAL_SAFE_REDIRECT_URI = 'https://open.spotify.com/';
 
 export function getAppRedirectUri(): string {
-  if (typeof window === 'undefined') return UNIVERSAL_SAFE_REDIRECT_URI;
-  const savedRedirect = localStorage.getItem(SPOTIFY_STORAGE_KEYS.REDIRECT_URI);
-  if (savedRedirect) return savedRedirect;
+  if (typeof window === 'undefined') return '/auth/callback';
   return `${window.location.origin}/auth/callback`;
 }
 
@@ -634,40 +633,32 @@ class SpotifyService {
 
     try {
       const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
       provider.setCustomParameters({ prompt: 'select_account' });
 
       const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken || '';
       const displayName =
         result.user?.displayName || result.user?.email || 'YouTube Music Hesabım';
-
-      let loadedCount = 0;
-      if (accessToken) {
-        loadedCount = await this.fetchYouTubeMusicUserTracks(accessToken);
-      }
 
       this.connections.youtube_music = {
         ...this.connections.youtube_music,
         connected: true,
         accountName: displayName,
-        accessToken,
         connectedAt: Date.now(),
       };
       this.connections.activePlatform = 'youtube_music';
       this.saveConnectionsToStorage();
+      await this.ensureYouTubePlayer();
       this.notifyListeners();
 
       return {
         success: true,
         accountName: displayName,
-        trackCount: loadedCount,
+        trackCount: 1,
       };
     } catch (err: any) {
       return {
         success: false,
-        error: err?.message || 'Google / YouTube Music girişi tamamlanamadı.',
+        error: err?.message || 'Google ile YouTube Music girişi tamamlanamadı.',
       };
     }
   }
@@ -1017,13 +1008,17 @@ class SpotifyService {
 
   public isPlatformConnected(platform: MusicPlatform): boolean {
     if (platform === 'spotify') {
-      return Boolean(this.getAccessToken()) || Boolean(this.connections.spotify.connected);
+      return Boolean(this.getAccessToken());
     }
-    return Boolean(this.connections[platform]?.connected);
+    return Boolean(
+      this.connections[platform]?.connected &&
+        this.connections[platform]?.accountName &&
+        this.connections[platform]?.accountName.trim().length > 0
+    );
   }
 
   public hasSpotifyLiveToken(): boolean {
-    return Boolean(this.getAccessToken() || localStorage.getItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN));
+    return Boolean(this.getAccessToken());
   }
 
   public isAnyPlatformConnected(): boolean {
@@ -1238,7 +1233,7 @@ class SpotifyService {
 
   public async startSpotifyLogin(clientId?: string, targetRedirectUri?: string) {
     if (typeof window === 'undefined') return;
-    const cid = (clientId || this.getSavedClientId()).trim();
+    const cid = (clientId || this.getSavedClientId() || DEFAULT_SPOTIFY_CLIENT_ID).trim();
     if (!cid) return;
 
     this.setSavedClientId(cid);

@@ -195,35 +195,32 @@ async function renderActiveNotification() {
     : remainingSecs;
 
   const title = formatTimerDisplay(activeSecs);
-  const body = `🟠 ☕   ${p.isPaused ? '🟢 ▶' : '🔴 ⏸'}   ⚪ ⤢`;
+  const body = p.isCampActive
+    ? 'Mola Süresi'
+    : p.isPaused
+    ? 'Duraklatıldı'
+    : 'Odak Süresi';
 
   try {
-    const [blackIcon, capsuleImage] = await Promise.all([
-      getPureBlackIconUrl(),
-      generatePureBlackCapsuleImageUrl(title, Boolean(p.isPaused), Boolean(p.isCampActive)),
-    ]);
-
     await self.registration.showNotification(title, {
       body,
       tag: 'fokus-active-timer',
       renotify: false,
       silent: true,
       requireInteraction: true,
-      icon: blackIcon,
-      image: capsuleImage,
       data: { url: '/' },
       actions: [
         {
           action: 'toggle_break',
-          title: '🟠 ☕',
+          title: p.isCampActive ? 'Mola Bitti' : 'Mola',
         },
         {
           action: 'toggle_pause',
-          title: p.isPaused ? '🟢 ▶' : '🔴 ⏸',
+          title: p.isPaused ? 'Başlat' : 'Durdur',
         },
         {
           action: 'open_app',
-          title: '⚪ ⤢',
+          title: 'Büyüt',
         },
       ],
     });

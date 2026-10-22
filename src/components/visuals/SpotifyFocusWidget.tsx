@@ -213,25 +213,37 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
   const progressPercent = Math.min(100, Math.max(0, (currentProgress / trackDuration) * 100));
 
   const isPlayingNow = Boolean(currentTrack?.isPlaying);
-  const showPlatformIdentity = Boolean(detectedPlatform);
-  const activeMeta = detectedPlatform ? PLATFORM_METADATA[detectedPlatform] : PLATFORM_METADATA.spotify;
+  // Only show platform identity logo if a song is actively playing right now!
+  // If nothing is playing on device, it remains the neutral Music logo as requested.
+  const activePlayingPlatform: MusicPlatform | null = isPlayingNow
+    ? (currentTrack?.source === 'youtube_music' || currentTrack?.source === 'apple_music' || currentTrack?.source === 'spotify'
+        ? currentTrack.source
+        : detectedPlatform)
+    : null;
+
+  const showPlatformIdentity = Boolean(isPlayingNow && activePlayingPlatform);
+  const activeMeta = activePlayingPlatform
+    ? PLATFORM_METADATA[activePlayingPlatform]
+    : detectedPlatform
+    ? PLATFORM_METADATA[detectedPlatform]
+    : PLATFORM_METADATA.spotify;
 
   const getLeftButtonClasses = () => {
-    if (showPlatformIdentity && detectedPlatform) {
+    if (showPlatformIdentity && activePlayingPlatform) {
       if (isOpen) {
-        if (detectedPlatform === 'youtube_music') {
+        if (activePlayingPlatform === 'youtube_music') {
           return 'bg-black/95 border-[#FF0000] shadow-[#FF0000]/50 ring-2 ring-[#FF0000] scale-105';
         }
-        if (detectedPlatform === 'apple_music') {
+        if (activePlayingPlatform === 'apple_music') {
           return 'bg-black/95 border-[#FA2D48] shadow-[#FA2D48]/50 ring-2 ring-[#FA2D48] scale-105';
         }
         return 'bg-black/95 border-[#1DB954] shadow-[#1DB954]/50 ring-2 ring-[#1DB954] scale-105';
       }
 
-      if (detectedPlatform === 'youtube_music') {
+      if (activePlayingPlatform === 'youtube_music') {
         return 'bg-black/90 border-[#FF0000]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FF0000]/35';
       }
-      if (detectedPlatform === 'apple_music') {
+      if (activePlayingPlatform === 'apple_music') {
         return 'bg-black/90 border-[#FA2D48]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FA2D48]/35';
       }
       return 'bg-black/90 border-[#1DB954]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#1DB954]/35';
@@ -247,10 +259,10 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
   return (
     <>
       {/* 1. Sol Müzik Butonu:
-          Bağlanılmadıysa: Müzik Logosu (<Music />).
-          Spotify bağlıysa/çalıyorsa: Orjinal Spotify logosu.
-          YouTube Music bağlıysa/çalıyorsa: Orjinal YouTube Music logosu.
-          Apple Music bağlıysa/çalıyorsa: Orjinal Apple Music logosu. */}
+          Bağlanılmadıysa veya o an çalan bir şey yoksa: Müzik Logosu (<Music />).
+          Spotify'dan dinleniyorsa: Orjinal Spotify logosu.
+          YouTube Music'ten dinleniyorsa: Orjinal YouTube Music logosu.
+          Apple Music'ten dinleniyorsa: Orjinal Apple Music logosu. */}
       <button
         type="button"
         onClick={() => {
@@ -258,12 +270,12 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
           setIsOpen(!isOpen);
         }}
         className={`fixed left-3 sm:left-6 top-[38%] -translate-y-1/2 z-40 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl backdrop-blur-xl border transition-all duration-300 cursor-pointer shadow-2xl flex items-center justify-center group ${getLeftButtonClasses()}`}
-        title={showPlatformIdentity ? `${activeMeta.name}` : 'Müzik Çalar'}
+        title={showPlatformIdentity && activePlayingPlatform ? `${activeMeta.name} (Çalıyor)` : 'Müzik Çalar'}
         aria-label="Müzik Çalar"
       >
-        {showPlatformIdentity && detectedPlatform ? (
+        {showPlatformIdentity && activePlayingPlatform ? (
           <PlatformIcon
-            platform={detectedPlatform}
+            platform={activePlayingPlatform}
             className="w-8 h-8 sm:w-9 sm:h-9 transition-transform group-hover:scale-110"
           />
         ) : (

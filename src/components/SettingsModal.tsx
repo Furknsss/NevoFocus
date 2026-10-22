@@ -200,14 +200,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
 
     // Platform === 'spotify'
-    const savedCid = spotifyClientIdInput.trim() || spotifyService.getSavedClientId();
-    setShowSpotifyAuthStep(true);
-    if (savedCid) {
-      await spotifyService.startSpotifyLogin(savedCid, UNIVERSAL_SAFE_REDIRECT_URI);
+    setConnectingPlatform('spotify');
+    try {
+      const savedCid = spotifyClientIdInput.trim() || spotifyService.getSavedClientId();
+      await spotifyService.startSpotifyLogin(savedCid);
       setConnNotice({
         type: 'success',
-        text: 'Spotify yetki penceresi açıldı. Giriş yaptıktan sonra açılan sayfanın adresini (URL) aşağıya yapıştırın veya "Panodan Otomatik Onayla" tuşuna basın.',
+        text: 'Spotify yetki penceresi açıldı. Girişinizi tamamladığınızda hesabınız otomatik olarak bağlanacaktır.',
       });
+    } catch (err: any) {
+      setConnNotice({
+        type: 'error',
+        text: err?.message || 'Spotify penceresi açılamadı.',
+      });
+    } finally {
+      setConnectingPlatform(null);
     }
   };
 

@@ -756,9 +756,11 @@ class BackgroundFocusManager {
 
     const { timeFormatted } = computeDisplayTimeFromPayload(payload);
     const title = timeFormatted;
-    const body = `🟠 ☕   ${payload.isPaused ? '🟢 ▶' : '🔴 ⏸'}   ⚪ ⤢`;
-    const blackIcon = getPureBlackIconDataUrl();
-    const capsuleBanner = this.generateCapsuleImageDataUrl(payload);
+    const body = payload.isCampActive
+      ? 'Mola Süresi'
+      : payload.isPaused
+      ? 'Duraklatıldı'
+      : 'Odak Süresi';
 
     try {
       if ('serviceWorker' in navigator) {
@@ -770,21 +772,19 @@ class BackgroundFocusManager {
             renotify: false,
             silent: true,
             requireInteraction: true,
-            icon: blackIcon || undefined,
-            image: capsuleBanner || undefined,
             data: { url: '/' },
             actions: [
               {
                 action: 'toggle_break',
-                title: '🟠 ☕',
+                title: payload.isCampActive ? 'Mola Bitti' : 'Mola',
               },
               {
                 action: 'toggle_pause',
-                title: payload.isPaused ? '🟢 ▶' : '🔴 ⏸',
+                title: payload.isPaused ? 'Başlat' : 'Durdur',
               },
               {
                 action: 'open_app',
-                title: '⚪ ⤢',
+                title: 'Büyüt',
               },
             ],
           };
@@ -797,7 +797,6 @@ class BackgroundFocusManager {
         body,
         tag: 'fokus-active-timer',
         silent: true,
-        icon: blackIcon || undefined,
       });
     } catch {
       // ignore
