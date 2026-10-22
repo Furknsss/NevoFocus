@@ -1,7 +1,6 @@
-// Fokus PWA Service Worker with Background Focus Timer & Live Notification Engine
-const CACHE_NAME = 'fokus-pwa-v2';
+// Fokus PWA Service Worker with Background Focus Timer & Pure Black Capsule Notification Engine
+const CACHE_NAME = 'fokus-pwa-v7';
 const PRECACHE_URLS = [
-  '/',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -10,6 +9,7 @@ const PRECACHE_URLS = [
 
 let activeSessionState = null;
 let bgTimerInterval = null;
+let cachedBlackIconUrl = null;
 
 function formatTimerDisplay(totalSecs) {
   const safe = Math.max(0, Math.floor(totalSecs));
@@ -22,11 +22,152 @@ function formatTimerDisplay(totalSecs) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function buildProgressBar(percent) {
-  const clamped = Math.min(100, Math.max(0, Math.round(percent)));
-  const totalBlocks = 10;
-  const filled = Math.round((clamped / 100) * totalBlocks);
-  return `${'▓'.repeat(filled)}${'░'.repeat(Math.max(0, totalBlocks - filled))} %${clamped}`;
+async function blobToDataUrl(blob) {
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return 'data:image/png;base64,' + btoa(binary);
+}
+
+async function getPureBlackIconUrl() {
+  if (cachedBlackIconUrl) return cachedBlackIconUrl;
+  if (typeof OffscreenCanvas === 'undefined') return undefined;
+  try {
+    const canvas = new OffscreenCanvas(96, 96);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(48, 48, 46, 0, Math.PI * 2);
+      ctx.fill();
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      cachedBlackIconUrl = await blobToDataUrl(blob);
+      return cachedBlackIconUrl;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+async function generatePureBlackCapsuleImageUrl(timeFormatted, isPaused, isCampActive) {
+  if (typeof OffscreenCanvas === 'undefined') return undefined;
+  try {
+    const w = 560;
+    const h = 140;
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Pure black stadium capsule (#000000)
+    const radius = h / 2;
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(w - radius, 0);
+    ctx.quadraticCurveTo(w, 0, w, radius);
+    ctx.quadraticCurveTo(w, h, w - radius, h);
+    ctx.lineTo(radius, h);
+    ctx.quadraticCurveTo(0, h, 0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Left: Bold White Timer
+    ctx.fillStyle = '#ffffff';
+    const fontSize = timeFormatted.length > 5 ? 46 : 56;
+    ctx.font = `900 ${fontSize}px monospace`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(timeFormatted, 34, h / 2 + 2);
+
+    // Right: 3 Circular Icon Buttons (Orange Break, Red/Green Pause-Play, White Maximize)
+    const r = 34;
+    const cy = h / 2;
+    const cx3 = w - 58;
+    const cx2 = cx3 - 82;
+    const cx1 = cx2 - 82;
+
+    // 1. Orange Break Circle
+    ctx.beginPath();
+    ctx.arc(cx1, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = isCampActive ? '#f59e0b' : '#ff5500';
+    ctx.fill();
+    ctx.strokeStyle = isCampActive ? '#000000' : '#ffffff';
+    ctx.lineWidth = 3.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx1 - 11, cy - 4);
+    ctx.lineTo(cx1 + 7, cy - 4);
+    ctx.lineTo(cx1 + 5, cy + 9);
+    ctx.quadraticCurveTo(cx1 - 2, cy + 12, cx1 - 9, cy + 9);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx1 + 8, cy + 2, 4.5, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx1 - 5, cy - 11);
+    ctx.lineTo(cx1 - 5, cy - 8);
+    ctx.moveTo(cx1 + 1, cy - 11);
+    ctx.lineTo(cx1 + 1, cy - 8);
+    ctx.stroke();
+
+    // 2. Red Pause / Green Play Circle
+    ctx.beginPath();
+    ctx.arc(cx2, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = isPaused ? '#10b981' : '#dc2626';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    if (isPaused) {
+      ctx.beginPath();
+      ctx.moveTo(cx2 - 7, cy - 12);
+      ctx.lineTo(cx2 + 12, cy);
+      ctx.lineTo(cx2 - 7, cy + 12);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillRect(cx2 - 9, cy - 11, 6, 22);
+      ctx.fillRect(cx2 + 3, cy - 11, 6, 22);
+    }
+
+    // 3. White Maximize Circle
+    ctx.beginPath();
+    ctx.arc(cx3, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx3 + 2, cy - 10);
+    ctx.lineTo(cx3 + 10, cy - 10);
+    ctx.lineTo(cx3 + 10, cy - 2);
+    ctx.moveTo(cx3 + 10, cy - 10);
+    ctx.lineTo(cx3 + 2, cy - 2);
+    ctx.moveTo(cx3 - 2, cy + 10);
+    ctx.lineTo(cx3 - 10, cy + 10);
+    ctx.lineTo(cx3 - 10, cy + 2);
+    ctx.moveTo(cx3 - 10, cy + 10);
+    ctx.lineTo(cx3 - 2, cy + 2);
+    ctx.stroke();
+
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    return await blobToDataUrl(blob);
+  } catch {
+    return undefined;
+  }
 }
 
 async function renderActiveNotification() {
@@ -54,32 +195,35 @@ async function renderActiveNotification() {
     : remainingSecs;
 
   const title = formatTimerDisplay(activeSecs);
-  const body = p.isCampActive
-    ? '☕ Mola Aktif'
-    : p.isPaused
-    ? '⏸ Duraklatıldı'
-    : '● Odak Devam Ediyor';
+  const body = `🟠 ☕   ${p.isPaused ? '🟢 ▶' : '🔴 ⏸'}   ⚪ ⤢`;
 
   try {
+    const [blackIcon, capsuleImage] = await Promise.all([
+      getPureBlackIconUrl(),
+      generatePureBlackCapsuleImageUrl(title, Boolean(p.isPaused), Boolean(p.isCampActive)),
+    ]);
+
     await self.registration.showNotification(title, {
       body,
       tag: 'fokus-active-timer',
       renotify: false,
       silent: true,
       requireInteraction: true,
+      icon: blackIcon,
+      image: capsuleImage,
       data: { url: '/' },
       actions: [
         {
           action: 'toggle_break',
-          title: '☕',
+          title: '🟠 ☕',
         },
         {
           action: 'toggle_pause',
-          title: p.isPaused ? '▶' : '⏸',
+          title: p.isPaused ? '🟢 ▶' : '🔴 ⏸',
         },
         {
           action: 'open_app',
-          title: '⤢',
+          title: '⚪ ⤢',
         },
       ],
     });
@@ -242,10 +386,15 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
+  // Never intercept Firebase, Google APIs, Vite dev endpoints, or source modules
   if (
     url.hostname.includes('firebase') ||
     url.hostname.includes('googleapis') ||
-    url.hostname.includes('identitytoolkit')
+    url.hostname.includes('identitytoolkit') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.includes('vite')
   ) {
     return;
   }
@@ -268,28 +417,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match('/');
-      })
-    );
-    return;
-  }
-
+  // Network-first for HTML & app assets so refresh always serves latest state
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        return networkResponse;
+      })
+      .catch(() => {
+        return caches.match(event.request);
+      })
   );
 });
+

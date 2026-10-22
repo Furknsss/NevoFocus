@@ -17,20 +17,38 @@ import { MusicPlatform } from '../../types';
 import { soundEngine } from '../../utils/audio';
 
 export const SpotifyIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.517 17.307c-.217.355-.678.468-1.033.251-2.827-1.728-6.386-2.119-10.578-1.162-.403.092-.806-.157-.898-.56-.093-.404.156-.807.56-.899 4.587-1.047 8.528-.598 11.698 1.337.355.217.468.678.251 1.033zm1.472-3.272c-.273.444-.856.587-1.3.314-3.236-1.99-8.169-2.565-11.997-1.401-.497.151-1.026-.134-1.177-.631-.151-.497.134-1.026.631-1.177 4.38-1.331 9.815-.688 13.53 1.595.444.273.587.856.314 1.3zm.127-3.408C15.244 8.324 8.877 8.113 5.168 9.24c-.604.183-1.246-.167-1.429-.771-.183-.604.167-1.246.771-1.429 4.265-1.295 11.302-1.054 15.74 1.581.543.322.722 1.026.4 1.569-.322.543-1.026.722-1.569.4z" />
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <circle cx="12" cy="12" r="12" fill="#1DB954" />
+    <path
+      fill="#000000"
+      d="M17.517 17.307c-.217.355-.678.468-1.033.251-2.827-1.728-6.386-2.119-10.578-1.162-.403.092-.806-.157-.898-.56-.093-.404.156-.807.56-.899 4.587-1.047 8.528-.598 11.698 1.337.355.217.468.678.251 1.033zm1.472-3.272c-.273.444-.856.587-1.3.314-3.236-1.99-8.169-2.565-11.997-1.401-.497.151-1.026-.134-1.177-.631-.151-.497.134-1.026.631-1.177 4.38-1.331 9.815-.688 13.53 1.595.444.273.587.856.314 1.3zm.127-3.408C15.244 8.324 8.877 8.113 5.168 9.24c-.604.183-1.246-.167-1.429-.771-.183-.604.167-1.246.771-1.429 4.265-1.295 11.302-1.054 15.74 1.581.543.322.722 1.026.4 1.569-.322.543-1.026.722-1.569.4z"
+    />
   </svg>
 );
 
 export const YouTubeMusicIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-    <path d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z" />
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <circle cx="12" cy="12" r="12" fill="#FF0000" />
+    <circle cx="12" cy="12" r="6.7" fill="none" stroke="#FFFFFF" strokeWidth="1.45" />
+    <polygon points="9.8,8.7 15.6,12 9.8,15.3" fill="#FFFFFF" />
   </svg>
 );
 
 export const AppleMusicIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-    <path d="M19.467 1.482a2.38 2.38 0 0 0-1.92-.437l-8.64 1.805A2.405 2.405 0 0 0 7 5.203v10.016a3.73 3.73 0 0 0-1.75-.439C3.179 14.78 1.5 16.32 1.5 18.22s1.679 3.44 3.75 3.44 3.75-1.54 3.75-3.44V8.98l9.5-1.985v6.444a3.73 3.73 0 0 0-1.75-.439c-2.071 0-3.75 1.54-3.75 3.44s1.679 3.44 3.75 3.44 3.75-1.54 3.75-3.44V3.402a2.38 2.38 0 0 0-1.033-1.92z" />
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <defs>
+      <linearGradient id="appleMusicOfficialGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#FB5C74" />
+        <stop offset="100%" stopColor="#FA233B" />
+      </linearGradient>
+    </defs>
+    {/* Official Apple Music Pink-to-Coral Gradient App Squircle */}
+    <rect x="0" y="0" width="24" height="24" rx="5.5" fill="url(#appleMusicOfficialGrad)" />
+    {/* Official White Beamed Eighth Notes + Apple Leaf Emblem */}
+    <path
+      fill="#FFFFFF"
+      d="M17.35 5.15c-.22-.16-.51-.22-.79-.16l-6.75 1.38c-.47.1-.81.51-.81.99v7.78c-.44-.29-.99-.45-1.58-.45-1.49 0-2.7 1.04-2.7 2.33s1.21 2.33 2.7 2.33 2.7-1.04 2.7-2.33V9.97l5.8-1.19v5.14c-.44-.29-.99-.45-1.58-.45-1.49 0-2.7 1.04-2.7 2.33s1.21 2.33 2.7 2.33 2.7-1.04 2.7-2.33V5.95c0-.32-.15-.61-.39-.8z"
+    />
   </svg>
 );
 
@@ -94,7 +112,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
 
     const interval = setInterval(() => {
       spotifyService.pollSpotifyNowPlaying();
-    }, 1500);
+    }, 1200);
 
     return () => {
       unsubConnections();
@@ -115,7 +133,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
 
       const elapsed = Date.now() - sync.timestamp;
       const nextProgress = Math.min(
-        currentTrack.durationMs || 180000,
+        currentTrack.durationMs || 30000,
         sync.baseProgressMs + elapsed
       );
       setSeekValue(nextProgress);
@@ -186,7 +204,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
     spotifyService.spotifySeek(ms);
   };
 
-  const trackDuration = currentTrack?.durationMs || 180000;
+  const trackDuration = currentTrack?.durationMs || 30000;
   const currentProgress = isSeeking
     ? seekValue
     : currentTrack?.isPlaying
@@ -195,33 +213,28 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
   const progressPercent = Math.min(100, Math.max(0, (currentProgress / trackDuration) * 100));
 
   const isPlayingNow = Boolean(currentTrack?.isPlaying);
-  const showPlatformIdentity = Boolean(isPlayingNow && detectedPlatform);
+  const showPlatformIdentity = Boolean(detectedPlatform);
   const activeMeta = detectedPlatform ? PLATFORM_METADATA[detectedPlatform] : PLATFORM_METADATA.spotify;
 
-  // Sol buton sınıfları:
-  // - Çalınan bir şey yoksa veya bağlanılmadıysa: Müzik logosu ve nötr karanlık stil
-  // - Spotify'dan dinleniyorsa: Önceki Spotify butonu (Yeşil #1DB954)
-  // - YouTube Music'ten dinleniyorsa: YouTube Music logosu (Kırmızı #FF0033)
-  // - Apple Music'ten dinleniyorsa: Apple Music logosu (Mercan Kırmızısı #FA243C)
   const getLeftButtonClasses = () => {
     if (showPlatformIdentity && detectedPlatform) {
       if (isOpen) {
         if (detectedPlatform === 'youtube_music') {
-          return 'bg-[#FF0033] text-white border-[#FF0033] shadow-[#FF0033]/50 scale-105';
+          return 'bg-black/95 border-[#FF0000] shadow-[#FF0000]/50 ring-2 ring-[#FF0000] scale-105';
         }
         if (detectedPlatform === 'apple_music') {
-          return 'bg-[#FA243C] text-white border-[#FA243C] shadow-[#FA243C]/50 scale-105';
+          return 'bg-black/95 border-[#FA2D48] shadow-[#FA2D48]/50 ring-2 ring-[#FA2D48] scale-105';
         }
-        return 'bg-[#1DB954] text-black border-[#1DB954] shadow-[#1DB954]/50 scale-105';
+        return 'bg-black/95 border-[#1DB954] shadow-[#1DB954]/50 ring-2 ring-[#1DB954] scale-105';
       }
 
       if (detectedPlatform === 'youtube_music') {
-        return 'bg-black/90 text-[#FF0033] border-[#FF0033]/70 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FF0033]/40';
+        return 'bg-black/90 border-[#FF0000]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FF0000]/35';
       }
       if (detectedPlatform === 'apple_music') {
-        return 'bg-black/90 text-[#FA243C] border-[#FA243C]/70 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FA243C]/40';
+        return 'bg-black/90 border-[#FA2D48]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FA2D48]/35';
       }
-      return 'bg-black/90 text-[#1DB954] border-[#1DB954]/70 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#1DB954]/40';
+      return 'bg-black/90 border-[#1DB954]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#1DB954]/35';
     }
 
     if (isOpen) {
@@ -234,10 +247,10 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
   return (
     <>
       {/* 1. Sol Müzik Butonu:
-          Çalınan bir şey yoksa veya hesap bağlı değilse: Müzik Logosu (<Music />).
-          Spotify çalıyorsa: Spotify butonu.
-          YT Music çalıyorsa: YouTube Music logosu.
-          Apple Music çalıyorsa: Apple Music logosu. */}
+          Bağlanılmadıysa: Müzik Logosu (<Music />).
+          Spotify bağlıysa/çalıyorsa: Orjinal Spotify logosu.
+          YouTube Music bağlıysa/çalıyorsa: Orjinal YouTube Music logosu.
+          Apple Music bağlıysa/çalıyorsa: Orjinal Apple Music logosu. */}
       <button
         type="button"
         onClick={() => {
@@ -245,20 +258,20 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
           setIsOpen(!isOpen);
         }}
         className={`fixed left-3 sm:left-6 top-[38%] -translate-y-1/2 z-40 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl backdrop-blur-xl border transition-all duration-300 cursor-pointer shadow-2xl flex items-center justify-center group ${getLeftButtonClasses()}`}
-        title={showPlatformIdentity ? `${activeMeta.name} Çalıyor` : 'Müzik Çalar'}
+        title={showPlatformIdentity ? `${activeMeta.name}` : 'Müzik Çalar'}
         aria-label="Müzik Çalar"
       >
         {showPlatformIdentity && detectedPlatform ? (
           <PlatformIcon
             platform={detectedPlatform}
-            className="w-7 h-7 sm:w-8 sm:h-8 transition-transform group-hover:scale-110 fill-current"
+            className="w-8 h-8 sm:w-9 sm:h-9 transition-transform group-hover:scale-110"
           />
         ) : (
           <Music className="w-7 h-7 sm:w-8 sm:h-8 transition-transform group-hover:scale-110" />
         )}
       </button>
 
-      {/* 2. Alttan Açılan Şarkı Çalar Paneli (Sade: Bağlantılar / Hesabını Bağla / Platform Butonları YOK) */}
+      {/* 2. Alttan Açılan Şarkı Çalar Paneli */}
       <div
         className={`fixed inset-x-0 bottom-0 z-50 p-3 sm:p-6 md:p-8 flex justify-center transition-all duration-300 ease-out transform ${
           isOpen
@@ -267,14 +280,12 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
         }`}
       >
         <div className="w-full max-w-3xl sm:max-w-4xl bg-neutral-950/98 border border-neutral-800/90 backdrop-blur-2xl rounded-3xl sm:rounded-[2rem] p-5 sm:p-7 shadow-2xl shadow-black pointer-events-auto text-white flex flex-col gap-4 relative ring-1 ring-white/10">
-          {/* Top Bar: Sadece otomatik algılanan platform logosu + adı ve sağda Kapat (X) tuşu */}
+          {/* Top Bar: Otomatik algılanan platformun orjinal logosu + adı ve sağda Kapat (X) tuşu */}
           <div className="flex items-center justify-between gap-3 border-b border-neutral-800/80 pb-3">
             <div className="flex items-center gap-2.5">
               {detectedPlatform ? (
                 <>
-                  <span style={{ color: activeMeta.accentHex }}>
-                    <PlatformIcon platform={detectedPlatform} className="w-5 h-5 sm:w-6 sm:h-6" />
-                  </span>
+                  <PlatformIcon platform={detectedPlatform} className="w-6 h-6 sm:w-7 sm:h-7" />
                   <span className="text-sm sm:text-base font-extrabold text-white tracking-wide">
                     {activeMeta.name}
                   </span>

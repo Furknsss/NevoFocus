@@ -51,7 +51,7 @@ import {
   importLocalBackup,
   getLastSyncTime,
 } from '../services/syncService';
-import { spotifyService, PLATFORM_METADATA } from '../services/spotifyService';
+import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 
 interface SettingsModalProps {
@@ -102,21 +102,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [musicConnections, setMusicConnections] = useState<MusicConnectionsConfig>(() =>
     spotifyService.getConnectionsConfig()
   );
-  const [editingPlatform, setEditingPlatform] = useState<MusicPlatform | null>(null);
-  const [connAccountInput, setConnAccountInput] = useState('');
-  const [connUrlInput, setConnUrlInput] = useState('');
-  const [connTitleInput, setConnTitleInput] = useState('');
-  const [connTokenInput, setConnTokenInput] = useState('');
-  const [connNotice, setConnNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [liveTrack, setLiveTrack] = useState(() => spotifyService.getCurrentTrack());
+  const [connectingPlatform, setConnectingPlatform] = useState<MusicPlatform | null>(null);
+  const [showSpotifyAuthStep, setShowSpotifyAuthStep] = useState(false);
+  const [spotifyClientIdInput, setSpotifyClientIdInput] = useState(() =>
+    spotifyService.getSavedClientId()
+  );
+  const [spotifyCodeOrTokenInput, setSpotifyCodeOrTokenInput] = useState('');
+  const [quickSyncInput, setQuickSyncInput] = useState<Record<MusicPlatform, string>>({
+    spotify: '',
+    youtube_music: '',
+    apple_music: '',
+  });
+  const [connNotice, setConnNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(
+    null
+  );
 
   React.useEffect(() => {
     if (profile.musicConnections) {
       spotifyService.syncFromProfile(profile.musicConnections);
     }
-    const unsub = spotifyService.subscribeConnections((cfg) => {
+    const unsubConn = spotifyService.subscribeConnections((cfg) => {
       setMusicConnections(cfg);
     });
-    return () => unsub();
+    const unsubTrack = spotifyService.subscribe((t) => {
+      if (t) setLiveTrack(t);
+    });
+    return () => {
+      unsubConn();
+      unsubTrack();
+    };
   }, [profile.musicConnections]);
 
   const persistMusicConnectionsToCloud = (updatedConfig: MusicConnectionsConfig) => {
@@ -133,42 +148,148 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleSavePlatformConnection = async (platform: MusicPlatform) => {
+  const handleDirectPlatformAuthConnect = async (platform: MusicPlatform) => {
     soundEngine.playClick();
     setConnNotice(null);
-    const meta = PLATFORM_METADATA[platform];
 
-    if (platform === 'spotify' && connTokenInput.trim()) {
-      const res = await spotifyService.setDirectAccessToken(connTokenInput.trim());
-      if (!res.success) {
-        setConnNotice({ type: 'error', text: res.error || 'Spotify Token doğrulanamadı.' });
-        return;
+    if (platform === 'youtube_music') {
+      setConnectingPlatform('youtube_music');
+      try {
+        const res = await spotifyService.connectYouTubeMusicWithGooglePopup();
+        if (res.success) {
+          const updated = spotifyService.getConnectionsConfig();
+          persistMusicConnectionsToCloud(updated);
+          soundEngine.playCompletionBell();
+          setConnNotice({
+            type: 'success',
+            text: `YouTube Music (${res.accountName}) başarıyla bağlandı! ${
+              res.trackCount
+                ? `Hesabınızdan ${res.trackCount} beğenilen şarkı çekildi.`
+                : 'Canlı senkronizasyon aktif.'
+            }`,
+          });
+        } else {
+          setConnNotice({
+            type: 'error',
+            text: res.error || 'YouTube Music bağlantısı tamamlanamadı.',
+          });
+        }
+      } finally {
+        setConnectingPlatform(null);
       }
+      return;
     }
 
-    const updated = spotifyService.connectPlatform(platform, {
-      accountName: connAccountInput.trim() || `${meta.name} Hesabım`,
-      customPlaylistUrl: connUrlInput.trim(),
-      customTrackTitle: connTitleInput.trim(),
-      makeActive: true,
-    });
-    persistMusicConnectionsToCloud(updated);
-    setEditingPlatform(null);
-    setConnAccountInput('');
-    setConnUrlInput('');
-    setConnTitleInput('');
-    setConnTokenInput('');
-    soundEngine.playCompletionBell();
-    setConnNotice({
-      type: 'success',
-      text: `${meta.name} hesabınız kalıcı olarak bağlandı ve kaydedildi!`,
-    });
+    if (platform === 'apple_music') {
+      setConnectingPlatform('apple_music');
+      try {
+        await spotifyService.connectAppleMusicWithPopup(
+          currentUser?.displayName || profile.name || 'Apple Music Hesabım'
+        );
+        const updated = spotifyService.getConnectionsConfig();
+        persistMusicConnectionsToCloud(updated);
+        soundEngine.playCompletionBell();
+        setConnNotice({
+          type: 'success',
+          text: 'Apple Music giriş penceresi açıldı ve hesabınız bağlandı! Apple Music üzerinden açtığınız veya kopyaladığınız şarkılar anında yansır.',
+        });
+      } finally {
+        setConnectingPlatform(null);
+      }
+      return;
+    }
+
+    // Platform === 'spotify'
+    const savedCid = spotifyClientIdInput.trim() || spotifyService.getSavedClientId();
+    setShowSpotifyAuthStep(true);
+    if (savedCid) {
+      await spotifyService.startSpotifyLogin(savedCid, UNIVERSAL_SAFE_REDIRECT_URI);
+      setConnNotice({
+        type: 'success',
+        text: 'Spotify yetki penceresi açıldı. Giriş yaptıktan sonra açılan sayfanın adresini (URL) aşağıya yapıştırın veya "Panodan Otomatik Onayla" tuşuna basın.',
+      });
+    }
+  };
+
+  const handleCompleteSpotifyAuth = async (rawInput?: string) => {
+    soundEngine.playClick();
+    setConnNotice(null);
+    setConnectingPlatform('spotify');
+
+    try {
+      let targetInput = (rawInput ?? spotifyCodeOrTokenInput).trim();
+      if (!targetInput && navigator.clipboard?.readText) {
+        try {
+          targetInput = (await navigator.clipboard.readText()).trim();
+        } catch {}
+      }
+
+      if (!targetInput) {
+        setConnNotice({
+          type: 'error',
+          text: 'Lütfen Spotify giriş sonrası yönlendirilen URL adresini (code=...) veya Access Token değerini yapıştırın.',
+        });
+        setConnectingPlatform(null);
+        return;
+      }
+
+      const res = await spotifyService.exchangeCodeOrUrl(targetInput);
+      if (res.success) {
+        await spotifyService.pollSpotifyNowPlaying();
+        const updated = spotifyService.getConnectionsConfig();
+        persistMusicConnectionsToCloud(updated);
+        setShowSpotifyAuthStep(false);
+        setSpotifyCodeOrTokenInput('');
+        soundEngine.playCompletionBell();
+        setConnNotice({
+          type: 'success',
+          text: 'Spotify hesabınız canlı olarak bağlandı! Spotify uygulamasında açtığınız her şarkı anında buraya yansıyacak.',
+        });
+      } else {
+        setConnNotice({
+          type: 'error',
+          text: res.error || 'Spotify doğrulaması başarısız oldu.',
+        });
+      }
+    } finally {
+      setConnectingPlatform(null);
+    }
+  };
+
+  const handleQuickSyncTrack = async (platform: MusicPlatform) => {
+    const query = (quickSyncInput[platform] || '').trim();
+    if (!query) return;
+    soundEngine.playClick();
+    setConnectingPlatform(platform);
+    try {
+      const res = await spotifyService.syncTrackFromUrlOrQuery(query, platform);
+      if (res.success) {
+        const updated = spotifyService.getConnectionsConfig();
+        persistMusicConnectionsToCloud(updated);
+        setQuickSyncInput((prev) => ({ ...prev, [platform]: '' }));
+        spotifyService.spotifyPlay();
+        setConnNotice({
+          type: 'success',
+          text: `"${res.track?.name}" çalara yansıtıldı ve başlatıldı!`,
+        });
+      } else {
+        setConnNotice({
+          type: 'error',
+          text: res.error || 'Şarkı bulunamadı.',
+        });
+      }
+    } finally {
+      setConnectingPlatform(null);
+    }
   };
 
   const handleDisconnectPlatform = (platform: MusicPlatform) => {
     soundEngine.playClick();
     const updated = spotifyService.disconnectPlatform(platform);
     persistMusicConnectionsToCloud(updated);
+    if (platform === 'spotify') {
+      setShowSpotifyAuthStep(false);
+    }
     setConnNotice({
       type: 'success',
       text: `${PLATFORM_METADATA[platform].name} bağlantısı kaldırıldı.`,
@@ -1125,10 +1246,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
               <div className="min-w-0">
                 <h4 className="text-sm font-bold text-white">
-                  Müzik Platformu Bağlantıları (Kalıcı Oturum)
+                  Doğrudan Hesap Bağlantısı & Canlı Müzik Senkronizasyonu
                 </h4>
                 <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
-                  Spotify, YouTube Music ve Apple Music hesaplarınızı buradan bir kez bağlayın; hesabınıza kalıcı olarak kaydedilir. Odak ekranında müzik çalarken sol buton otomatik olarak o platformun logosuna ve rengine dönüşür.
+                  Spotify, YouTube Music veya Apple Music için <strong>Hesabı Bağla</strong> tuşuna bastığınızda doğrudan ilgili platformun resmi giriş sayfasına yönlendirilirsiniz. Bağlandığınızda ne çalınıyorsa uygulama otomatik olarak şarkıyı, kapağı ve platform logosunu çeker.
                 </p>
               </div>
             </div>
@@ -1156,33 +1277,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               const meta = PLATFORM_METADATA[platform];
               const info = musicConnections[platform];
               const isConnected = spotifyService.isPlatformConnected(platform);
-              const isActive = musicConnections.activePlatform === platform;
-              const isEditing = editingPlatform === platform;
+              const isActive = spotifyService.getDetectedPlatform() === platform;
+              const isConnecting = connectingPlatform === platform;
+              const hasSpotifyToken =
+                platform === 'spotify' ? spotifyService.hasSpotifyLiveToken() : true;
+
+              const currentPlatformTrack =
+                isActive && liveTrack
+                  ? liveTrack
+                  : spotifyService.buildStreamTrackForPlatform(platform);
 
               return (
                 <div
                   key={platform}
-                  className="p-4 rounded-2xl bg-neutral-900/75 border transition-all space-y-3"
+                  className="p-4 rounded-2xl bg-neutral-900/80 border transition-all space-y-3"
                   style={{
-                    borderColor: isActive ? `${meta.accentHex}77` : '#262626',
+                    borderColor: isActive && isConnected ? `${meta.accentHex}88` : '#262626',
                   }}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border"
-                        style={{
-                          backgroundColor: `${meta.accentHex}20`,
-                          borderColor: `${meta.accentHex}50`,
-                          color: meta.accentHex,
-                        }}
-                      >
-                        <PlatformIcon platform={platform} className="w-6 h-6" />
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-black/80 border border-neutral-800 flex items-center justify-center shrink-0 shadow-md">
+                        <PlatformIcon platform={platform} className="w-8 h-8" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h5 className="text-sm font-extrabold text-white">{meta.name}</h5>
-                          {isConnected ? (
+                          {isConnected && hasSpotifyToken ? (
                             <span
                               className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono border"
                               style={{
@@ -1198,59 +1319,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               Bağlı Değil
                             </span>
                           )}
-                          {isActive && (
+                          {isActive && isConnected && hasSpotifyToken && (
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/10 text-white">
-                              Aktif Çalar
+                              Aktif Platform
                             </span>
                           )}
                         </div>
                         <p className="text-[11px] text-neutral-400 mt-0.5">
-                          {isConnected
-                            ? info?.customTrackTitle || `${meta.name} odak senkronizasyonu hazır`
-                            : `${meta.name} hesabınızı bağlayarak odak ekranında ${meta.name} çalarını kullanın`}
+                          {isConnected && hasSpotifyToken
+                            ? currentPlatformTrack &&
+                              !currentPlatformTrack.id.endsWith('-awaiting') &&
+                              currentPlatformTrack.id !== 'spotify-idle'
+                              ? `Şu An Yansıyan: ${currentPlatformTrack.name} – ${currentPlatformTrack.artists.join(', ')}`
+                              : `${meta.name} canlı senkronizasyonu hazır (${meta.name} üzerinden şarkı açın)`
+                            : platform === 'youtube_music'
+                            ? 'Google hesabınızla bağlanarak YouTube Music beğenilen şarkılarınızı ve akışınızı doğrudan çekin'
+                            : platform === 'spotify'
+                            ? 'Spotify hesabınızı bağlayarak telefon/bilgisayarda çaldığınız şarkıları anında yansıtın'
+                            : 'Apple Music hesabınızı bağlayarak çaldığınız şarkıları anında yansıtın'}
                         </p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {isConnected && (
-                        <button
-                          type="button"
-                          onClick={() => handleSetPlatformActive(platform, true)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${
-                            meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
-                          }`}
-                          style={{ backgroundColor: meta.accentHex }}
-                          title={`${meta.name} ile şimdi çal`}
-                        >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>{isActive ? 'Çal' : 'Seç & Çal'}</span>
-                        </button>
-                      )}
-
-                      {isConnected ? (
+                      {isConnected && hasSpotifyToken ? (
                         <>
                           <button
                             type="button"
-                            onClick={() => {
-                              soundEngine.playClick();
-                              if (isEditing) {
-                                setEditingPlatform(null);
-                              } else {
-                                setEditingPlatform(platform);
-                                setConnAccountInput(info?.accountName || '');
-                                setConnUrlInput(info?.customPlaylistUrl || '');
-                                setConnTitleInput(info?.customTrackTitle || '');
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors cursor-pointer"
+                            onClick={() => handleSetPlatformActive(platform, true)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md ${
+                              meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
+                            }`}
+                            style={{ backgroundColor: meta.accentHex }}
+                            title={`${meta.name} çalarını başlat`}
                           >
-                            {isEditing ? 'Kapat' : 'Düzenle'}
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            <span>{isActive ? 'Şimdi Çal' : 'Aktif Yap & Çal'}</span>
                           </button>
+
+                          {platform === 'spotify' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setShowSpotifyAuthStep(!showSpotifyAuthStep);
+                              }}
+                              className="px-3 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors cursor-pointer"
+                            >
+                              Yenile
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleDisconnectPlatform(platform)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                            className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
                           >
                             Bağlantıyı Kes
                           </button>
@@ -1258,108 +1381,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            soundEngine.playClick();
-                            if (isEditing) {
-                              setEditingPlatform(null);
-                            } else {
-                              setEditingPlatform(platform);
-                              setConnAccountInput(profile.name ? `${profile.name} (${meta.shortName})` : `${meta.name} Hesabım`);
-                              setConnUrlInput('');
-                              setConnTitleInput(meta.defaultPlaylistName);
-                              setConnTokenInput('');
-                            }
-                          }}
-                          className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer active:scale-95 ${
+                          disabled={isConnecting}
+                          onClick={() => handleDirectPlatformAuthConnect(platform)}
+                          className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer active:scale-95 shadow-lg ${
                             meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
                           }`}
                           style={{ backgroundColor: meta.accentHex }}
                         >
-                          {isEditing ? 'Vazgeç' : 'Hesabı Bağla'}
+                          {isConnecting ? 'Bağlanıyor...' : 'Hesabı Bağla'}
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {/* Expandable Connection Form */}
-                  {isEditing && (
+                  {/* SPOTIFY LIVE OAUTH & TOKEN CONNECTION PANEL */}
+                  {platform === 'spotify' && (showSpotifyAuthStep || (isConnected && !hasSpotifyToken)) && (
                     <div className="pt-3 border-t border-neutral-800 space-y-3 animate-in fade-in duration-150">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
-                            Hesap / Profil Adı:
-                          </label>
+                      <div className="p-3 rounded-xl bg-neutral-950/90 border border-neutral-800 space-y-2.5">
+                        <p className="text-[11px] text-neutral-300 leading-relaxed">
+                          Spotify&apos;da açtığınız şarkıların gerçek zamanlı çekilmesi için:
+                          <br />
+                          <strong>1.</strong> Spotify Client ID ile <strong>Spotify Giriş Penceresini Aç</strong> tuşuna basın (Redirect URI: <code className="text-[#1DB954] select-all">https://open.spotify.com/</code> veya <code className="text-[#1DB954] select-all">{typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : ''}</code>).
+                          <br />
+                          <strong>2.</strong> Giriş yaptıktan sonra açılan sayfanın adresini (veya doğrudan Spotify Access Token&apos;ınızı) aşağıya yapıştırıp <strong>Onayla</strong> tuşuna basın.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row gap-2">
                           <input
                             type="text"
-                            placeholder={`Örn: ${meta.name} Hesabım`}
-                            value={connAccountInput}
-                            onChange={(e) => setConnAccountInput(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                            placeholder="Spotify Client ID (Örn: 4b8f...)"
+                            value={spotifyClientIdInput}
+                            onChange={(e) => {
+                              setSpotifyClientIdInput(e.target.value);
+                              spotifyService.setSavedClientId(e.target.value);
+                            }}
+                            className="flex-1 px-3 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-[#1DB954]"
                           />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!spotifyClientIdInput.trim()) {
+                                setConnNotice({
+                                  type: 'error',
+                                  text: 'Lütfen önce Spotify Client ID girin veya aşağıya doğrudan Access Token yapıştırın.',
+                                });
+                                return;
+                              }
+                              spotifyService.startSpotifyLogin(
+                                spotifyClientIdInput.trim(),
+                                UNIVERSAL_SAFE_REDIRECT_URI
+                              );
+                            }}
+                            className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#1DB954] text-black hover:bg-[#1ed760] transition-colors cursor-pointer shrink-0"
+                          >
+                            Spotify Giriş Penceresini Aç
+                          </button>
                         </div>
 
-                        <div>
-                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
-                            Varsayılan İstasyon / Çalma Listesi Adı:
-                          </label>
+                        <div className="flex flex-col sm:flex-row gap-2 pt-1">
                           <input
                             type="text"
-                            placeholder={meta.defaultPlaylistName}
-                            value={connTitleInput}
-                            onChange={(e) => setConnTitleInput(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                            placeholder="Yönlendirilen URL (https://open.spotify.com/?code=...) veya Access Token (BQ...)"
+                            value={spotifyCodeOrTokenInput}
+                            onChange={(e) => setSpotifyCodeOrTokenInput(e.target.value)}
+                            className="flex-1 px-3 py-2 text-xs rounded-xl bg-neutral-900 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-[#1DB954]"
                           />
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteSpotifyAuth()}
+                            className="px-4 py-2 rounded-xl text-xs font-extrabold bg-white text-black hover:bg-neutral-200 transition-colors cursor-pointer shrink-0"
+                          >
+                            Onayla & Bağla
+                          </button>
                         </div>
                       </div>
+                    </div>
+                  )}
 
-                      <div>
-                        <label className="text-[11px] font-bold text-neutral-300 block mb-1">
-                          {meta.name} Çalma Listesi veya Şarkı Linki (İsteğe Bağlı):
-                        </label>
-                        <input
-                          type="text"
-                          placeholder={`${meta.externalAppUrl}/...`}
-                          value={connUrlInput}
-                          onChange={(e) => setConnUrlInput(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
-                        />
-                      </div>
-
-                      {platform === 'spotify' && (
-                        <div>
-                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
-                            Spotify Access Token (İsteğe Bağlı - Canlı Cihaz Senkronizasyonu İçin):
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="BQ... (Boş bırakırsanız doğrudan uygulama içi Spotify çaları bağlanır)"
-                            value={connTokenInput}
-                            onChange={(e) => setConnTokenInput(e.target.value)}
-                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-[#1DB954]"
-                          />
-                        </div>
-                      )}
-
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setEditingPlatform(null)}
-                          className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer"
-                        >
-                          İptal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSavePlatformConnection(platform)}
-                          className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 ${
-                            meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
-                          }`}
-                          style={{ backgroundColor: meta.accentHex }}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Kalıcı Olarak Kaydet ve Bağla</span>
-                        </button>
-                      </div>
+                  {/* QUICK LIVE SONG / LINK MIRROR FOR CONNECTED PLATFORMS */}
+                  {isConnected && hasSpotifyToken && (
+                    <div className="pt-2.5 border-t border-neutral-800/70 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder={
+                          platform === 'spotify'
+                            ? 'Spotify zaten canlı senkronize! İsterseniz şarkı adı veya Spotify linki de girebilirsiniz...'
+                            : platform === 'youtube_music'
+                            ? 'YouTube Music şarkı linki (music.youtube.com/watch?v=...) veya şarkı adı girin...'
+                            : 'Apple Music şarkı/albüm linki (music.apple.com/...) veya şarkı adı girin...'
+                        }
+                        value={quickSyncInput[platform] || ''}
+                        onChange={(e) =>
+                          setQuickSyncInput((prev) => ({ ...prev, [platform]: e.target.value }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleQuickSyncTrack(platform);
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-neutral-950/90 border border-neutral-800 text-white placeholder-neutral-500 focus:outline-none focus:border-white/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuickSyncTrack(platform)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-neutral-700 text-white transition-colors cursor-pointer shrink-0"
+                      >
+                        Anında Yansıt
+                      </button>
                     </div>
                   )}
                 </div>

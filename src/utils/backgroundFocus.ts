@@ -1,6 +1,57 @@
 // Background Focus Persistence, Pure Black PiP Capsule, Live Notification & Lock-Screen MediaSession Engine
 
 const DEVICE_ID_KEY = 'fokus_device_id_v1';
+const TERMINATED_STARTS_KEY = 'fokus_terminated_session_starts_v1';
+const LAST_TERMINATED_AT_KEY = 'fokus_last_completed_at';
+
+/**
+ * Permanently marks a focus session as terminated (completed or abandoned)
+ * and removes any running session state from localStorage so it can never reappear on refresh.
+ */
+export function markSessionTerminated(startTime?: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const now = Date.now();
+    localStorage.setItem(LAST_TERMINATED_AT_KEY, String(now));
+    localStorage.removeItem('fokus_active_session_running');
+
+    if (typeof startTime === 'number' && startTime > 0) {
+      const raw = localStorage.getItem(TERMINATED_STARTS_KEY);
+      const list: number[] = raw ? JSON.parse(raw) : [];
+      if (!list.includes(startTime)) {
+        const next = [startTime, ...list].slice(0, 60);
+        localStorage.setItem(TERMINATED_STARTS_KEY, JSON.stringify(next));
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Checks whether a focus session with the given startTime has already been completed or abandoned.
+ */
+export function isSessionTerminated(startTime?: number): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (typeof startTime === 'number' && startTime > 0) {
+      const raw = localStorage.getItem(TERMINATED_STARTS_KEY);
+      if (raw) {
+        const list: number[] = JSON.parse(raw);
+        if (Array.isArray(list) && list.includes(startTime)) {
+          return true;
+        }
+      }
+      const lastTerm = Number(localStorage.getItem(LAST_TERMINATED_AT_KEY) || 0);
+      if (lastTerm > 0 && startTime <= lastTerm) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 export function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
@@ -104,20 +155,166 @@ export function computeDisplayTimeFromPayload(payload: LiveNotificationPayload):
   };
 }
 
-// 1-second silent WAV (8kHz mono PCM) data URI to keep mobile browser & MediaSession alive in background
-const SILENT_WAV_URI =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+// Pure Black 96x96 Circle Icon Generator (eliminates the orange "F" app icon in notifications)
+let cachedBlackIconDataUrl: string | null = null;
+function getPureBlackIconDataUrl(): string {
+  if (cachedBlackIconDataUrl) return cachedBlackIconDataUrl;
+  if (typeof document === 'undefined') return '';
+  try {
+    const c = document.createElement('canvas');
+    c.width = 96;
+    c.height = 96;
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(48, 48, 46, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    cachedBlackIconDataUrl = c.toDataURL('image/png');
+    return cachedBlackIconDataUrl;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Draws the Pure Black Focus Capsule (#000000 pill, bold white timer on left,
+ * Orange Break + Red/Green Pause-Play + White Maximize circular icon buttons on right)
+ * onto a 2D canvas context.
+ */
+function renderPureBlackCapsuleToContext(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  timeFormatted: string,
+  isPaused: boolean,
+  isCampActive: boolean
+) {
+  ctx.clearRect(0, 0, w, h);
+
+  // Pure black stadium capsule pill (#000000)
+  const radius = h / 2;
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.moveTo(radius, 0);
+  ctx.lineTo(w - radius, 0);
+  ctx.quadraticCurveTo(w, 0, w, radius);
+  ctx.quadraticCurveTo(w, h, w - radius, h);
+  ctx.lineTo(radius, h);
+  ctx.quadraticCurveTo(0, h, 0, radius);
+  ctx.quadraticCurveTo(0, 0, radius, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle dark border so capsule edges look crisp on dark notification shade
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Left: Bold White Timer (no left icon/logo)
+  ctx.fillStyle = '#ffffff';
+  const fontSize = timeFormatted.length > 5 ? 46 : 56;
+  ctx.font = `900 ${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(timeFormatted, 34, h / 2 + 2);
+
+  // Right: 3 Equal-Sized Circular Icon Buttons (Orange Break, Red Pause / Green Play, White Maximize)
+  const r = 34;
+  const cy = h / 2;
+  const cx3 = w - 58;
+  const cx2 = cx3 - 82;
+  const cx1 = cx2 - 82;
+
+  // 1. Orange Break Button (Coffee Cup Icon)
+  ctx.beginPath();
+  ctx.arc(cx1, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = isCampActive ? '#f59e0b' : '#ff5500';
+  ctx.fill();
+
+  // Draw crisp vector coffee cup in white (black if active amber)
+  ctx.strokeStyle = isCampActive ? '#000000' : '#ffffff';
+  ctx.lineWidth = 3.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Cup body
+  ctx.beginPath();
+  ctx.moveTo(cx1 - 11, cy - 4);
+  ctx.lineTo(cx1 + 7, cy - 4);
+  ctx.lineTo(cx1 + 5, cy + 9);
+  ctx.quadraticCurveTo(cx1 - 2, cy + 12, cx1 - 9, cy + 9);
+  ctx.closePath();
+  ctx.stroke();
+  // Cup handle
+  ctx.beginPath();
+  ctx.arc(cx1 + 8, cy + 2, 4.5, -Math.PI / 2, Math.PI / 2);
+  ctx.stroke();
+  // Steam lines
+  ctx.beginPath();
+  ctx.moveTo(cx1 - 5, cy - 11);
+  ctx.lineTo(cx1 - 5, cy - 8);
+  ctx.moveTo(cx1 + 1, cy - 11);
+  ctx.lineTo(cx1 + 1, cy - 8);
+  ctx.stroke();
+
+  // 2. Red Pause / Green Play Button
+  ctx.beginPath();
+  ctx.arc(cx2, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = isPaused ? '#10b981' : '#dc2626';
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  if (isPaused) {
+    // Play triangle
+    ctx.beginPath();
+    ctx.moveTo(cx2 - 7, cy - 12);
+    ctx.lineTo(cx2 + 12, cy);
+    ctx.lineTo(cx2 - 7, cy + 12);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // Pause bars
+    ctx.beginPath();
+    ctx.roundRect(cx2 - 9, cy - 11, 6, 22, 2);
+    ctx.roundRect(cx2 + 3, cy - 11, 6, 22, 2);
+    ctx.fill();
+  }
+
+  // 3. White Maximize Button
+  ctx.beginPath();
+  ctx.arc(cx3, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 3.4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Top-right expand arrow
+  ctx.beginPath();
+  ctx.moveTo(cx3 + 2, cy - 10);
+  ctx.lineTo(cx3 + 10, cy - 10);
+  ctx.lineTo(cx3 + 10, cy - 2);
+  ctx.moveTo(cx3 + 10, cy - 10);
+  ctx.lineTo(cx3 + 2, cy - 2);
+  // Bottom-left expand arrow
+  ctx.moveTo(cx3 - 2, cy + 10);
+  ctx.lineTo(cx3 - 10, cy + 10);
+  ctx.lineTo(cx3 - 10, cy + 2);
+  ctx.moveTo(cx3 - 10, cy + 10);
+  ctx.lineTo(cx3 - 2, cy + 2);
+  ctx.stroke();
+}
 
 class BackgroundFocusManager {
-  private silentAudio: HTMLAudioElement | null = null;
-  private isKeepAliveRunning = false;
   private onTogglePauseCallback: (() => void) | null = null;
   private onToggleBreakCallback: (() => void) | null = null;
   private onMaximizeCallback: (() => void) | null = null;
+  private webLockAbortController: AbortController | null = null;
 
   // Document Picture-in-Picture & Canvas Video PiP state
   private docPipWindow: Window | null = null;
   private pipCanvas: HTMLCanvasElement | null = null;
+  private notificationBannerCanvas: HTMLCanvasElement | null = null;
   private pipVideo: HTMLVideoElement | null = null;
   private lastPayload: LiveNotificationPayload | null = null;
 
@@ -149,23 +346,30 @@ class BackgroundFocusManager {
     this.onMaximizeCallback = handler;
   }
 
+  /**
+   * Uses silent Web Locks API (NO <audio> element and NO MediaSession)
+   * so Android / One UI NEVER displays the "Medya çıkışı" (Media Output) player card!
+   */
   public startKeepAlive() {
     if (typeof window === 'undefined') return;
+    this.clearMediaSession();
+
     try {
-      if (!this.silentAudio) {
-        this.silentAudio = new Audio(SILENT_WAV_URI);
-        this.silentAudio.loop = true;
-        this.silentAudio.volume = 0.01;
-      }
-      if (!this.isKeepAliveRunning) {
-        this.silentAudio
-          .play()
-          .then(() => {
-            this.isKeepAliveRunning = true;
-          })
-          .catch(() => {
-            // Will retry on next user gesture
-          });
+      const anyNav = navigator as any;
+      if (anyNav.locks && typeof anyNav.locks.request === 'function' && !this.webLockAbortController) {
+        this.webLockAbortController = new AbortController();
+        anyNav.locks
+          .request(
+            'fokus_background_focus_lock',
+            { signal: this.webLockAbortController.signal },
+            () =>
+              new Promise<void>((resolve) => {
+                this.webLockAbortController?.signal.addEventListener('abort', () => resolve(), {
+                  once: true,
+                });
+              })
+          )
+          .catch(() => {});
       }
     } catch {
       // ignore
@@ -173,12 +377,12 @@ class BackgroundFocusManager {
   }
 
   public stopKeepAlive() {
+    this.clearMediaSession();
     try {
-      if (this.silentAudio) {
-        this.silentAudio.pause();
-        this.silentAudio.currentTime = 0;
+      if (this.webLockAbortController) {
+        this.webLockAbortController.abort();
+        this.webLockAbortController = null;
       }
-      this.isKeepAliveRunning = false;
     } catch {
       // ignore
     }
@@ -200,6 +404,9 @@ class BackgroundFocusManager {
     if (currentPayload) {
       this.lastPayload = currentPayload;
     }
+
+    // Ensure MediaSession is cleared so PiP never spawns "Medya çıkışı"
+    this.clearMediaSession();
 
     // 1. Try Document Picture-in-Picture API (Interactive Pure Black Capsule Window)
     const anyWin = window as any;
@@ -225,11 +432,11 @@ class BackgroundFocusManager {
       }
     }
 
-    // 2. Fallback: Canvas Stream Video Picture-in-Picture ( Pure Black Capsule rendered on Canvas )
+    // 2. Fallback: Canvas Stream Video Picture-in-Picture (Pure Black Capsule rendered on Canvas, 0 audio tracks)
     try {
       if (!this.pipCanvas) {
         this.pipCanvas = document.createElement('canvas');
-        this.pipCanvas.width = 520;
+        this.pipCanvas.width = 560;
         this.pipCanvas.height = 140;
       }
       this.drawCanvasPipFrame();
@@ -238,6 +445,7 @@ class BackgroundFocusManager {
         this.pipVideo = document.createElement('video');
         this.pipVideo.muted = true;
         this.pipVideo.playsInline = true;
+        (this.pipVideo as any).disableRemotePlayback = true;
         this.pipVideo.style.position = 'fixed';
         this.pipVideo.style.opacity = '0';
         this.pipVideo.style.pointerEvents = 'none';
@@ -247,13 +455,15 @@ class BackgroundFocusManager {
       }
 
       if (!this.pipVideo.srcObject && (this.pipCanvas as any).captureStream) {
-        const stream = (this.pipCanvas as any).captureStream(30);
+        const stream = (this.pipCanvas as any).captureStream(15);
         this.pipVideo.srcObject = stream;
       }
 
       await this.pipVideo.play();
+      this.clearMediaSession();
       if ((this.pipVideo as any).requestPictureInPicture) {
         await (this.pipVideo as any).requestPictureInPicture();
+        this.clearMediaSession();
         return true;
       }
     } catch {
@@ -271,6 +481,10 @@ class BackgroundFocusManager {
       this.docPipWindow = null;
       if (typeof document !== 'undefined' && document.pictureInPictureElement) {
         document.exitPictureInPicture?.().catch(() => {});
+      }
+      if (this.pipVideo) {
+        this.pipVideo.pause();
+        this.pipVideo.srcObject = null;
       }
     } catch {
       // ignore
@@ -442,117 +656,55 @@ class BackgroundFocusManager {
     const ctx = this.pipCanvas.getContext('2d');
     if (!ctx) return;
 
-    const w = this.pipCanvas.width;
-    const h = this.pipCanvas.height;
     const { timeFormatted } = computeDisplayTimeFromPayload(this.lastPayload);
-
-    // Pure black capsule background
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, w, h);
-
-    // Left bold white timer
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 54px "JetBrains Mono", monospace';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(timeFormatted, 32, h / 2 + 2);
-
-    // Right 3 circular icon badges (Orange Break, Red Pause / Green Play, White Maximize)
-    const r = 32;
-    const cy = h / 2;
-    const cx3 = w - 54;
-    const cx2 = cx3 - 78;
-    const cx1 = cx2 - 78;
-
-    // 1. Orange Break Circle
-    ctx.beginPath();
-    ctx.arc(cx1, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = this.lastPayload.isCampActive ? '#f59e0b' : '#ff5500';
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('☕', cx1, cy + 2);
-
-    // 2. Red Pause / Green Play Circle
-    ctx.beginPath();
-    ctx.arc(cx2, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = this.lastPayload.isPaused ? '#10b981' : '#dc2626';
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    if (this.lastPayload.isPaused) {
-      // Play triangle
-      ctx.beginPath();
-      ctx.moveTo(cx2 - 7, cy - 11);
-      ctx.lineTo(cx2 + 11, cy);
-      ctx.lineTo(cx2 - 7, cy + 11);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // Pause bars
-      ctx.fillRect(cx2 - 9, cy - 11, 6, 22);
-      ctx.fillRect(cx2 + 3, cy - 11, 6, 22);
-    }
-
-    // 3. White Maximize Circle
-    ctx.beginPath();
-    ctx.arc(cx3, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.moveTo(cx3 - 9, cy + 9);
-    ctx.lineTo(cx3 + 9, cy - 9);
-    ctx.moveTo(cx3 + 1, cy - 9);
-    ctx.lineTo(cx3 + 9, cy - 9);
-    ctx.lineTo(cx3 + 9, cy - 1);
-    ctx.stroke();
-
-    ctx.textAlign = 'left';
+    renderPureBlackCapsuleToContext(
+      ctx,
+      this.pipCanvas.width,
+      this.pipCanvas.height,
+      timeFormatted,
+      this.lastPayload.isPaused,
+      this.lastPayload.isCampActive
+    );
   }
 
-  public updateMediaSession(payload: LiveNotificationPayload) {
-    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
+  private generateCapsuleImageDataUrl(payload: LiveNotificationPayload): string {
+    if (typeof document === 'undefined') return '';
     try {
+      if (!this.notificationBannerCanvas) {
+        this.notificationBannerCanvas = document.createElement('canvas');
+        this.notificationBannerCanvas.width = 560;
+        this.notificationBannerCanvas.height = 140;
+      }
+      const ctx = this.notificationBannerCanvas.getContext('2d');
+      if (!ctx) return '';
       const { timeFormatted } = computeDisplayTimeFromPayload(payload);
-
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: timeFormatted,
-        artist: payload.isCampActive ? 'Molada' : payload.isPaused ? 'Duraklatıldı' : 'Fokus',
-        album: '',
-        artwork: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-        ],
-      });
-
-      navigator.mediaSession.playbackState = payload.isPaused ? 'paused' : 'playing';
-
-      navigator.mediaSession.setActionHandler('play', () => {
-        if (payload.isPaused && this.onTogglePauseCallback) {
-          this.onTogglePauseCallback();
-        }
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
-        if (!payload.isPaused && this.onTogglePauseCallback) {
-          this.onTogglePauseCallback();
-        }
-      });
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        if (this.onToggleBreakCallback) {
-          this.onToggleBreakCallback();
-        }
-      });
+      renderPureBlackCapsuleToContext(
+        ctx,
+        this.notificationBannerCanvas.width,
+        this.notificationBannerCanvas.height,
+        timeFormatted,
+        payload.isPaused,
+        payload.isCampActive
+      );
+      return this.notificationBannerCanvas.toDataURL('image/png');
     } catch {
-      // ignore
+      return '';
     }
   }
 
+  /**
+   * Explicitly clears navigator.mediaSession so Android / One UI NEVER shows "Medya çıkışı".
+   */
   public clearMediaSession() {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
     try {
       navigator.mediaSession.metadata = null;
       navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      navigator.mediaSession.setActionHandler('stop', null);
     } catch {
       // ignore
     }
@@ -562,18 +714,18 @@ class BackgroundFocusManager {
     if (typeof window === 'undefined') return;
     this.lastPayload = payload;
 
+    // Ensure MediaSession is NEVER active so "Medya çıkışı" never appears
+    this.clearMediaSession();
+
     // Update live PiP capsule if active
     this.renderDocPipWindow();
     if (typeof document !== 'undefined' && document.pictureInPictureElement) {
       this.drawCanvasPipFrame();
     }
 
-    // Always update MediaSession for lock screen / control center
-    this.updateMediaSession(payload);
-
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
-    // Forward state to Service Worker so it can maintain the sticky notification in background
+    // Forward state to Service Worker so it can maintain the sticky Pure Black Capsule notification in background
     if ('serviceWorker' in navigator) {
       try {
         const reg = await navigator.serviceWorker.ready;
@@ -604,38 +756,39 @@ class BackgroundFocusManager {
 
     const { timeFormatted } = computeDisplayTimeFromPayload(payload);
     const title = timeFormatted;
-    const body = payload.isCampActive
-      ? '☕ Mola Aktif'
-      : payload.isPaused
-      ? '⏸ Duraklatıldı'
-      : '● Odak Devam Ediyor';
+    const body = `🟠 ☕   ${payload.isPaused ? '🟢 ▶' : '🔴 ⏸'}   ⚪ ⤢`;
+    const blackIcon = getPureBlackIconDataUrl();
+    const capsuleBanner = this.generateCapsuleImageDataUrl(payload);
 
     try {
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
         if (reg && reg.showNotification) {
-          await reg.showNotification(title, {
+          const notifOptions: any = {
             body,
             tag: 'fokus-active-timer',
             renotify: false,
             silent: true,
             requireInteraction: true,
+            icon: blackIcon || undefined,
+            image: capsuleBanner || undefined,
             data: { url: '/' },
             actions: [
               {
                 action: 'toggle_break',
-                title: '☕',
+                title: '🟠 ☕',
               },
               {
                 action: 'toggle_pause',
-                title: payload.isPaused ? '▶' : '⏸',
+                title: payload.isPaused ? '🟢 ▶' : '🔴 ⏸',
               },
               {
                 action: 'open_app',
-                title: '⤢',
+                title: '⚪ ⤢',
               },
             ],
-          } as NotificationOptions);
+          };
+          await reg.showNotification(title, notifOptions);
           return;
         }
       }
@@ -644,6 +797,7 @@ class BackgroundFocusManager {
         body,
         tag: 'fokus-active-timer',
         silent: true,
+        icon: blackIcon || undefined,
       });
     } catch {
       // ignore
@@ -671,3 +825,4 @@ class BackgroundFocusManager {
 }
 
 export const backgroundFocus = new BackgroundFocusManager();
+

@@ -168,6 +168,10 @@ export interface PlatformConnectionInfo {
   customTrackTitle?: string;
   customArtistName?: string;
   connectedAt?: number;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  clientId?: string;
 }
 
 export interface MusicConnectionsConfig {

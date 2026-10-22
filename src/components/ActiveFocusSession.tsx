@@ -31,12 +31,15 @@ import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
 import { auth, db, safeSetDoc, parseNumericField } from '../firebase';
 import { doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { getLocalDateString } from '../utils/stats';
+import { saveSession } from '../utils/storage';
 import {
   backgroundFocus,
   getDeviceId,
   getDeviceName,
   formatTimerDisplay,
   LiveNotificationPayload,
+  markSessionTerminated,
+  isSessionTerminated,
 } from '../utils/backgroundFocus';
 
 interface ActiveFocusSessionProps {
@@ -106,7 +109,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       const raw = localStorage.getItem('fokus_active_session_running');
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.mode === mode && !parsed.isFinished) {
+      const startT = parsed?.startTime || parsed?.anchorTimestamp || 0;
+      if (parsed?.isFinished || parsed?.isActive === false || isSessionTerminated(startT)) {
+        localStorage.removeItem('fokus_active_session_running');
+        return null;
+      }
+      if (parsed && parsed.mode === mode) {
         return parsed;
       }
     } catch {
@@ -192,6 +200,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const [showAbandonModal, setShowAbandonModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [completedSessionData, setCompletedSessionData] = useState<FocusSession | null>(null);
+  const isSessionEndedRef = useRef<boolean>(false);
 
   // Background Notification Preview Modal
   const [isNotificationPreviewOpen, setIsNotificationPreviewOpen] = useState(false);
@@ -239,10 +248,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     );
   }, []);
 
-  //Persist state immediately to localStorage and optionally force-sync to Firestore
+  // Persist state immediately to localStorage and optionally force-sync to Firestore
   const persistSessionState = useCallback(
     (forceCloudSync = false) => {
-      if (showCompletionModal) return;
+      if (
+        showCompletionModal ||
+        isSessionEndedRef.current ||
+        isSessionTerminated(startTimeRef.current)
+      ) {
+        return;
+      }
       const now = Date.now();
       const currentFocusSecs = computeCurrentFocusSeconds();
       const currentBreakSecs = computeCurrentBreakSeconds();
@@ -523,9 +538,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   // High-Precision Wall-Clock Timer + Visibility / Focus / PageShow Resync + Live Notification Sync
   useEffect(() => {
-    if (showCompletionModal) return;
+    if (showCompletionModal || isSessionEndedRef.current) return;
 
     const syncTick = () => {
+      if (isSessionEndedRef.current) return;
       const currentFocus = computeCurrentFocusSeconds();
       const currentBreak = computeCurrentBreakSeconds();
       const currentRem = Math.max(0, totalSeconds - currentFocus);
@@ -550,6 +566,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const interval = window.setInterval(syncTick, 500);
 
     const handleVisibilityOrFocus = () => {
+      if (isSessionEndedRef.current) return;
       syncTick();
       if (document.hidden) {
         // User just switched away from the app on phone/tablet/PC: push sticky notification immediately
@@ -562,17 +579,24 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       }
     };
 
+    const handlePageUnload = () => {
+      if (isSessionEndedRef.current) return;
+      persistSessionState(true);
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     window.addEventListener('focus', handleVisibilityOrFocus);
     window.addEventListener('pageshow', handleVisibilityOrFocus);
-    window.addEventListener('pagehide', () => persistSessionState(true));
-    window.addEventListener('beforeunload', () => persistSessionState(true));
+    window.addEventListener('pagehide', handlePageUnload);
+    window.addEventListener('beforeunload', handlePageUnload);
 
     return () => {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
       window.removeEventListener('pageshow', handleVisibilityOrFocus);
+      window.removeEventListener('pagehide', handlePageUnload);
+      window.removeEventListener('beforeunload', handlePageUnload);
     };
   }, [
     showCompletionModal,
@@ -585,6 +609,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   ]);
 
   const handleFinish = (isCompletedNaturally: boolean) => {
+    if (isSessionEndedRef.current) return;
+    isSessionEndedRef.current = true;
+    markSessionTerminated(startTimeRef.current);
+
     soundEngine.playCompletionBell();
     backgroundFocus.stopAll();
 
@@ -593,11 +621,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     // Clear background running session state locally and in cloud
     try {
-      localStorage.setItem('fokus_last_completed_at', String(Date.now()));
-      localStorage.removeItem('fokus_active_session_running');
       const userId = getEffectiveUid();
       if (userId) {
-        deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
+        const activeRef = doc(db, 'users', userId, 'active_focus', 'current');
+        safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        deleteDoc(activeRef).catch(() => {});
       }
     } catch {
       // ignore
@@ -695,6 +723,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       }
     }
 
+    // Immediately save completed session to localStorage so even if page is refreshed while viewing the modal, stats are saved
+    try {
+      saveSession(session);
+    } catch {}
+
     setCompletedSessionData(session);
     setShowCompletionModal(true);
   };
@@ -710,15 +743,19 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   };
 
   const handleConfirmAbandon = () => {
+    isSessionEndedRef.current = true;
+    markSessionTerminated(startTimeRef.current);
+
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
 
     try {
-      localStorage.removeItem('fokus_active_session_running');
       const userId = getEffectiveUid();
       if (userId) {
-        deleteDoc(doc(db, 'users', userId, 'active_focus', 'current')).catch(() => {});
+        const activeRef = doc(db, 'users', userId, 'active_focus', 'current');
+        safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        deleteDoc(activeRef).catch(() => {});
       }
     } catch {
       // ignore

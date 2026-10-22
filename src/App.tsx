@@ -73,7 +73,13 @@ import { useDeviceMode } from './hooks/useDeviceMode';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
 import { FloatingMiniFocusPill, ActiveFocusData } from './components/FloatingMiniFocusPill';
-import { getDeviceId, getDeviceName, backgroundFocus } from './utils/backgroundFocus';
+import {
+  getDeviceId,
+  getDeviceName,
+  backgroundFocus,
+  markSessionTerminated,
+  isSessionTerminated,
+} from './utils/backgroundFocus';
 import { Flame, X, Download } from 'lucide-react';
 
 export default function App() {
@@ -198,7 +204,12 @@ export default function App() {
         const saved = JSON.parse(runningRaw);
         const startT = saved?.startTime || saved?.anchorTimestamp || 0;
         const isExpired = Date.now() - startT > 24 * 3600 * 1000;
-        if (isExpired || saved?.isFinished || saved?.isActive === false) {
+        if (
+          isExpired ||
+          saved?.isFinished ||
+          saved?.isActive === false ||
+          isSessionTerminated(startT)
+        ) {
           localStorage.removeItem('fokus_active_session_running');
         } else if (saved && saved.mode) {
           setCurrentActiveMode(saved.mode);
@@ -456,11 +467,10 @@ export default function App() {
           (snapshot) => {
             if (snapshot.exists()) {
               const data = snapshot.data();
-              if (data && data.mode && data.subject && !data.isFinished) {
+              if (data && data.mode && data.subject && !data.isFinished && data.isActive !== false) {
                 const startedAt = parseNumericField(data.startedAt, Date.now());
-                // Only treat as stale if older than 24 hours (never kill a valid background session after 15 mins!)
                 const isStale = Date.now() - startedAt > 24 * 60 * 60 * 1000;
-                if (isStale) {
+                if (isStale || isSessionTerminated(startedAt)) {
                   setCloudActiveSession(null);
                   try {
                     deleteDoc(activeFocusDoc).catch(() => {});
@@ -723,6 +733,9 @@ export default function App() {
   };
 
   const handleSessionComplete = async (newSession: FocusSession) => {
+    markSessionTerminated();
+    backgroundFocus.stopAll();
+
     const finalSession: FocusSession = {
       ...newSession,
       subjectName: newSession.taskId ? newSession.subjectName : 'Serbest Çalışma',
@@ -746,7 +759,9 @@ export default function App() {
     if (effectiveUid) {
       try {
         // Wipe running session in Firestore so no phantom floating pill renders
-        deleteDoc(doc(db, 'users', effectiveUid, 'active_focus', 'current')).catch(() => {});
+        const activeRef = doc(db, 'users', effectiveUid, 'active_focus', 'current');
+        safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        deleteDoc(activeRef).catch(() => {});
       } catch {}
 
       try {
@@ -799,6 +814,8 @@ export default function App() {
   };
 
   const handleAbandonSession = async (partialSession?: FocusSession) => {
+    markSessionTerminated();
+    backgroundFocus.stopAll();
     setIsSessionActive(false);
     setLocalMinimizedSession(null);
     setCloudActiveSession(null);
@@ -808,9 +825,13 @@ export default function App() {
       // ignore
     }
 
-    if (currentUser) {
+    const effectiveUser = currentUser || auth.currentUser;
+    const effectiveUid = effectiveUser?.uid || (typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || profile.userId) : profile.userId);
+    if (effectiveUid) {
       try {
-        await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current')).catch(() => {});
+        const activeRef = doc(db, 'users', effectiveUid, 'active_focus', 'current');
+        safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        await deleteDoc(activeRef).catch(() => {});
       } catch {}
     }
 
@@ -1688,6 +1709,7 @@ export default function App() {
           onComplete={async () => {
             const activeSession = localMinimizedSession || cloudActiveSession;
             if (!activeSession) return;
+            markSessionTerminated(activeSession.startedAt);
             const nowMs = Date.now();
             const liveElapsed =
               !activeSession.isPaused && !activeSession.isCampActive && activeSession.anchorTimestamp
@@ -1726,10 +1748,15 @@ export default function App() {
             soundEngine.playCompletionBell();
             backgroundFocus.stopAll();
 
-            if (currentUser) {
+            const effectiveUid = currentUser?.uid || auth.currentUser?.uid || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') : null);
+            if (effectiveUid) {
               try {
-                await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'));
-                await syncAllToFirestore(currentUser, updated, tasks, dynamicProfile);
+                const activeRef = doc(db, 'users', effectiveUid, 'active_focus', 'current');
+                safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                await deleteDoc(activeRef).catch(() => {});
+                if (currentUser) {
+                  await syncAllToFirestore(currentUser, updated, tasks, dynamicProfile);
+                }
               } catch {}
             }
             try {
@@ -1787,15 +1814,20 @@ export default function App() {
             setIsSessionActive(true);
           }}
           onDismiss={async () => {
+            const target = localMinimizedSession || cloudActiveSession;
+            markSessionTerminated(target?.startedAt);
             backgroundFocus.stopAll();
             setLocalMinimizedSession(null);
             setCloudActiveSession(null);
             try {
               localStorage.removeItem('fokus_active_session_running');
             } catch {}
-            if (currentUser) {
+            const effectiveUid = currentUser?.uid || auth.currentUser?.uid || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') : null);
+            if (effectiveUid) {
               try {
-                await deleteDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'));
+                const activeRef = doc(db, 'users', effectiveUid, 'active_focus', 'current');
+                safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+                await deleteDoc(activeRef).catch(() => {});
               } catch {}
             }
           }}
