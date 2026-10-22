@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
-import { isDateRestDay, getLocalDateString } from '../utils/stats';
+import { isDateRestDay, getLocalDateString, getValidCompletedSessions } from '../utils/stats';
 
 interface StatisticsViewProps {
   sessions: FocusSession[];
@@ -41,7 +41,7 @@ interface StatisticsViewProps {
 }
 
 export const StatisticsView = React.memo<StatisticsViewProps>(({
-  sessions,
+  sessions: rawSessions,
   profile,
   tasks = [],
   onOpenSettings,
@@ -49,6 +49,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
   onDeleteSession,
   onUpdateSession,
 }) => {
+  const sessions = useMemo(() => getValidCompletedSessions(rawSessions), [rawSessions]);
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'forest_gallery'>('daily');
   const [selectedDayOffset, setSelectedDayOffset] = useState<number>(0);
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -125,7 +126,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
     return dateSessions.filter((s) => (s.breakSeconds && s.breakSeconds > 0) || (s.climbInfo?.campsSet && s.climbInfo.campsSet > 0)).length;
   }, [dateSessions]);
 
-  const totalMinutesToday = Math.round(totalSecondsToday / 60);
+  const totalMinutesToday = totalSecondsToday > 0 ? Math.max(1, Math.round(totalSecondsToday / 60)) : 0;
   const hoursToday = Math.floor(totalMinutesToday / 60);
   const minsToday = totalMinutesToday % 60;
 
@@ -213,7 +214,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
         .filter((s) => s.dateString === str)
         .reduce((sum, s) => sum + s.completedSeconds, 0);
 
-      const mins = Math.round(daySecs / 60);
+      const mins = daySecs > 0 ? Math.max(1, Math.round(daySecs / 60)) : 0;
       days.push({
         dateStr: str,
         label: dayNames[i],
@@ -326,7 +327,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
       const matched = sessions.filter((s) => s.dateString === str);
       const daySecs = matched.reduce((sum, s) => sum + s.completedSeconds, 0);
       const dayBreakSecs = matched.reduce((sum, s) => sum + (s.breakSeconds || 0), 0);
-      const mins = Math.round(daySecs / 60);
+      const mins = daySecs > 0 ? Math.max(1, Math.round(daySecs / 60)) : 0;
       const isRest = isDateRestDay(str, profile);
 
       if (daySecs > 0) activeDaysCount++;

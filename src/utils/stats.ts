@@ -67,6 +67,23 @@ export function getLocalDateString(dateInput: Date | number = new Date()): strin
 }
 
 /**
+/**
+ * Returns only valid completed sessions (where user pressed Tamamla and completedSeconds > 0).
+ * Normalizes dateString if missing.
+ */
+export function getValidCompletedSessions(sessions: FocusSession[]): FocusSession[] {
+  if (!Array.isArray(sessions)) return [];
+  return sessions
+    .filter((s) => s && s.completed !== false && Number(s.completedSeconds) > 0)
+    .map((s) => ({
+      ...s,
+      completedSeconds: Number(s.completedSeconds) || 0,
+      breakSeconds: Number(s.breakSeconds) || 0,
+      dateString: s.dateString || getLocalDateString(s.timestamp || Date.now()),
+    }));
+}
+
+/**
  * Calculates genuine day-by-day streak based exclusively on completed study sessions.
  * If user studied today, streak is counted from today back.
  * If today or yesterday was an authorized rest day (mola günü), streak is protected!
@@ -74,10 +91,7 @@ export function getLocalDateString(dateInput: Date | number = new Date()): strin
  * If user missed without an authorized rest day, streak is 0.
  */
 export function calculateRealStreak(sessions: FocusSession[], profile?: UserProfile): number {
-  if (!sessions || sessions.length === 0) return 0;
-
-  // Filter completed sessions with at least 60 seconds of real focus
-  const validSessions = sessions.filter((s) => s.completed && s.completedSeconds >= 60);
+  const validSessions = getValidCompletedSessions(sessions);
   if (validSessions.length === 0) return 0;
 
   const studiedDates = new Set(validSessions.map((s) => s.dateString));
@@ -128,24 +142,26 @@ export function calculateRealStreak(sessions: FocusSession[], profile?: UserProf
 }
 
 /**
- * Calculates total focus hours from real sessions.
+ * Calculates total focus hours from real completed sessions.
  */
 export function calculateTotalFocusHours(sessions: FocusSession[]): number {
-  if (!sessions || sessions.length === 0) return 0;
-  const totalSeconds = sessions
-    .filter((s) => s.completed)
-    .reduce((acc, s) => acc + s.completedSeconds, 0);
+  const validSessions = getValidCompletedSessions(sessions);
+  if (validSessions.length === 0) return 0;
+  const totalSeconds = validSessions.reduce((acc, s) => acc + s.completedSeconds, 0);
   return Math.round((totalSeconds / 3600) * 10) / 10;
 }
 
 /**
- * Calculates today's studied minutes from real sessions using local calendar day.
+ * Calculates today's studied minutes from real completed sessions using local calendar day.
  */
 export function calculateTodayMinutes(sessions: FocusSession[]): number {
-  if (!sessions || sessions.length === 0) return 0;
+  const validSessions = getValidCompletedSessions(sessions);
+  if (validSessions.length === 0) return 0;
   const todayStr = getLocalDateString(new Date());
-  const todaySeconds = sessions
-    .filter((s) => s.dateString === todayStr && s.completed)
+  const todaySeconds = validSessions
+    .filter((s) => s.dateString === todayStr)
     .reduce((acc, s) => acc + s.completedSeconds, 0);
-  return Math.round(todaySeconds / 60);
+  if (todaySeconds <= 0) return 0;
+  return Math.max(1, Math.round(todaySeconds / 60));
 }
+

@@ -161,7 +161,7 @@ export default function App() {
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'breaks' | 'notifications' | 'theme' | 'security' | 'backup'>('breaks');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>('breaks');
   const [isMarketModalOpen, setIsMarketModalOpen] = useState<boolean>(false);
   const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
@@ -288,9 +288,13 @@ export default function App() {
               cheersReceived: parseNumericField(data.cheersReceived, 0),
               weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || []),
               customRestDates: Array.isArray(data.customRestDates) ? data.customRestDates : (immediateProfile.customRestDates || []),
+              musicConnections: data.musicConnections || immediateProfile.musicConnections,
               hasCompletedOnboarding: true,
             });
             setProfile(mergedProfile);
+            if (mergedProfile.musicConnections) {
+              spotifyService.syncFromProfile(mergedProfile.musicConnections);
+            }
 
             // Check if an active focus is running locally or on another device before marking idle
             let hasActiveFocusAnywhere = Boolean(localStorage.getItem('fokus_active_session_running'));
@@ -1314,6 +1318,10 @@ export default function App() {
             desktopNotificationsEnabled={Boolean(dynamicProfile.desktopNotifications)}
             liveNotificationsEnabled={Boolean(dynamicProfile.liveNotifications)}
             selectedTreeSpecies={selectedTreeSpecies}
+            onOpenSettingsConnections={() => {
+              setSettingsInitialTab('connections');
+              setIsSettingsModalOpen(true);
+            }}
           />
         ) : (
           <>
@@ -1538,6 +1546,71 @@ export default function App() {
               setCurrentAmbientTrack('forest');
             }
           }}
+          onToggleBreak={async () => {
+            const target = localMinimizedSession || cloudActiveSession;
+            if (!target) return;
+            const now = Date.now();
+            const nextCamp = !target.isCampActive;
+            let nextAccFocus = target.accumulatedFocusSeconds ?? target.elapsedSeconds ?? 0;
+            let nextAnchor: number | null = target.anchorTimestamp ?? null;
+            let nextAccBreak = target.accumulatedBreakSeconds ?? target.breakSeconds ?? 0;
+            let nextBreakAnchor: number | null = target.breakAnchorTimestamp ?? null;
+
+            if (nextCamp) {
+              if (!target.isPaused && target.anchorTimestamp) {
+                nextAccFocus += Math.max(0, Math.floor((now - target.anchorTimestamp) / 1000));
+              }
+              nextBreakAnchor = now;
+              nextAnchor = now;
+            } else {
+              if (!target.isPaused && target.breakAnchorTimestamp) {
+                nextAccBreak += Math.max(0, Math.floor((now - target.breakAnchorTimestamp) / 1000));
+              }
+              nextAnchor = now;
+              nextBreakAnchor = now;
+            }
+
+            const patch = {
+              isCampActive: nextCamp,
+              accumulatedFocusSeconds: nextAccFocus,
+              anchorTimestamp: nextAnchor,
+              accumulatedBreakSeconds: nextAccBreak,
+              breakAnchorTimestamp: nextBreakAnchor,
+              elapsedSeconds: nextAccFocus,
+              breakSeconds: nextAccBreak,
+            };
+
+            if (localMinimizedSession) {
+              setLocalMinimizedSession((prev) => (prev ? { ...prev, ...patch } : null));
+            }
+            if (cloudActiveSession) {
+              setCloudActiveSession((prev) => (prev ? { ...prev, ...patch } : null));
+            }
+            try {
+              const raw = localStorage.getItem('fokus_active_session_running');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                localStorage.setItem(
+                  'fokus_active_session_running',
+                  JSON.stringify({
+                    ...parsed,
+                    ...patch,
+                    elapsedCountUp: nextAccFocus,
+                    updatedAt: now,
+                  })
+                );
+              }
+            } catch {}
+            if (currentUser) {
+              try {
+                await updateDoc(doc(db, 'users', currentUser.uid, 'active_focus', 'current'), {
+                  ...patch,
+                  lastUpdatedByDeviceId: getDeviceId(),
+                  updatedAt: now,
+                });
+              } catch {}
+            }
+          }}
           onTogglePause={async () => {
             const target = localMinimizedSession || cloudActiveSession;
             if (!target) return;
@@ -1606,6 +1679,7 @@ export default function App() {
                   accumulatedFocusSeconds: nextAccFocus,
                   anchorTimestamp: nextAnchor,
                   elapsedSeconds: nextAccFocus,
+                  lastUpdatedByDeviceId: getDeviceId(),
                   updatedAt: now,
                 });
               } catch {}
@@ -1620,7 +1694,7 @@ export default function App() {
                 ? (activeSession.accumulatedFocusSeconds ?? 0) +
                   Math.max(0, Math.floor((nowMs - activeSession.anchorTimestamp) / 1000))
                 : activeSession.accumulatedFocusSeconds ?? activeSession.elapsedSeconds ?? 0;
-            const completedSecs = Math.max(10, liveElapsed || 10);
+            const completedSecs = Math.max(1, liveElapsed || 1);
             const now = new Date();
             const pad = (n: number) => String(n).padStart(2, '0');
             const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;

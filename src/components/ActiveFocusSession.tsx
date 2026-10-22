@@ -58,6 +58,7 @@ interface ActiveFocusSessionProps {
   desktopNotificationsEnabled?: boolean;
   liveNotificationsEnabled?: boolean;
   selectedTreeSpecies?: string;
+  onOpenSettingsConnections?: () => void;
 }
 
 const MOTIVATIONAL_QUOTES = [
@@ -94,6 +95,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   onMinimize,
   isAudioPlaying,
   selectedTreeSpecies = 'Meşe Ağacı',
+  onOpenSettingsConnections,
 }) => {
   const myDeviceId = useMemo(() => getDeviceId(), []);
   const myDeviceName = useMemo(() => getDeviceName(), []);
@@ -398,14 +400,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     persistSessionState(true);
   }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState]);
 
-  // Register pause handler for Lock-Screen MediaSession & Service Worker notification buttons
+  // Register pause & break handlers for Lock-Screen MediaSession, PiP Capsule & Service Worker notification buttons
   useEffect(() => {
     backgroundFocus.setPauseHandler(handleTogglePause);
+    backgroundFocus.setBreakHandler(toggleThematicBreak);
     backgroundFocus.startKeepAlive();
     return () => {
       backgroundFocus.setPauseHandler(null);
+      backgroundFocus.setBreakHandler(null);
     };
-  }, [handleTogglePause]);
+  }, [handleTogglePause, toggleThematicBreak]);
 
   // Check Notification permission support on mount
   useEffect(() => {
@@ -616,11 +620,8 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     const startD = new Date(startTimeRef.current);
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    const rawCompletedSeconds =
-      currentTimerType === 'stopwatch'
-        ? finalFocusSecs
-        : Math.min(totalSeconds, Math.max(10, finalFocusSecs));
-    const actualCompletedSeconds = Math.max(10, rawCompletedSeconds);
+    // Tamamla tuşuna basıldığında (erken de olsa) o ana kadar geçen gerçek odak süresi esas alınır
+    const actualCompletedSeconds = Math.max(1, finalFocusSecs);
     const actualCompletedMinutes = Math.max(1, Math.round(actualCompletedSeconds / 60));
 
     const resolvedSubjectName = selectedTaskTitle
@@ -713,9 +714,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
 
-    const finalFocusSecs = computeCurrentFocusSeconds();
-    const finalBreakSecs = computeCurrentBreakSeconds();
-
     try {
       localStorage.removeItem('fokus_active_session_running');
       const userId = getEffectiveUid();
@@ -726,67 +724,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       // ignore
     }
 
-    const now = new Date();
-    const startD = new Date(startTimeRef.current);
-    const pad = (n: number) => String(n).padStart(2, '0');
-
-    const partialSession: FocusSession = {
-      id: `session-${Date.now()}`,
-      mode,
-      subjectId: subject.id,
-      subjectName: subject.name,
-      subjectColor: subject.color,
-      plannedMinutes,
-      completedSeconds: finalFocusSecs,
-      breakSeconds: finalBreakSecs,
-      completed: false,
-      timestamp: Date.now(),
-      dateString: getLocalDateString(startD),
-      startTimeString: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
-      endTimeString: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-      note: selectedTaskTitle || `${subject.name} seansı (Vazgeçildi: ${Math.round(finalFocusSecs / 60)} dk)`,
-      taskId: selectedTaskId,
-      taskTitle: selectedTaskTitle,
-      flightInfo:
-        mode === 'flight'
-          ? {
-              origin: `${originAirport.city} (${originAirport.code})`,
-              destination: `${destAirport.city} (${destAirport.code})`,
-              flightCode: `TK-101`,
-              seat: '12A',
-            }
-          : undefined,
-      climbInfo:
-        mode === 'climb'
-          ? {
-              peakName: 'Kaçkar Zirvesi (3,937m)',
-              campsSet: breakCount > 0 ? breakCount : isCampActive ? 1 : 0,
-              flagPlanted: false,
-            }
-          : undefined,
-      diveInfo:
-        mode === 'dive'
-          ? {
-              fishCityReached: false,
-              depthMeters: Math.round(1000 * progress),
-            }
-          : undefined,
-      forestInfo:
-        mode === 'forest'
-          ? {
-              treeSpecies: selectedTreeSpecies,
-              treeLevel: Math.max(1, Math.floor(progress * 5)),
-            }
-          : undefined,
-    };
-
-    onAbandonSession(partialSession);
+    // Vazgeçildiğinde seans istatistiklere kaydedilmez (sadece Tamamla'ya basıldığında gerçek süre kaydedilir)
+    onAbandonSession(undefined);
   };
 
   return (
     <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 w-full h-full min-h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none">
-      {/* Sol Üstte Zarif Spotify Widget (Canlı Müzik Çaları) */}
-      <SpotifyFocusWidget />
+      {/* Sol Üstte Zarif Müzik Widget (Spotify / YouTube Music / Apple Music) */}
+      <SpotifyFocusWidget onOpenSettingsConnections={onOpenSettingsConnections} />
 
       {/* Visual Canvas Backdrop - Fullscreen edge-to-edge */}
       <div className="absolute inset-0 z-0 w-full h-full overflow-hidden">
@@ -888,25 +833,25 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
         {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-2">
-          {/* Canlı Bildirim (Arka Plan & Kilit Ekranı Takibi) */}
+          {/* Bildirim Logosu (Sadece İkon) */}
           <button
             type="button"
             onClick={() => {
               soundEngine.playClick();
               setIsNotificationPreviewOpen(true);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border transition-all cursor-pointer ${
+            className={`relative p-2 rounded-full border backdrop-blur-md transition-all cursor-pointer ${
               permissionState === 'granted'
                 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                : 'bg-black/60 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
+                : 'bg-black/50 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
             }`}
-            title="Arka Plan & Kilit Ekranı Canlı Bildirim Sayacı"
+            title="Bildirim & Canlı Kapsül"
+            aria-label="Bildirim & Canlı Kapsül"
           >
-            <Bell className="w-3.5 h-3.5 text-[#ff5500]" />
-            <span className="hidden sm:inline">Canlı Bildirim</span>
+            <Bell className="w-4 h-4 text-[#ff5500]" />
             <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                permissionState === 'granted' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${
+                permissionState === 'granted' ? 'bg-emerald-400' : 'bg-amber-400'
               }`}
             />
           </button>
@@ -1174,13 +1119,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               <div>
                 <span className="text-[11px] text-neutral-400">Net Süre</span>
                 <p className="text-sm font-bold text-emerald-400 font-mono">
-                  {Math.round(completedSessionData.completedSeconds / 60)} dk
+                  {completedSessionData.completedSeconds < 60
+                    ? `${completedSessionData.completedSeconds} sn`
+                    : `${Math.round(completedSessionData.completedSeconds / 60)} dk`}
                 </p>
               </div>
               <div>
                 <span className="text-[11px] text-neutral-400">Mola Süresi</span>
                 <p className="text-sm font-bold text-amber-400 font-mono">
-                  {Math.round(breakSeconds / 60)} dk
+                  {breakSeconds > 0 && breakSeconds < 60
+                    ? `${breakSeconds} sn`
+                    : `${Math.round(breakSeconds / 60)} dk`}
                 </p>
               </div>
             </div>
@@ -1204,9 +1153,20 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         onClose={() => setIsNotificationPreviewOpen(false)}
         onRequestPermission={handleRequestNotificationPermission}
         permissionState={permissionState}
-        currentRemainingFormatted={timeFormatted}
+        currentRemainingFormatted={isCampActive ? formatTimerDisplay(breakSeconds) : timeFormatted}
         currentSubject={subject.name}
         timerType={currentTimerType}
+        isPaused={isPaused}
+        isCampActive={isCampActive}
+        onTogglePause={handleTogglePause}
+        onToggleBreak={toggleThematicBreak}
+        onMinimizeToCapsule={() => {
+          if (onMinimize) {
+            persistSessionState(true);
+            onMinimize();
+          }
+        }}
+        onOpenPipCapsule={() => backgroundFocus.openPipCapsule(buildNotificationPayload(true))}
         onSendTestNotification={() => {
           backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
         }}

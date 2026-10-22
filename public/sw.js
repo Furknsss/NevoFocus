@@ -46,32 +46,23 @@ async function renderActiveNotification() {
 
   const totalPlannedSecs = Math.max(60, (p.plannedMinutes || 45) * 60);
   const remainingSecs = Math.max(0, totalPlannedSecs - elapsedFocus);
-  const progressPct = Math.min(100, Math.round((elapsedFocus / totalPlannedSecs) * 100));
 
-  let title = '';
-  let body = '';
+  const activeSecs = p.isCampActive
+    ? elapsedBreak
+    : p.timerType === 'stopwatch'
+    ? elapsedFocus
+    : remainingSecs;
 
-  if (p.isCampActive) {
-    title = `☕ Mola (${formatTimerDisplay(elapsedBreak)}) · ${p.subjectName || 'Odak'}`;
-    body = `${p.modeLabel || 'Fokus'} · Net Çalışma: ${formatTimerDisplay(elapsedFocus)} · Dönmek için dokunun`;
-  } else if (p.isPaused) {
-    const displayTime =
-      p.timerType === 'stopwatch' ? formatTimerDisplay(elapsedFocus) : formatTimerDisplay(remainingSecs);
-    title = `⏸️ Duraklatıldı (${displayTime}) · ${p.subjectName || 'Odak'}`;
-    body = `${p.modeLabel || 'Fokus'}${p.taskTitle ? ` · ${p.taskTitle}` : ''} · Devam etmek için dokunun`;
-  } else if (p.timerType === 'stopwatch') {
-    title = `⏱️ ${formatTimerDisplay(elapsedFocus)} · ${p.subjectName || 'Serbest Çalışma'}`;
-    body = `Canlı Kronometre Aktif · ${p.modeLabel || 'Fokus'}${p.taskTitle ? ` · ${p.taskTitle}` : ''}`;
-  } else {
-    title = `⏳ ${formatTimerDisplay(remainingSecs)} Kaldı · ${p.subjectName || 'Odak'}`;
-    body = `${buildProgressBar(progressPct)} · ${p.modeLabel || 'Fokus'}${p.taskTitle ? ` · ${p.taskTitle}` : ''}`;
-  }
+  const title = formatTimerDisplay(activeSecs);
+  const body = p.isCampActive
+    ? '☕ Mola Aktif'
+    : p.isPaused
+    ? '⏸ Duraklatıldı'
+    : '● Odak Devam Ediyor';
 
   try {
     await self.registration.showNotification(title, {
       body,
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
       tag: 'fokus-active-timer',
       renotify: false,
       silent: true,
@@ -79,12 +70,16 @@ async function renderActiveNotification() {
       data: { url: '/' },
       actions: [
         {
-          action: 'open_app',
-          title: '🔥 Odak Ekranını Aç',
+          action: 'toggle_break',
+          title: '☕',
         },
         {
           action: 'toggle_pause',
-          title: p.isPaused ? '▶️ Devam Et' : '⏸️ Duraklat',
+          title: p.isPaused ? '▶' : '⏸',
+        },
+        {
+          action: 'open_app',
+          title: '⤢',
         },
       ],
     });
@@ -138,6 +133,39 @@ self.addEventListener('message', (event) => {
 self.addEventListener('notificationclick', (event) => {
   const action = event.action;
 
+  if (action === 'toggle_break') {
+    if (activeSessionState) {
+      const now = Date.now();
+      if (!activeSessionState.isCampActive) {
+        if (!activeSessionState.isPaused) {
+          const delta = Math.max(0, Math.floor((now - (activeSessionState.anchorTimestamp || now)) / 1000));
+          activeSessionState.accumulatedFocusSeconds = (activeSessionState.accumulatedFocusSeconds || 0) + delta;
+        }
+        activeSessionState.breakAnchorTimestamp = now;
+        activeSessionState.isCampActive = true;
+      } else {
+        if (!activeSessionState.isPaused) {
+          const bDelta = Math.max(0, Math.floor((now - (activeSessionState.breakAnchorTimestamp || now)) / 1000));
+          activeSessionState.accumulatedBreakSeconds = (activeSessionState.accumulatedBreakSeconds || 0) + bDelta;
+        }
+        activeSessionState.anchorTimestamp = now;
+        activeSessionState.isCampActive = false;
+      }
+      renderActiveNotification();
+    }
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        clientList.forEach((client) => {
+          client.postMessage({
+            type: 'FOKUS_NOTIFICATION_ACTION',
+            action: 'toggle_break',
+          });
+        });
+      })
+    );
+    return;
+  }
+
   if (action === 'toggle_pause') {
     if (activeSessionState) {
       const now = Date.now();
@@ -169,6 +197,10 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
+        client.postMessage({
+          type: 'FOKUS_NOTIFICATION_ACTION',
+          action: 'open_app',
+        });
         if ('focus' in client) {
           return client.focus();
         }

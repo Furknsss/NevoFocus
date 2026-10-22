@@ -27,8 +27,11 @@ import {
   Coffee,
   Calendar,
   Plus,
+  Link2,
+  Music,
+  Play,
 } from 'lucide-react';
-import { UserProfile, FocusSession, FocusTask } from '../types';
+import { UserProfile, FocusSession, FocusTask, MusicPlatform, MusicConnectionsConfig } from '../types';
 import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
 import {
   sendPasswordResetEmail,
@@ -48,6 +51,8 @@ import {
   importLocalBackup,
   getLastSyncTime,
 } from '../services/syncService';
+import { spotifyService, PLATFORM_METADATA } from '../services/spotifyService';
+import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -63,7 +68,7 @@ interface SettingsModalProps {
   onAccountDeleted: () => void;
   onSyncComplete?: (sessions: FocusSession[], tasks: FocusTask[], profile?: UserProfile) => void;
   onOpenAuth?: () => void;
-  initialTab?: 'breaks' | 'notifications' | 'theme' | 'security' | 'backup';
+  initialTab?: 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -82,7 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenAuth,
   initialTab = 'breaks',
 }) => {
-  const [activeTab, setActiveTab] = useState<'breaks' | 'notifications' | 'theme' | 'security' | 'backup'>(
+  const [activeTab, setActiveTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>(
     initialTab || 'breaks'
   );
 
@@ -92,6 +97,90 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setActiveTab(initialTab);
     }
   }, [initialTab, isOpen]);
+
+  // Music Connections State (Spotify, YouTube Music, Apple Music)
+  const [musicConnections, setMusicConnections] = useState<MusicConnectionsConfig>(() =>
+    spotifyService.getConnectionsConfig()
+  );
+  const [editingPlatform, setEditingPlatform] = useState<MusicPlatform | null>(null);
+  const [connAccountInput, setConnAccountInput] = useState('');
+  const [connUrlInput, setConnUrlInput] = useState('');
+  const [connTitleInput, setConnTitleInput] = useState('');
+  const [connTokenInput, setConnTokenInput] = useState('');
+  const [connNotice, setConnNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  React.useEffect(() => {
+    if (profile.musicConnections) {
+      spotifyService.syncFromProfile(profile.musicConnections);
+    }
+    const unsub = spotifyService.subscribeConnections((cfg) => {
+      setMusicConnections(cfg);
+    });
+    return () => unsub();
+  }, [profile.musicConnections]);
+
+  const persistMusicConnectionsToCloud = (updatedConfig: MusicConnectionsConfig) => {
+    onUpdateProfile({ musicConnections: updatedConfig });
+    if (currentUser) {
+      safeSetDoc(
+        doc(db, 'users', currentUser.uid),
+        {
+          musicConnections: updatedConfig,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      ).catch(() => {});
+    }
+  };
+
+  const handleSavePlatformConnection = async (platform: MusicPlatform) => {
+    soundEngine.playClick();
+    setConnNotice(null);
+    const meta = PLATFORM_METADATA[platform];
+
+    if (platform === 'spotify' && connTokenInput.trim()) {
+      const res = await spotifyService.setDirectAccessToken(connTokenInput.trim());
+      if (!res.success) {
+        setConnNotice({ type: 'error', text: res.error || 'Spotify Token doğrulanamadı.' });
+        return;
+      }
+    }
+
+    const updated = spotifyService.connectPlatform(platform, {
+      accountName: connAccountInput.trim() || `${meta.name} Hesabım`,
+      customPlaylistUrl: connUrlInput.trim(),
+      customTrackTitle: connTitleInput.trim(),
+      makeActive: true,
+    });
+    persistMusicConnectionsToCloud(updated);
+    setEditingPlatform(null);
+    setConnAccountInput('');
+    setConnUrlInput('');
+    setConnTitleInput('');
+    setConnTokenInput('');
+    soundEngine.playCompletionBell();
+    setConnNotice({
+      type: 'success',
+      text: `${meta.name} hesabınız kalıcı olarak bağlandı ve kaydedildi!`,
+    });
+  };
+
+  const handleDisconnectPlatform = (platform: MusicPlatform) => {
+    soundEngine.playClick();
+    const updated = spotifyService.disconnectPlatform(platform);
+    persistMusicConnectionsToCloud(updated);
+    setConnNotice({
+      type: 'success',
+      text: `${PLATFORM_METADATA[platform].name} bağlantısı kaldırıldı.`,
+    });
+  };
+
+  const handleSetPlatformActive = (platform: MusicPlatform, startPlay = false) => {
+    soundEngine.playClick();
+    spotifyService.setActivePlatform(platform, startPlay);
+    const updated = spotifyService.getConnectionsConfig();
+    persistMusicConnectionsToCloud(updated);
+  };
 
   // Rest Days (Haftalık Mola & Dinlenme Günleri)
   const [weeklyRestDays, setWeeklyRestDays] = useState<number[]>(
@@ -617,6 +706,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('connections')}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+              activeTab === 'connections'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Bağlantılar</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('theme')}
             className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
               activeTab === 'theme'
@@ -1012,6 +1113,258 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-5 h-5 accent-amber-500 cursor-pointer"
               />
             </div>
+          </div>
+        )}
+
+        {/* TAB 1.5: BAĞLANTILAR (SPOTIFY, YOUTUBE MUSIC, APPLE MUSIC) */}
+        {activeTab === 'connections' && (
+          <div className="space-y-4 py-2 max-h-[62vh] overflow-y-auto pr-1">
+            <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-800 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <Music className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-sm font-bold text-white">
+                  Müzik Platformu Bağlantıları (Kalıcı Oturum)
+                </h4>
+                <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
+                  Spotify, YouTube Music ve Apple Music hesaplarınızı buradan bir kez bağlayın; hesabınıza kalıcı olarak kaydedilir. Odak ekranında müzik çalarken sol buton otomatik olarak o platformun logosuna ve rengine dönüşür.
+                </p>
+              </div>
+            </div>
+
+            {connNotice && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between ${
+                  connNotice.type === 'success'
+                    ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <span>{connNotice.text}</span>
+                <button
+                  type="button"
+                  onClick={() => setConnNotice(null)}
+                  className="text-neutral-400 hover:text-white cursor-pointer ml-2"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {(['spotify', 'youtube_music', 'apple_music'] as MusicPlatform[]).map((platform) => {
+              const meta = PLATFORM_METADATA[platform];
+              const info = musicConnections[platform];
+              const isConnected = spotifyService.isPlatformConnected(platform);
+              const isActive = musicConnections.activePlatform === platform;
+              const isEditing = editingPlatform === platform;
+
+              return (
+                <div
+                  key={platform}
+                  className="p-4 rounded-2xl bg-neutral-900/75 border transition-all space-y-3"
+                  style={{
+                    borderColor: isActive ? `${meta.accentHex}77` : '#262626',
+                  }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border"
+                        style={{
+                          backgroundColor: `${meta.accentHex}20`,
+                          borderColor: `${meta.accentHex}50`,
+                          color: meta.accentHex,
+                        }}
+                      >
+                        <PlatformIcon platform={platform} className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="text-sm font-extrabold text-white">{meta.name}</h5>
+                          {isConnected ? (
+                            <span
+                              className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono border"
+                              style={{
+                                backgroundColor: `${meta.accentHex}20`,
+                                borderColor: `${meta.accentHex}50`,
+                                color: meta.accentHex,
+                              }}
+                            >
+                              Bağlı · {info?.accountName || meta.name}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-neutral-800 text-neutral-400">
+                              Bağlı Değil
+                            </span>
+                          )}
+                          {isActive && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/10 text-white">
+                              Aktif Çalar
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">
+                          {isConnected
+                            ? info?.customTrackTitle || `${meta.name} odak senkronizasyonu hazır`
+                            : `${meta.name} hesabınızı bağlayarak odak ekranında ${meta.name} çalarını kullanın`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isConnected && (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPlatformActive(platform, true)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${
+                            meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
+                          }`}
+                          style={{ backgroundColor: meta.accentHex }}
+                          title={`${meta.name} ile şimdi çal`}
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>{isActive ? 'Çal' : 'Seç & Çal'}</span>
+                        </button>
+                      )}
+
+                      {isConnected ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              soundEngine.playClick();
+                              if (isEditing) {
+                                setEditingPlatform(null);
+                              } else {
+                                setEditingPlatform(platform);
+                                setConnAccountInput(info?.accountName || '');
+                                setConnUrlInput(info?.customPlaylistUrl || '');
+                                setConnTitleInput(info?.customTrackTitle || '');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors cursor-pointer"
+                          >
+                            {isEditing ? 'Kapat' : 'Düzenle'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDisconnectPlatform(platform)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                          >
+                            Bağlantıyı Kes
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playClick();
+                            if (isEditing) {
+                              setEditingPlatform(null);
+                            } else {
+                              setEditingPlatform(platform);
+                              setConnAccountInput(profile.name ? `${profile.name} (${meta.shortName})` : `${meta.name} Hesabım`);
+                              setConnUrlInput('');
+                              setConnTitleInput(meta.defaultPlaylistName);
+                              setConnTokenInput('');
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer active:scale-95 ${
+                            meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
+                          }`}
+                          style={{ backgroundColor: meta.accentHex }}
+                        >
+                          {isEditing ? 'Vazgeç' : 'Hesabı Bağla'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expandable Connection Form */}
+                  {isEditing && (
+                    <div className="pt-3 border-t border-neutral-800 space-y-3 animate-in fade-in duration-150">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
+                            Hesap / Profil Adı:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={`Örn: ${meta.name} Hesabım`}
+                            value={connAccountInput}
+                            onChange={(e) => setConnAccountInput(e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
+                            Varsayılan İstasyon / Çalma Listesi Adı:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={meta.defaultPlaylistName}
+                            value={connTitleInput}
+                            onChange={(e) => setConnTitleInput(e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-neutral-300 block mb-1">
+                          {meta.name} Çalma Listesi veya Şarkı Linki (İsteğe Bağlı):
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={`${meta.externalAppUrl}/...`}
+                          value={connUrlInput}
+                          onChange={(e) => setConnUrlInput(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                        />
+                      </div>
+
+                      {platform === 'spotify' && (
+                        <div>
+                          <label className="text-[11px] font-bold text-neutral-300 block mb-1">
+                            Spotify Access Token (İsteğe Bağlı - Canlı Cihaz Senkronizasyonu İçin):
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="BQ... (Boş bırakırsanız doğrudan uygulama içi Spotify çaları bağlanır)"
+                            value={connTokenInput}
+                            onChange={(e) => setConnTokenInput(e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-[#1DB954]"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingPlatform(null)}
+                          className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 cursor-pointer"
+                        >
+                          İptal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSavePlatformConnection(platform)}
+                          className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 ${
+                            meta.textOnAccent === 'black' ? 'text-black' : 'text-white'
+                          }`}
+                          style={{ backgroundColor: meta.accentHex }}
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Kalıcı Olarak Kaydet ve Bağla</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

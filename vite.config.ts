@@ -8,7 +8,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'suppress-websocket-errors',
+        configureServer(server) {
+          server.httpServer?.on('error', (err: any) => {
+            if (err?.message?.includes('WebSocket') || err?.code === 'ECONNRESET') {
+              return;
+            }
+          });
+          server.httpServer?.on('upgrade', (req, socket) => {
+            socket.on('error', () => {});
+            const proto = req.headers['sec-websocket-protocol'] || '';
+            if (String(proto).includes('vite-hmr') || String(proto).includes('vite-ping')) {
+              try {
+                socket.destroy();
+              } catch {}
+            }
+          });
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -22,3 +44,4 @@ export default defineConfig(() => {
     },
   };
 });
+

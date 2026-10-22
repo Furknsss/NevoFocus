@@ -1,4 +1,4 @@
-// Background Focus Persistence, Live Notification & Lock-Screen MediaSession Engine
+// Background Focus Persistence, Pure Black PiP Capsule, Live Notification & Lock-Screen MediaSession Engine
 
 const DEVICE_ID_KEY = 'fokus_device_id_v1';
 
@@ -65,6 +65,45 @@ export function buildProgressBar(percent: number): string {
   return `${'▓'.repeat(filled)}${'░'.repeat(Math.max(0, totalBlocks - filled))} %${clamped}`;
 }
 
+export function computeDisplayTimeFromPayload(payload: LiveNotificationPayload): {
+  timeFormatted: string;
+  elapsedFocus: number;
+  elapsedBreak: number;
+  remainingSecs: number;
+  progressPct: number;
+} {
+  const now = Date.now();
+  const elapsedFocus =
+    payload.isPaused || payload.isCampActive
+      ? payload.accumulatedFocusSeconds
+      : payload.accumulatedFocusSeconds +
+        Math.max(0, Math.floor((now - payload.anchorTimestamp) / 1000));
+
+  const elapsedBreak =
+    !payload.isCampActive || payload.isPaused
+      ? payload.accumulatedBreakSeconds
+      : payload.accumulatedBreakSeconds +
+        Math.max(0, Math.floor((now - payload.breakAnchorTimestamp) / 1000));
+
+  const totalPlannedSecs = Math.max(60, payload.plannedMinutes * 60);
+  const remainingSecs = Math.max(0, totalPlannedSecs - elapsedFocus);
+  const progressPct = Math.min(100, Math.round((elapsedFocus / totalPlannedSecs) * 100));
+
+  const activeSecs = payload.isCampActive
+    ? elapsedBreak
+    : payload.timerType === 'stopwatch'
+    ? elapsedFocus
+    : remainingSecs;
+
+  return {
+    timeFormatted: formatTimerDisplay(activeSecs),
+    elapsedFocus,
+    elapsedBreak,
+    remainingSecs,
+    progressPct,
+  };
+}
+
 // 1-second silent WAV (8kHz mono PCM) data URI to keep mobile browser & MediaSession alive in background
 const SILENT_WAV_URI =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
@@ -73,6 +112,14 @@ class BackgroundFocusManager {
   private silentAudio: HTMLAudioElement | null = null;
   private isKeepAliveRunning = false;
   private onTogglePauseCallback: (() => void) | null = null;
+  private onToggleBreakCallback: (() => void) | null = null;
+  private onMaximizeCallback: (() => void) | null = null;
+
+  // Document Picture-in-Picture & Canvas Video PiP state
+  private docPipWindow: Window | null = null;
+  private pipCanvas: HTMLCanvasElement | null = null;
+  private pipVideo: HTMLVideoElement | null = null;
+  private lastPayload: LiveNotificationPayload | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -80,6 +127,10 @@ class BackgroundFocusManager {
         if (event.data && event.data.type === 'FOKUS_NOTIFICATION_ACTION') {
           if (event.data.action === 'toggle_pause' && this.onTogglePauseCallback) {
             this.onTogglePauseCallback();
+          } else if (event.data.action === 'toggle_break' && this.onToggleBreakCallback) {
+            this.onToggleBreakCallback();
+          } else if (event.data.action === 'open_app' && this.onMaximizeCallback) {
+            this.onMaximizeCallback();
           }
         }
       });
@@ -88,6 +139,14 @@ class BackgroundFocusManager {
 
   public setPauseHandler(handler: (() => void) | null) {
     this.onTogglePauseCallback = handler;
+  }
+
+  public setBreakHandler(handler: (() => void) | null) {
+    this.onToggleBreakCallback = handler;
+  }
+
+  public setMaximizeHandler(handler: (() => void) | null) {
+    this.onMaximizeCallback = handler;
   }
 
   public startKeepAlive() {
@@ -99,11 +158,14 @@ class BackgroundFocusManager {
         this.silentAudio.volume = 0.01;
       }
       if (!this.isKeepAliveRunning) {
-        this.silentAudio.play().then(() => {
-          this.isKeepAliveRunning = true;
-        }).catch(() => {
-          // Will retry on next user gesture
-        });
+        this.silentAudio
+          .play()
+          .then(() => {
+            this.isKeepAliveRunning = true;
+          })
+          .catch(() => {
+            // Will retry on next user gesture
+          });
       }
     } catch {
       // ignore
@@ -122,45 +184,342 @@ class BackgroundFocusManager {
     }
   }
 
+  // --- PURE BLACK PICTURE-IN-PICTURE (PiP) FLOATING CAPSULE ---
+
+  public isPipActive(): boolean {
+    if (typeof window === 'undefined') return false;
+    return Boolean(
+      (this.docPipWindow && !this.docPipWindow.closed) ||
+        (typeof document !== 'undefined' && document.pictureInPictureElement)
+    );
+  }
+
+  public async openPipCapsule(payload?: LiveNotificationPayload): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const currentPayload = payload || this.lastPayload;
+    if (currentPayload) {
+      this.lastPayload = currentPayload;
+    }
+
+    // 1. Try Document Picture-in-Picture API (Interactive Pure Black Capsule Window)
+    const anyWin = window as any;
+    if (anyWin.documentPictureInPicture && typeof anyWin.documentPictureInPicture.requestWindow === 'function') {
+      try {
+        if (this.docPipWindow && !this.docPipWindow.closed) {
+          this.renderDocPipWindow();
+          return true;
+        }
+        const pipWin: Window = await anyWin.documentPictureInPicture.requestWindow({
+          width: 310,
+          height: 84,
+        });
+        this.docPipWindow = pipWin;
+        this.setupDocPipDOM(pipWin);
+        this.renderDocPipWindow();
+        pipWin.addEventListener('pagehide', () => {
+          this.docPipWindow = null;
+        });
+        return true;
+      } catch {
+        // Fallback to Canvas Video PiP below
+      }
+    }
+
+    // 2. Fallback: Canvas Stream Video Picture-in-Picture ( Pure Black Capsule rendered on Canvas )
+    try {
+      if (!this.pipCanvas) {
+        this.pipCanvas = document.createElement('canvas');
+        this.pipCanvas.width = 520;
+        this.pipCanvas.height = 140;
+      }
+      this.drawCanvasPipFrame();
+
+      if (!this.pipVideo) {
+        this.pipVideo = document.createElement('video');
+        this.pipVideo.muted = true;
+        this.pipVideo.playsInline = true;
+        this.pipVideo.style.position = 'fixed';
+        this.pipVideo.style.opacity = '0';
+        this.pipVideo.style.pointerEvents = 'none';
+        this.pipVideo.style.width = '1px';
+        this.pipVideo.style.height = '1px';
+        document.body.appendChild(this.pipVideo);
+      }
+
+      if (!this.pipVideo.srcObject && (this.pipCanvas as any).captureStream) {
+        const stream = (this.pipCanvas as any).captureStream(30);
+        this.pipVideo.srcObject = stream;
+      }
+
+      await this.pipVideo.play();
+      if ((this.pipVideo as any).requestPictureInPicture) {
+        await (this.pipVideo as any).requestPictureInPicture();
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+
+    return false;
+  }
+
+  public closePipCapsule() {
+    try {
+      if (this.docPipWindow && !this.docPipWindow.closed) {
+        this.docPipWindow.close();
+      }
+      this.docPipWindow = null;
+      if (typeof document !== 'undefined' && document.pictureInPictureElement) {
+        document.exitPictureInPicture?.().catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private setupDocPipDOM(pipWin: Window) {
+    const doc = pipWin.document;
+    doc.head.innerHTML = `
+      <meta charset="utf-8" />
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        html, body {
+          width: 100%;
+          height: 100%;
+          background: #000000;
+          color: #ffffff;
+          font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+        .capsule {
+          width: 100%;
+          height: 100%;
+          background: #000000;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 18px;
+          gap: 12px;
+        }
+        .timer {
+          font-size: 32px;
+          font-weight: 900;
+          color: #ffffff;
+          letter-spacing: -0.03em;
+          font-variant-numeric: tabular-nums;
+          line-height: 1;
+        }
+        .actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .btn {
+          width: 42px;
+          height: 42px;
+          border-radius: 9999px;
+          border: none;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: transform 0.15s ease, filter 0.15s ease;
+          flex-shrink: 0;
+        }
+        .btn:hover { transform: scale(1.06); filter: brightness(1.08); }
+        .btn:active { transform: scale(0.94); }
+        .btn-break {
+          background: #ff5500;
+          color: #ffffff;
+          box-shadow: 0 4px 14px rgba(255, 85, 0, 0.4);
+        }
+        .btn-break.active {
+          background: #f59e0b;
+          color: #000000;
+          box-shadow: 0 0 18px rgba(245, 158, 11, 0.7);
+        }
+        .btn-pause {
+          background: #dc2626;
+          color: #ffffff;
+          box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
+        }
+        .btn-play {
+          background: #10b981;
+          color: #ffffff;
+          box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
+        }
+        .btn-max {
+          background: #ffffff;
+          color: #000000;
+          box-shadow: 0 4px 14px rgba(255, 255, 255, 0.25);
+        }
+        svg { width: 20px; height: 20px; }
+      </style>
+    `;
+
+    doc.body.innerHTML = `
+      <div class="capsule">
+        <div id="pip-timer" class="timer">00:00</div>
+        <div class="actions">
+          <button id="pip-btn-break" class="btn btn-break" title="Mola">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>
+            </svg>
+          </button>
+          <button id="pip-btn-toggle" class="btn btn-pause" title="Durdur / Başlat"></button>
+          <button id="pip-btn-max" class="btn btn-max" title="Büyüt (Focus Ekranına Dön)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+
+    const breakBtn = doc.getElementById('pip-btn-break');
+    const toggleBtn = doc.getElementById('pip-btn-toggle');
+    const maxBtn = doc.getElementById('pip-btn-max');
+
+    breakBtn?.addEventListener('click', () => {
+      if (this.onToggleBreakCallback) this.onToggleBreakCallback();
+    });
+    toggleBtn?.addEventListener('click', () => {
+      if (this.onTogglePauseCallback) this.onTogglePauseCallback();
+    });
+    maxBtn?.addEventListener('click', () => {
+      try {
+        window.focus();
+      } catch {}
+      if (this.onMaximizeCallback) this.onMaximizeCallback();
+      this.closePipCapsule();
+    });
+  }
+
+  private renderDocPipWindow() {
+    if (!this.docPipWindow || this.docPipWindow.closed || !this.lastPayload) return;
+    const doc = this.docPipWindow.document;
+    const timerEl = doc.getElementById('pip-timer');
+    const breakBtn = doc.getElementById('pip-btn-break');
+    const toggleBtn = doc.getElementById('pip-btn-toggle');
+
+    const { timeFormatted } = computeDisplayTimeFromPayload(this.lastPayload);
+    if (timerEl) {
+      timerEl.textContent = timeFormatted;
+    }
+
+    if (breakBtn) {
+      if (this.lastPayload.isCampActive) {
+        breakBtn.classList.add('active');
+      } else {
+        breakBtn.classList.remove('active');
+      }
+    }
+
+    if (toggleBtn) {
+      if (this.lastPayload.isPaused) {
+        toggleBtn.className = 'btn btn-play';
+        toggleBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px;">
+            <polygon points="6 3 20 12 6 21 6 3"/>
+          </svg>
+        `;
+      } else {
+        toggleBtn.className = 'btn btn-pause';
+        toggleBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+          </svg>
+        `;
+      }
+    }
+  }
+
+  private drawCanvasPipFrame() {
+    if (!this.pipCanvas || !this.lastPayload) return;
+    const ctx = this.pipCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = this.pipCanvas.width;
+    const h = this.pipCanvas.height;
+    const { timeFormatted } = computeDisplayTimeFromPayload(this.lastPayload);
+
+    // Pure black capsule background
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, w, h);
+
+    // Left bold white timer
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 54px "JetBrains Mono", monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(timeFormatted, 32, h / 2 + 2);
+
+    // Right 3 circular icon badges (Orange Break, Red Pause / Green Play, White Maximize)
+    const r = 32;
+    const cy = h / 2;
+    const cx3 = w - 54;
+    const cx2 = cx3 - 78;
+    const cx1 = cx2 - 78;
+
+    // 1. Orange Break Circle
+    ctx.beginPath();
+    ctx.arc(cx1, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = this.lastPayload.isCampActive ? '#f59e0b' : '#ff5500';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('☕', cx1, cy + 2);
+
+    // 2. Red Pause / Green Play Circle
+    ctx.beginPath();
+    ctx.arc(cx2, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = this.lastPayload.isPaused ? '#10b981' : '#dc2626';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    if (this.lastPayload.isPaused) {
+      // Play triangle
+      ctx.beginPath();
+      ctx.moveTo(cx2 - 7, cy - 11);
+      ctx.lineTo(cx2 + 11, cy);
+      ctx.lineTo(cx2 - 7, cy + 11);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Pause bars
+      ctx.fillRect(cx2 - 9, cy - 11, 6, 22);
+      ctx.fillRect(cx2 + 3, cy - 11, 6, 22);
+    }
+
+    // 3. White Maximize Circle
+    ctx.beginPath();
+    ctx.arc(cx3, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(cx3 - 9, cy + 9);
+    ctx.lineTo(cx3 + 9, cy - 9);
+    ctx.moveTo(cx3 + 1, cy - 9);
+    ctx.lineTo(cx3 + 9, cy - 9);
+    ctx.lineTo(cx3 + 9, cy - 1);
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+  }
+
   public updateMediaSession(payload: LiveNotificationPayload) {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
     try {
-      const now = Date.now();
-      const elapsedFocus = payload.isPaused || payload.isCampActive
-        ? payload.accumulatedFocusSeconds
-        : payload.accumulatedFocusSeconds + Math.max(0, Math.floor((now - payload.anchorTimestamp) / 1000));
-
-      const elapsedBreak = !payload.isCampActive || payload.isPaused
-        ? payload.accumulatedBreakSeconds
-        : payload.accumulatedBreakSeconds + Math.max(0, Math.floor((now - payload.breakAnchorTimestamp) / 1000));
-
-      const totalPlannedSecs = Math.max(60, payload.plannedMinutes * 60);
-      const remainingSecs = Math.max(0, totalPlannedSecs - elapsedFocus);
-      const progressPct = Math.min(100, Math.round((elapsedFocus / totalPlannedSecs) * 100));
-
-      let title = '';
-      if (payload.isCampActive) {
-        title = `☕ Mola: ${formatTimerDisplay(elapsedBreak)} · ${payload.subjectName}`;
-      } else if (payload.isPaused) {
-        const displayTime = payload.timerType === 'stopwatch'
-          ? formatTimerDisplay(elapsedFocus)
-          : formatTimerDisplay(remainingSecs);
-        title = `⏸️ Duraklatıldı (${displayTime}) · ${payload.subjectName}`;
-      } else if (payload.timerType === 'stopwatch') {
-        title = `⏱️ ${formatTimerDisplay(elapsedFocus)} · ${payload.subjectName}`;
-      } else {
-        title = `⏳ ${formatTimerDisplay(remainingSecs)} Kaldı · ${payload.subjectName} (%${progressPct})`;
-      }
-
-      const artist = `Fokus Premium · ${payload.modeLabel}${payload.taskTitle ? ` · ${payload.taskTitle}` : ''}`;
-      const album = payload.timerType === 'stopwatch'
-        ? 'Canlı Kronometre Arka Planda Çalışıyor'
-        : `Hedef: ${payload.plannedMinutes} dk · ${buildProgressBar(progressPct)}`;
+      const { timeFormatted } = computeDisplayTimeFromPayload(payload);
 
       navigator.mediaSession.metadata = new MediaMetadata({
-        title,
-        artist,
-        album,
+        title: timeFormatted,
+        artist: payload.isCampActive ? 'Molada' : payload.isPaused ? 'Duraklatıldı' : 'Fokus',
+        album: '',
         artwork: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -177,6 +536,11 @@ class BackgroundFocusManager {
       navigator.mediaSession.setActionHandler('pause', () => {
         if (!payload.isPaused && this.onTogglePauseCallback) {
           this.onTogglePauseCallback();
+        }
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        if (this.onToggleBreakCallback) {
+          this.onToggleBreakCallback();
         }
       });
     } catch {
@@ -196,6 +560,13 @@ class BackgroundFocusManager {
 
   public async syncLiveNotification(payload: LiveNotificationPayload) {
     if (typeof window === 'undefined') return;
+    this.lastPayload = payload;
+
+    // Update live PiP capsule if active
+    this.renderDocPipWindow();
+    if (typeof document !== 'undefined' && document.pictureInPictureElement) {
+      this.drawCanvasPipFrame();
+    }
 
     // Always update MediaSession for lock screen / control center
     this.updateMediaSession(payload);
@@ -231,38 +602,13 @@ class BackgroundFocusManager {
       return;
     }
 
-    const now = Date.now();
-    const elapsedFocus = payload.isPaused || payload.isCampActive
-      ? payload.accumulatedFocusSeconds
-      : payload.accumulatedFocusSeconds + Math.max(0, Math.floor((now - payload.anchorTimestamp) / 1000));
-
-    const elapsedBreak = !payload.isCampActive || payload.isPaused
-      ? payload.accumulatedBreakSeconds
-      : payload.accumulatedBreakSeconds + Math.max(0, Math.floor((now - payload.breakAnchorTimestamp) / 1000));
-
-    const totalPlannedSecs = Math.max(60, payload.plannedMinutes * 60);
-    const remainingSecs = Math.max(0, totalPlannedSecs - elapsedFocus);
-    const progressPct = Math.min(100, Math.round((elapsedFocus / totalPlannedSecs) * 100));
-
-    let title = '';
-    let body = '';
-
-    if (payload.isCampActive) {
-      title = `☕ Mola (${formatTimerDisplay(elapsedBreak)}) · ${payload.subjectName}`;
-      body = `${payload.modeLabel} · Net Çalışma: ${formatTimerDisplay(elapsedFocus)} · Dönmek için dokunun`;
-    } else if (payload.isPaused) {
-      const displayTime = payload.timerType === 'stopwatch'
-        ? formatTimerDisplay(elapsedFocus)
-        : formatTimerDisplay(remainingSecs);
-      title = `⏸️ Duraklatıldı (${displayTime}) · ${payload.subjectName}`;
-      body = `${payload.modeLabel}${payload.taskTitle ? ` · ${payload.taskTitle}` : ''} · Devam etmek için dokunun`;
-    } else if (payload.timerType === 'stopwatch') {
-      title = `⏱️ ${formatTimerDisplay(elapsedFocus)} · ${payload.subjectName}`;
-      body = `Canlı Kronometre Aktif · ${payload.modeLabel}${payload.taskTitle ? ` · ${payload.taskTitle}` : ''}`;
-    } else {
-      title = `⏳ ${formatTimerDisplay(remainingSecs)} Kaldı · ${payload.subjectName}`;
-      body = `${buildProgressBar(progressPct)} · ${payload.modeLabel}${payload.taskTitle ? ` · ${payload.taskTitle}` : ''}`;
-    }
+    const { timeFormatted } = computeDisplayTimeFromPayload(payload);
+    const title = timeFormatted;
+    const body = payload.isCampActive
+      ? '☕ Mola Aktif'
+      : payload.isPaused
+      ? '⏸ Duraklatıldı'
+      : '● Odak Devam Ediyor';
 
     try {
       if ('serviceWorker' in navigator) {
@@ -270,8 +616,6 @@ class BackgroundFocusManager {
         if (reg && reg.showNotification) {
           await reg.showNotification(title, {
             body,
-            icon: '/icons/icon-192.png',
-            badge: '/icons/icon-192.png',
             tag: 'fokus-active-timer',
             renotify: false,
             silent: true,
@@ -279,12 +623,16 @@ class BackgroundFocusManager {
             data: { url: '/' },
             actions: [
               {
-                action: 'open_app',
-                title: '🔥 Odak Ekranını Aç',
+                action: 'toggle_break',
+                title: '☕',
               },
               {
                 action: 'toggle_pause',
-                title: payload.isPaused ? '▶️ Devam Et' : '⏸️ Duraklat',
+                title: payload.isPaused ? '▶' : '⏸',
+              },
+              {
+                action: 'open_app',
+                title: '⤢',
               },
             ],
           } as NotificationOptions);
@@ -294,7 +642,6 @@ class BackgroundFocusManager {
 
       new Notification(title, {
         body,
-        icon: '/icons/icon-192.png',
         tag: 'fokus-active-timer',
         silent: true,
       });
@@ -306,6 +653,7 @@ class BackgroundFocusManager {
   public async stopAll() {
     this.stopKeepAlive();
     this.clearMediaSession();
+    this.closePipCapsule();
 
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {

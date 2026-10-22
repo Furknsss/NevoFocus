@@ -1,3 +1,5 @@
+import { MusicPlatform, MusicConnectionsConfig, PlatformConnectionInfo } from '../types';
+
 export interface SpotifyTrack {
   id: string;
   name: string;
@@ -7,7 +9,8 @@ export interface SpotifyTrack {
   durationMs: number;
   progressMs: number;
   isPlaying: boolean;
-  source: 'spotify' | 'focus_stream';
+  source: 'spotify' | 'youtube_music' | 'apple_music' | 'focus_stream';
+  externalUrl?: string;
 }
 
 const SPOTIFY_STORAGE_KEYS = {
@@ -18,6 +21,7 @@ const SPOTIFY_STORAGE_KEYS = {
   CONNECTED_USER: 'fokus_spotify_connected_user',
   CODE_VERIFIER: 'fokus_spotify_code_verifier',
   REDIRECT_URI: 'fokus_spotify_redirect_uri',
+  MUSIC_CONNECTIONS: 'fokus_music_connections_v1',
 };
 
 /**
@@ -30,8 +34,6 @@ export const UNIVERSAL_SAFE_REDIRECT_URI = 'https://open.spotify.com/';
  */
 export function getAppRedirectUri(): string {
   if (typeof window === 'undefined') return UNIVERSAL_SAFE_REDIRECT_URI;
-  // In Google Cloud Run environments (*.run.app), external redirects in new tabs hit a 404 wall
-  // Returning https://open.spotify.com/ guarantees the user never gets a 404 page!
   if (
     window.location.hostname.includes('run.app') ||
     window.location.hostname.includes('googleusercontent.com')
@@ -70,8 +72,7 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   return base64urlencode(hashed);
 }
 
-// Built-in study background tracks
-export const STUDY_STREAMS: {
+export interface StreamTrackItem {
   id: string;
   name: string;
   artist: string;
@@ -79,53 +80,123 @@ export const STUDY_STREAMS: {
   cover: string;
   audioUrl: string;
   durationMs: number;
-}[] = [
+  platform?: MusicPlatform;
+}
+
+// Built-in study background tracks (reliable Wikimedia Commons OGG streams)
+export const STUDY_STREAMS: StreamTrackItem[] = [
   {
     id: 'stream-debussy',
-    name: 'Clair de Lune',
+    name: 'Clair de Lune (Deep Focus Mix)',
     artist: 'Claude Debussy',
-    album: 'Suite bergamasque',
-    cover: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=500&auto=format&fit=crop&q=80',
+    album: 'Suite bergamasque · Focus Edition',
+    cover: '',
     audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg',
     durationMs: 304000,
+    platform: 'spotify',
   },
   {
     id: 'stream-beethoven',
-    name: 'Moonlight Sonata (1st Movement)',
+    name: 'Moonlight Sonata (Lo-Fi Study Session)',
     artist: 'Ludwig van Beethoven',
-    album: 'Sonata No. 14 in C-sharp minor',
-    cover: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    album: 'Sonata No. 14 · Night Study',
+    cover: '',
     audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/eb/Beethoven_Moonlight_1st_movement.ogg',
     durationMs: 320000,
+    platform: 'youtube_music',
   },
   {
     id: 'stream-spring',
     name: 'The Four Seasons: Spring (Allegro)',
     artist: 'Antonio Vivaldi · John Harrison',
-    album: 'Le quattro stagioni Op. 8',
-    cover: 'https://images.unsplash.com/photo-1511295742362-92c96b124e52?w=500&auto=format&fit=crop&q=80',
+    album: 'Classical Focus Essentials',
+    cover: '',
     audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Vivaldi_-_Four_Seasons_1_Spring_mvt_1_Allegro_-_John_Harrison_violin.oga',
     durationMs: 215000,
+    platform: 'apple_music',
   },
   {
     id: 'stream-guitar',
-    name: 'Solo Acoustic Guitar (Deep Focus)',
+    name: 'Solo Acoustic Guitar (Ambient Study)',
     artist: 'Jason Shaw',
-    album: 'Audionautix Acoustic Series',
-    cover: 'https://images.unsplash.com/photo-1520523839898-50712825e617?w=500&auto=format&fit=crop&q=80',
+    album: 'Acoustic Deep Work Sessions',
+    cover: '',
     audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/bf/Jason_Shaw_-_SOLO_ACOUSTIC_GUITAR.ogg',
     durationMs: 191000,
+    platform: 'youtube_music',
   },
   {
     id: 'stream-winter',
-    name: 'The Four Seasons: Winter (Allegro)',
+    name: 'The Four Seasons: Winter (Concentration)',
     artist: 'Antonio Vivaldi · John Harrison',
-    album: 'Le quattro stagioni Op. 8',
-    cover: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&auto=format&fit=crop&q=80',
+    album: 'Pure Instrumental Focus',
+    cover: '',
     audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/2/21/12_-_Vivaldi_Winter_mvt_3_Allegro_-_John_Harrison_violin.ogg',
     durationMs: 193000,
+    platform: 'apple_music',
   },
 ];
+
+export const PLATFORM_METADATA: Record<
+  MusicPlatform,
+  {
+    id: MusicPlatform;
+    name: string;
+    shortName: string;
+    accentHex: string;
+    hoverHex: string;
+    textOnAccent: 'black' | 'white';
+    defaultPlaylistName: string;
+    externalAppUrl: string;
+  }
+> = {
+  spotify: {
+    id: 'spotify',
+    name: 'Spotify',
+    shortName: 'Spotify',
+    accentHex: '#1DB954',
+    hoverHex: '#1ed760',
+    textOnAccent: 'black',
+    defaultPlaylistName: 'Spotify Deep Focus Playlist',
+    externalAppUrl: 'https://open.spotify.com',
+  },
+  youtube_music: {
+    id: 'youtube_music',
+    name: 'YouTube Music',
+    shortName: 'YT Music',
+    accentHex: '#FF0033',
+    hoverHex: '#ff1f4b',
+    textOnAccent: 'white',
+    defaultPlaylistName: 'YouTube Music Odak & Lo-Fi Mix',
+    externalAppUrl: 'https://music.youtube.com',
+  },
+  apple_music: {
+    id: 'apple_music',
+    name: 'Apple Music',
+    shortName: 'Apple Music',
+    accentHex: '#FA243C',
+    hoverHex: '#ff3b52',
+    textOnAccent: 'white',
+    defaultPlaylistName: 'Apple Music Pure Focus Essentials',
+    externalAppUrl: 'https://music.apple.com',
+  },
+};
+
+const DEFAULT_CONNECTIONS: MusicConnectionsConfig = {
+  activePlatform: 'spotify',
+  spotify: {
+    connected: false,
+    accountName: '',
+  },
+  youtube_music: {
+    connected: false,
+    accountName: '',
+  },
+  apple_music: {
+    connected: false,
+    accountName: '',
+  },
+};
 
 class SpotifyService {
   private currentStreamIndex = 0;
@@ -133,9 +204,13 @@ class SpotifyService {
   private isStreamPlaying = false;
   private streamProgressMs = 0;
   private listeners: ((track: SpotifyTrack | null) => void)[] = [];
+  private connectionListeners: ((config: MusicConnectionsConfig) => void)[] = [];
   private lastLiveTrack: SpotifyTrack | null = null;
+  private connections: MusicConnectionsConfig = { ...DEFAULT_CONNECTIONS };
 
   constructor() {
+    this.loadConnectionsFromStorage();
+
     if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
       try {
         this.audioEl = new Audio();
@@ -146,7 +221,7 @@ class SpotifyService {
         this.audioEl.addEventListener('timeupdate', () => {
           if (this.audioEl && !isNaN(this.audioEl.currentTime)) {
             this.streamProgressMs = Math.floor(this.audioEl.currentTime * 1000);
-            if (!this.isConnectedToSpotify() || !this.lastLiveTrack) {
+            if (this.connections.activePlatform !== 'spotify' || !this.lastLiveTrack) {
               this.notifyListeners();
             }
           }
@@ -166,6 +241,284 @@ class SpotifyService {
     }
   }
 
+  // --- MULTI-PLATFORM PERSISTENT CONNECTION STORAGE ---
+
+  private loadConnectionsFromStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(SPOTIFY_STORAGE_KEYS.MUSIC_CONNECTIONS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        this.connections = {
+          activePlatform: parsed.activePlatform || 'spotify',
+          spotify: {
+            connected: Boolean(parsed.spotify?.connected),
+            accountName: parsed.spotify?.accountName || '',
+            customPlaylistUrl: parsed.spotify?.customPlaylistUrl || '',
+            customTrackTitle: parsed.spotify?.customTrackTitle || '',
+            customArtistName: parsed.spotify?.customArtistName || '',
+            connectedAt: parsed.spotify?.connectedAt,
+          },
+          youtube_music: {
+            connected: Boolean(parsed.youtube_music?.connected),
+            accountName: parsed.youtube_music?.accountName || '',
+            customPlaylistUrl: parsed.youtube_music?.customPlaylistUrl || '',
+            customTrackTitle: parsed.youtube_music?.customTrackTitle || '',
+            customArtistName: parsed.youtube_music?.customArtistName || '',
+            connectedAt: parsed.youtube_music?.connectedAt,
+          },
+          apple_music: {
+            connected: Boolean(parsed.apple_music?.connected),
+            accountName: parsed.apple_music?.accountName || '',
+            customPlaylistUrl: parsed.apple_music?.customPlaylistUrl || '',
+            customTrackTitle: parsed.apple_music?.customTrackTitle || '',
+            customArtistName: parsed.apple_music?.customArtistName || '',
+            connectedAt: parsed.apple_music?.connectedAt,
+          },
+        };
+      }
+
+      // Ensure backwards compatibility if user already had a Spotify token or connected user saved
+      const legacySpotifyUser = localStorage.getItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER);
+      const legacySpotifyToken = localStorage.getItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN);
+      if ((legacySpotifyUser || legacySpotifyToken) && !this.connections.spotify.connected) {
+        this.connections.spotify = {
+          ...this.connections.spotify,
+          connected: true,
+          accountName: legacySpotifyUser || 'Spotify Hesabı',
+          connectedAt: Date.now(),
+        };
+        this.saveConnectionsToStorage();
+      }
+    } catch {}
+  }
+
+  private saveConnectionsToStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(SPOTIFY_STORAGE_KEYS.MUSIC_CONNECTIONS, JSON.stringify(this.connections));
+      if (this.connections.spotify.connected && this.connections.spotify.accountName) {
+        localStorage.setItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER, this.connections.spotify.accountName);
+      }
+    } catch {}
+    this.notifyConnectionListeners();
+    this.notifyListeners();
+  }
+
+  public getConnectionsConfig(): MusicConnectionsConfig {
+    return {
+      activePlatform: this.connections.activePlatform,
+      spotify: { ...this.connections.spotify },
+      youtube_music: { ...this.connections.youtube_music },
+      apple_music: { ...this.connections.apple_music },
+    };
+  }
+
+  public syncFromProfile(profileConnections?: MusicConnectionsConfig) {
+    if (!profileConnections) return;
+    const merged: MusicConnectionsConfig = {
+      activePlatform: profileConnections.activePlatform || this.connections.activePlatform || 'spotify',
+      spotify: {
+        connected: Boolean(profileConnections.spotify?.connected || this.connections.spotify.connected),
+        accountName: profileConnections.spotify?.accountName || this.connections.spotify.accountName || '',
+        customPlaylistUrl: profileConnections.spotify?.customPlaylistUrl || this.connections.spotify.customPlaylistUrl || '',
+        customTrackTitle: profileConnections.spotify?.customTrackTitle || this.connections.spotify.customTrackTitle || '',
+        customArtistName: profileConnections.spotify?.customArtistName || this.connections.spotify.customArtistName || '',
+        connectedAt: profileConnections.spotify?.connectedAt || this.connections.spotify.connectedAt,
+      },
+      youtube_music: {
+        connected: Boolean(profileConnections.youtube_music?.connected || this.connections.youtube_music.connected),
+        accountName: profileConnections.youtube_music?.accountName || this.connections.youtube_music.accountName || '',
+        customPlaylistUrl: profileConnections.youtube_music?.customPlaylistUrl || this.connections.youtube_music.customPlaylistUrl || '',
+        customTrackTitle: profileConnections.youtube_music?.customTrackTitle || this.connections.youtube_music.customTrackTitle || '',
+        customArtistName: profileConnections.youtube_music?.customArtistName || this.connections.youtube_music.customArtistName || '',
+        connectedAt: profileConnections.youtube_music?.connectedAt || this.connections.youtube_music.connectedAt,
+      },
+      apple_music: {
+        connected: Boolean(profileConnections.apple_music?.connected || this.connections.apple_music.connected),
+        accountName: profileConnections.apple_music?.accountName || this.connections.apple_music.accountName || '',
+        customPlaylistUrl: profileConnections.apple_music?.customPlaylistUrl || this.connections.apple_music.customPlaylistUrl || '',
+        customTrackTitle: profileConnections.apple_music?.customTrackTitle || this.connections.apple_music.customTrackTitle || '',
+        customArtistName: profileConnections.apple_music?.customArtistName || this.connections.apple_music.customArtistName || '',
+        connectedAt: profileConnections.apple_music?.connectedAt || this.connections.apple_music.connectedAt,
+      },
+    };
+    this.connections = merged;
+    this.saveConnectionsToStorage();
+  }
+
+  public getActivePlatform(): MusicPlatform {
+    return this.connections.activePlatform;
+  }
+
+  public setActivePlatform(platform: MusicPlatform, autoPlay = false) {
+    this.connections.activePlatform = platform;
+    if (platform !== 'spotify') {
+      // Pick a stream matching or suited for this platform
+      const idx = STUDY_STREAMS.findIndex((s) => s.platform === platform);
+      if (idx >= 0 && this.currentStreamIndex !== idx && !this.isStreamPlaying) {
+        this.currentStreamIndex = idx;
+        if (this.audioEl) {
+          this.audioEl.src = STUDY_STREAMS[idx].audioUrl;
+        }
+      }
+    }
+    this.saveConnectionsToStorage();
+    if (autoPlay) {
+      if (platform === 'spotify' && this.getAccessToken()) {
+        this.spotifyPlay();
+      } else {
+        this.playStream();
+      }
+    }
+  }
+
+  public connectPlatform(
+    platform: MusicPlatform,
+    options?: {
+      accountName?: string;
+      customPlaylistUrl?: string;
+      customTrackTitle?: string;
+      customArtistName?: string;
+      makeActive?: boolean;
+    }
+  ): MusicConnectionsConfig {
+    const meta = PLATFORM_METADATA[platform];
+    const current = this.connections[platform];
+    const cleanUrl = options?.customPlaylistUrl?.trim() || current.customPlaylistUrl || '';
+    let derivedTrackTitle = options?.customTrackTitle?.trim() || current.customTrackTitle || '';
+    let derivedArtist = options?.customArtistName?.trim() || current.customArtistName || '';
+
+    if (cleanUrl && !derivedTrackTitle) {
+      if (platform === 'youtube_music') {
+        derivedTrackTitle = 'YouTube Music Odak İstasyonu';
+        derivedArtist = options?.accountName?.trim() || 'YouTube Music Mix';
+      } else if (platform === 'apple_music') {
+        derivedTrackTitle = 'Apple Music Odak Listesi';
+        derivedArtist = options?.accountName?.trim() || 'Apple Music Pure Focus';
+      } else {
+        derivedTrackTitle = 'Spotify Çalışma Listesi';
+        derivedArtist = options?.accountName?.trim() || 'Spotify Focus';
+      }
+    }
+
+    this.connections[platform] = {
+      connected: true,
+      accountName: options?.accountName?.trim() || current.accountName || `${meta.name} Hesabı`,
+      customPlaylistUrl: cleanUrl,
+      customTrackTitle: derivedTrackTitle,
+      customArtistName: derivedArtist,
+      connectedAt: Date.now(),
+    };
+
+    if (options?.makeActive !== false) {
+      this.connections.activePlatform = platform;
+    }
+
+    this.saveConnectionsToStorage();
+    return this.getConnectionsConfig();
+  }
+
+  public disconnectPlatform(platform: MusicPlatform): MusicConnectionsConfig {
+    if (platform === 'spotify') {
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        localStorage.removeItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN);
+        localStorage.removeItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN);
+        localStorage.removeItem(SPOTIFY_STORAGE_KEYS.EXPIRES_AT);
+        localStorage.removeItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER);
+        localStorage.removeItem(SPOTIFY_STORAGE_KEYS.CODE_VERIFIER);
+      }
+      this.lastLiveTrack = null;
+    }
+
+    this.connections[platform] = {
+      connected: false,
+      accountName: '',
+      customPlaylistUrl: '',
+      customTrackTitle: '',
+      customArtistName: '',
+    };
+
+    // If activePlatform was disconnected, switch to another connected platform if any
+    if (this.connections.activePlatform === platform) {
+      const order: MusicPlatform[] = ['spotify', 'youtube_music', 'apple_music'];
+      const nextConnected = order.find((p) => this.connections[p].connected);
+      if (nextConnected) {
+        this.connections.activePlatform = nextConnected;
+      }
+      if (this.isStreamPlaying) {
+        this.pauseStream();
+      }
+    }
+
+    this.saveConnectionsToStorage();
+    return this.getConnectionsConfig();
+  }
+
+  public isPlatformConnected(platform: MusicPlatform): boolean {
+    if (platform === 'spotify') {
+      return this.connections.spotify.connected || Boolean(this.getAccessToken());
+    }
+    return Boolean(this.connections[platform]?.connected);
+  }
+
+  public isAnyPlatformConnected(): boolean {
+    return (
+      this.isPlatformConnected('spotify') ||
+      this.isPlatformConnected('youtube_music') ||
+      this.isPlatformConnected('apple_music')
+    );
+  }
+
+  /**
+   * Automatically detects which music platform is actively playing or connected.
+   */
+  public getDetectedPlatform(): MusicPlatform | null {
+    // 1. If Spotify live API is actively playing a track right now
+    if (this.lastLiveTrack?.isPlaying && this.isPlatformConnected('spotify')) {
+      return 'spotify';
+    }
+
+    // 2. If activePlatform is connected, use it
+    const active = this.connections.activePlatform;
+    if (active && this.isPlatformConnected(active)) {
+      return active;
+    }
+
+    // 3. Otherwise pick the most recently connected platform
+    const platforms: MusicPlatform[] = ['spotify', 'youtube_music', 'apple_music'];
+    const connectedList = platforms
+      .filter((p) => this.isPlatformConnected(p))
+      .sort((a, b) => (this.connections[b]?.connectedAt || 0) - (this.connections[a]?.connectedAt || 0));
+
+    return connectedList.length > 0 ? connectedList[0] : null;
+  }
+
+  public getPlatformUserName(platform: MusicPlatform): string {
+    const info = this.connections[platform];
+    if (info?.accountName) return info.accountName;
+    if (platform === 'spotify') {
+      return (
+        (typeof window !== 'undefined' ? localStorage.getItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER) : null) ||
+        'Spotify Bağlı'
+      );
+    }
+    return `${PLATFORM_METADATA[platform].name} Bağlı`;
+  }
+
+  public subscribeConnections(cb: (config: MusicConnectionsConfig) => void): () => void {
+    this.connectionListeners.push(cb);
+    cb(this.getConnectionsConfig());
+    return () => {
+      this.connectionListeners = this.connectionListeners.filter((x) => x !== cb);
+    };
+  }
+
+  private notifyConnectionListeners() {
+    const snapshot = this.getConnectionsConfig();
+    this.connectionListeners.forEach((cb) => cb(snapshot));
+  }
+
   // --- SPOTIFY AUTHENTICATION & TOKEN STORAGE ---
 
   public getAccessToken(): string | null {
@@ -182,27 +535,15 @@ class SpotifyService {
   }
 
   public isConnectedToSpotify(): boolean {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return false;
-    return Boolean(localStorage.getItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN));
+    return this.isPlatformConnected('spotify');
   }
 
   public getConnectedUserName(): string | null {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
-    return localStorage.getItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER) || 'Spotify Hesabı';
+    return this.getPlatformUserName('spotify');
   }
 
   public disconnectSpotify() {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-    localStorage.removeItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(SPOTIFY_STORAGE_KEYS.EXPIRES_AT);
-    localStorage.removeItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER);
-    localStorage.removeItem(SPOTIFY_STORAGE_KEYS.CODE_VERIFIER);
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem(SPOTIFY_STORAGE_KEYS.CODE_VERIFIER);
-    }
-    this.lastLiveTrack = null;
-    this.notifyListeners();
+    this.disconnectPlatform('spotify');
   }
 
   public saveSuccessfulToken(token: string, userName: string, expiresInSec: number = 3600, refreshToken?: string) {
@@ -216,12 +557,9 @@ class SpotifyService {
     if (refreshToken) {
       localStorage.setItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
     }
+    this.connectPlatform('spotify', { accountName: userName, makeActive: true });
   }
 
-  /**
-   * Sets and validates Spotify Access Token with maximum scope tolerance.
-   * Handles raw tokens, JSON strings, URLs, Bearer prefixes, and quotes.
-   */
   public async setDirectAccessToken(
     rawInput: string
   ): Promise<{ success: boolean; error?: string; userName?: string }> {
@@ -231,12 +569,20 @@ class SpotifyService {
 
     let cleanToken = rawInput.trim();
 
-    // If user pasted a URL with code=, automatically forward to code exchanger
     if (cleanToken.includes('code=')) {
       return this.exchangeCodeOrUrl(cleanToken);
     }
 
-    // If user pasted a JSON string e.g. {"access_token": "..."}
+    // If user pasted an open.spotify.com playlist/track link or account name directly:
+    if (cleanToken.includes('open.spotify.com/')) {
+      this.connectPlatform('spotify', {
+        accountName: 'Spotify Hesabı',
+        customPlaylistUrl: cleanToken,
+        makeActive: true,
+      });
+      return { success: true, userName: 'Spotify Hesabı' };
+    }
+
     if (cleanToken.startsWith('{') && cleanToken.includes('access_token')) {
       try {
         const parsed = JSON.parse(cleanToken);
@@ -246,11 +592,9 @@ class SpotifyService {
       } catch {}
     }
 
-    // Strip quotes and Bearer
     cleanToken = cleanToken.replace(/^["']|["']$/g, '');
     cleanToken = cleanToken.replace(/^Bearer\s+/i, '');
 
-    // Extract access_token parameter if a URL was pasted
     if (cleanToken.includes('access_token=')) {
       const match = cleanToken.match(/access_token=([^&/#\s]+)/);
       if (match && match[1]) {
@@ -263,7 +607,6 @@ class SpotifyService {
     }
 
     try {
-      // Test 1: /v1/me (Profile endpoint)
       const meRes = await fetch('https://api.spotify.com/v1/me', {
         headers: { Authorization: `Bearer ${cleanToken}` },
       });
@@ -277,13 +620,10 @@ class SpotifyService {
         return { success: true, userName };
       }
 
-      // Test 2: If /v1/me fails with 403 (due to lacking user-read-private scope),
-      // test player endpoints directly!
       const playerRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
         headers: { Authorization: `Bearer ${cleanToken}` },
       });
 
-      // 200 = track playing, 204 = connected but idle/paused. BOTH MEAN 100% VALID TOKEN!
       if (playerRes.status === 200 || playerRes.status === 204) {
         this.saveSuccessfulToken(cleanToken, 'Spotify Kullanıcısı');
         await this.pollSpotifyNowPlaying();
@@ -291,7 +631,6 @@ class SpotifyService {
         return { success: true, userName: 'Spotify Kullanıcısı' };
       }
 
-      // Test 3: /v1/me/player
       const playerStateRes = await fetch('https://api.spotify.com/v1/me/player', {
         headers: { Authorization: `Bearer ${cleanToken}` },
       });
@@ -305,7 +644,7 @@ class SpotifyService {
       if (meRes.status === 401 || playerRes.status === 401) {
         return {
           success: false,
-          error: 'Spotify Tokeninizin süresi dolmuş (401). Lütfen "Token Al" butonuna basarak yeni bir token alın.',
+          error: 'Spotify Tokeninizin süresi dolmuş (401). Lütfen yeni bir token alın veya Hızlı Bağlantı kullanın.',
         };
       }
 
@@ -328,10 +667,6 @@ class SpotifyService {
     };
   }
 
-  /**
-   * Starts Spotify Authorization Code Flow with PKCE.
-   * Uses safe redirect URI to eliminate Google Cloud Run 404 error completely.
-   */
   public async startSpotifyLogin(clientId?: string, targetRedirectUri?: string) {
     if (typeof window === 'undefined') return;
     const cid = (clientId || localStorage.getItem(SPOTIFY_STORAGE_KEYS.CLIENT_ID) || '').trim();
@@ -358,7 +693,6 @@ class SpotifyService {
     ];
     const scope = encodeURIComponent(scopes.join(' '));
 
-    // response_type=code (strictly required by Spotify PKCE)
     const authUrl = `https://accounts.spotify.com/authorize?client_id=${encodeURIComponent(
       cid
     )}&response_type=code&redirect_uri=${encodeURIComponent(
@@ -373,9 +707,6 @@ class SpotifyService {
     }
   }
 
-  /**
-   * Checks if current URL has code parameter (?code=...) and exchanges it
-   */
   public async checkRedirectCode(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
@@ -420,9 +751,6 @@ class SpotifyService {
     return false;
   }
 
-  /**
-   * Exchanges code from direct string, token, or pasted redirected URL
-   */
   public async exchangeCodeOrUrl(
     input: string
   ): Promise<{ success: boolean; error?: string }> {
@@ -431,7 +759,6 @@ class SpotifyService {
     }
     const raw = input.trim();
 
-    // If it's directly an access token
     if (
       raw.startsWith('BQ') ||
       raw.includes('access_token=') ||
@@ -453,11 +780,9 @@ class SpotifyService {
       }
     } catch {}
 
-    // First try with stored redirect_uri
     const success = await this.exchangeCodeForToken(code);
     if (success) return { success: true };
 
-    // Fallback attempts with all common redirect URIs
     const altRedirects = [
       UNIVERSAL_SAFE_REDIRECT_URI,
       'https://open.spotify.com',
@@ -476,13 +801,10 @@ class SpotifyService {
 
     return {
       success: false,
-      error: 'Kod doğrulanamadı. Kodun süresi dolmuş olabilir (Spotify kodları 10 dakikada süresi biter). Lütfen Spotify ile tekrar izin verin.',
+      error: 'Kod doğrulanamadı. Kodun süresi dolmuş olabilir (Spotify kodları 10 dakikada süresi biter).',
     };
   }
 
-  /**
-   * Exchanges authorization code for Access & Refresh tokens via Spotify Token API with PKCE
-   */
   public async exchangeCodeForToken(code: string, overrideRedirectUri?: string): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
@@ -538,9 +860,6 @@ class SpotifyService {
     return false;
   }
 
-  /**
-   * Refreshes access token automatically using refresh_token
-   */
   public async refreshAccessToken(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     const refreshToken = localStorage.getItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN);
@@ -586,11 +905,12 @@ class SpotifyService {
         const user = await res.json();
         const name = user.display_name || user.id || 'Spotify Hesabı';
         localStorage.setItem(SPOTIFY_STORAGE_KEYS.CONNECTED_USER, name);
+        this.connectPlatform('spotify', { accountName: name, makeActive: false });
       }
     } catch {}
   }
 
-  // --- SPOTIFY LIVE PLAYBACK API (REAL USER SPOTIFY ACTIVITY) ---
+  // --- SPOTIFY LIVE PLAYBACK API ---
 
   public async getSpotifyNowPlaying(): Promise<SpotifyTrack | null> {
     const token = this.getAccessToken();
@@ -603,18 +923,21 @@ class SpotifyService {
         },
       });
 
-      // 204 No Content: user has Spotify open or connected, but nothing is currently playing
       if (res.status === 204 || res.status === 404) {
+        if (this.isStreamPlaying && this.connections.activePlatform === 'spotify') {
+          return this.buildStreamTrackForPlatform('spotify');
+        }
         const awaitingTrack: SpotifyTrack = {
           id: 'spotify-idle',
-          name: 'Spotify Bağlı (Müzik Bekleniyor)',
-          artists: ['Telefonunuzda veya bilgisayarınızda müzik açın'],
+          name: this.connections.spotify.customTrackTitle || 'Spotify Bağlı (Müzik Hazır)',
+          artists: [this.connections.spotify.customArtistName || 'Oynat tuşuna basın veya Spotify uygulamasından başlatın'],
           albumName: 'Canlı Spotify Senkronizasyonu Aktif',
           albumArt: '',
           durationMs: 180000,
           progressMs: 0,
           isPlaying: false,
           source: 'spotify',
+          externalUrl: this.connections.spotify.customPlaylistUrl,
         };
         this.lastLiveTrack = awaitingTrack;
         return awaitingTrack;
@@ -634,22 +957,20 @@ class SpotifyService {
 
       const data = await res.json();
       if (!data || !data.item) {
-        const awaitingTrack: SpotifyTrack = {
-          id: 'spotify-idle',
-          name: 'Spotify Bağlı (Müzik Bekleniyor)',
-          artists: ['Telefonunuzda veya bilgisayarınızda müzik açın'],
-          albumName: 'Canlı Spotify Senkronizasyonu Aktif',
-          albumArt: '',
-          durationMs: 180000,
-          progressMs: 0,
-          isPlaying: false,
-          source: 'spotify',
-        };
-        this.lastLiveTrack = awaitingTrack;
-        return awaitingTrack;
+        return null;
       }
 
       const item = data.item;
+      const isPlayingNow = Boolean(data.is_playing);
+      if (isPlayingNow && this.connections.activePlatform !== 'spotify') {
+        // Automatically detect that Spotify started playing!
+        this.connections.activePlatform = 'spotify';
+        if (this.isStreamPlaying) {
+          this.pauseStream();
+        }
+        this.saveConnectionsToStorage();
+      }
+
       const track: SpotifyTrack = {
         id: item.id,
         name: item.name,
@@ -658,8 +979,9 @@ class SpotifyService {
         albumArt: item.album?.images?.[0]?.url || '',
         durationMs: item.duration_ms || 180000,
         progressMs: data.progress_ms || 0,
-        isPlaying: Boolean(data.is_playing),
+        isPlaying: isPlayingNow,
         source: 'spotify',
+        externalUrl: item.external_urls?.spotify,
       };
       this.lastLiveTrack = track;
       return track;
@@ -668,134 +990,193 @@ class SpotifyService {
     }
   }
 
-  // --- LIVE CONTROLS ON USER'S SPOTIFY DEVICE ---
+  // --- LIVE CONTROLS ON USER'S ACTIVE MUSIC PLATFORM ---
 
   public async spotifyPlay() {
-    if (this.lastLiveTrack) {
-      this.lastLiveTrack = { ...this.lastLiveTrack, isPlaying: true };
-      this.notifyListeners(this.lastLiveTrack);
+    const active = this.connections.activePlatform;
+    if (active === 'spotify' && this.getAccessToken()) {
+      if (this.lastLiveTrack && this.lastLiveTrack.id !== 'spotify-idle') {
+        this.lastLiveTrack = { ...this.lastLiveTrack, isPlaying: true };
+        this.notifyListeners(this.lastLiveTrack);
+      }
+      const token = this.getAccessToken();
+      if (token) {
+        try {
+          const res = await fetch('https://api.spotify.com/v1/me/player/play', {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            this.playStream();
+            return;
+          }
+          setTimeout(() => this.pollSpotifyNowPlaying(), 150);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 500);
+          return;
+        } catch {
+          this.playStream();
+          return;
+        }
+      }
     }
-    const token = this.getAccessToken();
-    if (token) {
-      try {
-        await fetch('https://api.spotify.com/v1/me/player/play', {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setTimeout(() => this.pollSpotifyNowPlaying(), 150);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 500);
-      } catch {}
-    } else {
-      this.playStream();
-    }
+    this.playStream();
   }
 
   public async spotifyPause() {
-    if (this.lastLiveTrack) {
-      this.lastLiveTrack = { ...this.lastLiveTrack, isPlaying: false };
-      this.notifyListeners(this.lastLiveTrack);
-    }
-    const token = this.getAccessToken();
-    if (token) {
-      try {
-        await fetch('https://api.spotify.com/v1/me/player/pause', {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setTimeout(() => this.pollSpotifyNowPlaying(), 150);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 500);
-      } catch {}
-    } else {
+    const active = this.connections.activePlatform;
+    if (this.isStreamPlaying) {
       this.pauseStream();
+    }
+    if (active === 'spotify' && this.getAccessToken()) {
+      if (this.lastLiveTrack) {
+        this.lastLiveTrack = { ...this.lastLiveTrack, isPlaying: false };
+        this.notifyListeners(this.lastLiveTrack);
+      }
+      const token = this.getAccessToken();
+      if (token) {
+        try {
+          await fetch('https://api.spotify.com/v1/me/player/pause', {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setTimeout(() => this.pollSpotifyNowPlaying(), 150);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 500);
+        } catch {}
+      }
     }
   }
 
   public async spotifyNext() {
-    if (this.lastLiveTrack) {
-      this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: 0, isPlaying: true };
-      this.notifyListeners(this.lastLiveTrack);
-    }
-    const token = this.getAccessToken();
-    if (token) {
-      try {
-        await fetch('https://api.spotify.com/v1/me/player/next', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setTimeout(() => this.pollSpotifyNowPlaying(), 150);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 450);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 900);
-      } catch {
-        this.nextStream();
+    const active = this.connections.activePlatform;
+    if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
+      if (this.lastLiveTrack) {
+        this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: 0, isPlaying: true };
+        this.notifyListeners(this.lastLiveTrack);
       }
-    } else {
-      this.nextStream();
+      const token = this.getAccessToken();
+      if (token) {
+        try {
+          const res = await fetch('https://api.spotify.com/v1/me/player/next', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            this.nextStream();
+            return;
+          }
+          setTimeout(() => this.pollSpotifyNowPlaying(), 150);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 450);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 900);
+          return;
+        } catch {
+          this.nextStream();
+          return;
+        }
+      }
     }
+    this.nextStream();
   }
 
   public async spotifyPrevious() {
-    if (this.lastLiveTrack) {
-      this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: 0, isPlaying: true };
-      this.notifyListeners(this.lastLiveTrack);
-    }
-    const token = this.getAccessToken();
-    if (token) {
-      try {
-        await fetch('https://api.spotify.com/v1/me/player/previous', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setTimeout(() => this.pollSpotifyNowPlaying(), 150);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 450);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 900);
-      } catch {
-        this.previousStream();
+    const active = this.connections.activePlatform;
+    if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
+      if (this.lastLiveTrack) {
+        this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: 0, isPlaying: true };
+        this.notifyListeners(this.lastLiveTrack);
       }
-    } else {
-      this.previousStream();
+      const token = this.getAccessToken();
+      if (token) {
+        try {
+          const res = await fetch('https://api.spotify.com/v1/me/player/previous', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            this.previousStream();
+            return;
+          }
+          setTimeout(() => this.pollSpotifyNowPlaying(), 150);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 450);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 900);
+          return;
+        } catch {
+          this.previousStream();
+          return;
+        }
+      }
     }
+    this.previousStream();
   }
 
   public async spotifySeek(positionMs: number) {
-    if (this.lastLiveTrack) {
-      this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: Math.floor(positionMs) };
-      this.notifyListeners(this.lastLiveTrack);
-    }
-    const token = this.getAccessToken();
-    if (token) {
-      try {
-        await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${Math.floor(positionMs)}`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setTimeout(() => this.pollSpotifyNowPlaying(), 150);
-        setTimeout(() => this.pollSpotifyNowPlaying(), 500);
-      } catch {
-        this.seekStream(positionMs);
+    const active = this.connections.activePlatform;
+    if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
+      if (this.lastLiveTrack) {
+        this.lastLiveTrack = { ...this.lastLiveTrack, progressMs: Math.floor(positionMs) };
+        this.notifyListeners(this.lastLiveTrack);
       }
-    } else {
-      this.seekStream(positionMs);
+      const token = this.getAccessToken();
+      if (token) {
+        try {
+          const res = await fetch(
+            `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.floor(positionMs)}`,
+            {
+              method: 'PUT',
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+          if (!res.ok) {
+            this.seekStream(positionMs);
+            return;
+          }
+          setTimeout(() => this.pollSpotifyNowPlaying(), 150);
+          setTimeout(() => this.pollSpotifyNowPlaying(), 500);
+          return;
+        } catch {
+          this.seekStream(positionMs);
+          return;
+        }
+      }
     }
+    this.seekStream(positionMs);
   }
 
-  // --- AUDIO STREAM (FALLBACK WHEN SPOTIFY IS NOT CONNECTED) ---
+  // --- AUDIO STREAM & PLATFORM-AWARE TRACK RESOLUTION ---
 
-  public getCurrentTrack(): SpotifyTrack {
-    if (this.isConnectedToSpotify() && this.lastLiveTrack) {
-      return this.lastLiveTrack;
-    }
+  private buildStreamTrackForPlatform(platform: MusicPlatform): SpotifyTrack {
     const stream = STUDY_STREAMS[this.currentStreamIndex] || STUDY_STREAMS[0];
+    const conn = this.connections[platform];
+    const meta = PLATFORM_METADATA[platform];
+
+    const customTitle = conn?.customTrackTitle;
+    const customArtist = conn?.customArtistName;
+
     return {
-      id: stream.id,
-      name: stream.name,
-      artists: [stream.artist],
-      albumName: stream.album,
+      id: `${platform}-${stream.id}`,
+      name: customTitle && this.currentStreamIndex === 0 ? customTitle : stream.name,
+      artists: [customArtist && this.currentStreamIndex === 0 ? customArtist : stream.artist],
+      albumName: conn?.connected ? `${meta.name} · ${stream.album}` : stream.album,
       albumArt: stream.cover,
       durationMs: stream.durationMs,
       progressMs: this.streamProgressMs,
       isPlaying: this.isStreamPlaying,
-      source: 'focus_stream',
+      source: platform,
+      externalUrl: conn?.customPlaylistUrl || meta.externalAppUrl,
     };
+  }
+
+  public getCurrentTrack(): SpotifyTrack {
+    const detected = this.getDetectedPlatform();
+    const active = detected || this.connections.activePlatform || 'spotify';
+    if (
+      active === 'spotify' &&
+      this.getAccessToken() &&
+      this.lastLiveTrack &&
+      (!this.isStreamPlaying || this.lastLiveTrack.isPlaying)
+    ) {
+      return this.lastLiveTrack;
+    }
+    return this.buildStreamTrackForPlatform(active);
   }
 
   public toggleStreamPlay(): boolean {
@@ -875,9 +1256,9 @@ class SpotifyService {
   }
 
   public async pollSpotifyNowPlaying(): Promise<SpotifyTrack | null> {
-    if (this.isConnectedToSpotify()) {
+    if (this.getAccessToken()) {
       const spotifyTrack = await this.getSpotifyNowPlaying();
-      if (spotifyTrack) {
+      if (spotifyTrack && (this.connections.activePlatform === 'spotify' || spotifyTrack.isPlaying)) {
         this.notifyListeners(spotifyTrack);
         return spotifyTrack;
       }

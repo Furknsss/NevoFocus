@@ -159,6 +159,24 @@ export interface StudyRoom {
   participants?: string[];
 }
 
+export type MusicPlatform = 'spotify' | 'youtube_music' | 'apple_music';
+
+export interface PlatformConnectionInfo {
+  connected: boolean;
+  accountName: string;
+  customPlaylistUrl?: string;
+  customTrackTitle?: string;
+  customArtistName?: string;
+  connectedAt?: number;
+}
+
+export interface MusicConnectionsConfig {
+  activePlatform: MusicPlatform;
+  spotify: PlatformConnectionInfo;
+  youtube_music: PlatformConnectionInfo;
+  apple_music: PlatformConnectionInfo;
+}
+
 export interface UserProfile {
   userId?: string;
   email?: string;
@@ -189,6 +207,7 @@ export interface UserProfile {
   weeklyRestDays?: number[]; // [0 = Pazar, 1 = Pazartesi, 2 = Salı, 3 = Çarşamba, 4 = Perşembe, 5 = Cuma, 6 = Cumartesi]
   customRestDates?: string[]; // Array of YYYY-MM-DD for week-specific custom rest days
   excludedRestDates?: string[]; // Array of YYYY-MM-DD to remove rest day for a specific week
+  musicConnections?: MusicConnectionsConfig;
 }
 
 export const SERBEST_CALISMA_SUBJECT: SubjectItem = {
@@ -196,4 +215,5 @@ export const SERBEST_CALISMA_SUBJECT: SubjectItem = {
   name: 'Serbest Çalışma',
   color: '#6366f1',
 };
+
 

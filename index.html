@@ -22,6 +22,50 @@
   </head>
   <body class="bg-[#0b0c10] text-[#f1f5f9] antialiased selection:bg-[#ff5500]/30 selection:text-white min-h-screen overflow-x-hidden">
     <div id="root"></div>
+    <script>
+      (function () {
+        if (typeof window === 'undefined' || !window.WebSocket) return;
+        const NativeWebSocket = window.WebSocket;
+        const DummyWebSocket = function (url, protocols) {
+          const protoStr = Array.isArray(protocols) ? protocols.join(',') : String(protocols || '');
+          const urlStr = String(url || '');
+          const isViteHmr =
+            protoStr.includes('vite-hmr') ||
+            protoStr.includes('vite-ping') ||
+            urlStr.includes('vite-hmr') ||
+            (urlStr.includes(window.location.host) && !urlStr.includes('firestore') && !urlStr.includes('firebase'));
+          if (isViteHmr) {
+            const fakeWs = {
+              url: urlStr,
+              readyState: 3, // CLOSED
+              protocol: protoStr,
+              extensions: '',
+              bufferedAmount: 0,
+              binaryType: 'blob',
+              send: function () {},
+              close: function () {},
+              addEventListener: function () {},
+              removeEventListener: function () {},
+              dispatchEvent: function () { return true; },
+              onopen: null,
+              onmessage: null,
+              onerror: null,
+              onclose: null,
+            };
+            return fakeWs;
+          }
+          return protocols !== undefined
+            ? new NativeWebSocket(url, protocols)
+            : new NativeWebSocket(url);
+        };
+        DummyWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+        DummyWebSocket.OPEN = NativeWebSocket.OPEN;
+        DummyWebSocket.CLOSING = NativeWebSocket.CLOSING;
+        DummyWebSocket.CLOSED = NativeWebSocket.CLOSED;
+        DummyWebSocket.prototype = NativeWebSocket.prototype;
+        window.WebSocket = DummyWebSocket;
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {

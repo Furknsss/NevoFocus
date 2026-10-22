@@ -79,6 +79,7 @@ export async function syncAllToFirestore(
       desktopNotifications: profile.desktopNotifications ?? false,
       liveNotifications: profile.liveNotifications ?? false,
       theme: profile.theme || 'dark',
+      musicConnections: profile.musicConnections || undefined,
       lastSyncAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -233,7 +234,7 @@ export async function restoreAllFromFirestore(
 
     // 6. Update Profile
     let mergedProfile = getStoredProfile();
-    if (cloudProfile.name || cloudProfile.targetExam) {
+    if (cloudProfile.name || cloudProfile.targetExam || cloudProfile.musicConnections) {
       mergedProfile = updateStoredProfile(cloudProfile);
     }
 
