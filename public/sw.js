@@ -1,5 +1,5 @@
-// Fokus PWA Service Worker with Background Focus Timer & Pure Black Capsule Notification Engine
-const CACHE_NAME = 'fokus-pwa-v7';
+// Fokus PWA Service Worker with Smooth Synchronized Non-Expanding Black Capsule Notification Engine
+const CACHE_NAME = 'fokus-pwa-v8';
 const PRECACHE_URLS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png',
@@ -9,7 +9,7 @@ const PRECACHE_URLS = [
 
 let activeSessionState = null;
 let bgTimerInterval = null;
-let cachedBlackIconUrl = null;
+let lastRenderedSecondKey = '';
 
 function formatTimerDisplay(totalSecs) {
   const safe = Math.max(0, Math.floor(totalSecs));
@@ -32,142 +32,35 @@ async function blobToDataUrl(blob) {
   return 'data:image/png;base64,' + btoa(binary);
 }
 
-async function getPureBlackIconUrl() {
-  if (cachedBlackIconUrl) return cachedBlackIconUrl;
+async function generateBlackCapsuleClockIcon(timeFormatted) {
   if (typeof OffscreenCanvas === 'undefined') return undefined;
   try {
-    const canvas = new OffscreenCanvas(96, 96);
+    const canvas = new OffscreenCanvas(192, 192);
     const ctx = canvas.getContext('2d');
     if (ctx) {
+      ctx.clearRect(0, 0, 192, 192);
       ctx.fillStyle = '#000000';
       ctx.beginPath();
-      ctx.arc(48, 48, 46, 0, Math.PI * 2);
+      ctx.roundRect(8, 36, 176, 120, 60);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      const fontSize = timeFormatted.length > 5 ? 36 : 48;
+      ctx.font = `900 ${fontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(timeFormatted, 96, 98);
+
       const blob = await canvas.convertToBlob({ type: 'image/png' });
-      cachedBlackIconUrl = await blobToDataUrl(blob);
-      return cachedBlackIconUrl;
+      return await blobToDataUrl(blob);
     }
   } catch {
     // ignore
   }
   return undefined;
-}
-
-async function generatePureBlackCapsuleImageUrl(timeFormatted, isPaused, isCampActive) {
-  if (typeof OffscreenCanvas === 'undefined') return undefined;
-  try {
-    const w = 560;
-    const h = 140;
-    const canvas = new OffscreenCanvas(w, h);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return undefined;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // Pure black stadium capsule (#000000)
-    const radius = h / 2;
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.moveTo(radius, 0);
-    ctx.lineTo(w - radius, 0);
-    ctx.quadraticCurveTo(w, 0, w, radius);
-    ctx.quadraticCurveTo(w, h, w - radius, h);
-    ctx.lineTo(radius, h);
-    ctx.quadraticCurveTo(0, h, 0, radius);
-    ctx.quadraticCurveTo(0, 0, radius, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Left: Bold White Timer
-    ctx.fillStyle = '#ffffff';
-    const fontSize = timeFormatted.length > 5 ? 46 : 56;
-    ctx.font = `900 ${fontSize}px monospace`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText(timeFormatted, 34, h / 2 + 2);
-
-    // Right: 3 Circular Icon Buttons (Orange Break, Red/Green Pause-Play, White Maximize)
-    const r = 34;
-    const cy = h / 2;
-    const cx3 = w - 58;
-    const cx2 = cx3 - 82;
-    const cx1 = cx2 - 82;
-
-    // 1. Orange Break Circle
-    ctx.beginPath();
-    ctx.arc(cx1, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = isCampActive ? '#f59e0b' : '#ff5500';
-    ctx.fill();
-    ctx.strokeStyle = isCampActive ? '#000000' : '#ffffff';
-    ctx.lineWidth = 3.2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx1 - 11, cy - 4);
-    ctx.lineTo(cx1 + 7, cy - 4);
-    ctx.lineTo(cx1 + 5, cy + 9);
-    ctx.quadraticCurveTo(cx1 - 2, cy + 12, cx1 - 9, cy + 9);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx1 + 8, cy + 2, 4.5, -Math.PI / 2, Math.PI / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx1 - 5, cy - 11);
-    ctx.lineTo(cx1 - 5, cy - 8);
-    ctx.moveTo(cx1 + 1, cy - 11);
-    ctx.lineTo(cx1 + 1, cy - 8);
-    ctx.stroke();
-
-    // 2. Red Pause / Green Play Circle
-    ctx.beginPath();
-    ctx.arc(cx2, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = isPaused ? '#10b981' : '#dc2626';
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    if (isPaused) {
-      ctx.beginPath();
-      ctx.moveTo(cx2 - 7, cy - 12);
-      ctx.lineTo(cx2 + 12, cy);
-      ctx.lineTo(cx2 - 7, cy + 12);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillRect(cx2 - 9, cy - 11, 6, 22);
-      ctx.fillRect(cx2 + 3, cy - 11, 6, 22);
-    }
-
-    // 3. White Maximize Circle
-    ctx.beginPath();
-    ctx.arc(cx3, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3.4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx3 + 2, cy - 10);
-    ctx.lineTo(cx3 + 10, cy - 10);
-    ctx.lineTo(cx3 + 10, cy - 2);
-    ctx.moveTo(cx3 + 10, cy - 10);
-    ctx.lineTo(cx3 + 2, cy - 2);
-    ctx.moveTo(cx3 - 2, cy + 10);
-    ctx.lineTo(cx3 - 10, cy + 10);
-    ctx.lineTo(cx3 - 10, cy + 2);
-    ctx.moveTo(cx3 - 10, cy + 10);
-    ctx.lineTo(cx3 - 2, cy + 2);
-    ctx.stroke();
-
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
-    return await blobToDataUrl(blob);
-  } catch {
-    return undefined;
-  }
 }
 
 async function renderActiveNotification() {
@@ -194,35 +87,30 @@ async function renderActiveNotification() {
     ? elapsedFocus
     : remainingSecs;
 
-  const title = formatTimerDisplay(activeSecs);
+  const timeFormatted = formatTimerDisplay(activeSecs);
+  const currentKey = `${timeFormatted}_${p.isPaused}_${p.isCampActive}`;
+  if (currentKey === lastRenderedSecondKey) return;
+  lastRenderedSecondKey = currentKey;
+
+  const title = `⏱ ${timeFormatted}`;
+  const subj = p.subjectName || 'Odaklanma';
   const body = p.isCampActive
-    ? 'Mola Süresi'
+    ? `Mola · ${subj}`
     : p.isPaused
-    ? 'Duraklatıldı'
-    : 'Odak Süresi';
+    ? `Duraklatıldı · ${subj}`
+    : `${subj}`;
 
   try {
+    const iconUrl = await generateBlackCapsuleClockIcon(timeFormatted);
+    // Compact, non-expanding notification (no actions array, no large banner)
     await self.registration.showNotification(title, {
       body,
+      icon: iconUrl,
       tag: 'fokus-active-timer',
       renotify: false,
       silent: true,
       requireInteraction: true,
       data: { url: '/' },
-      actions: [
-        {
-          action: 'toggle_break',
-          title: p.isCampActive ? 'Mola Bitti' : 'Mola',
-        },
-        {
-          action: 'toggle_pause',
-          title: p.isPaused ? 'Başlat' : 'Durdur',
-        },
-        {
-          action: 'open_app',
-          title: 'Büyüt',
-        },
-      ],
     });
   } catch {
     // ignore
@@ -245,6 +133,7 @@ function stopBackgroundLoop() {
     bgTimerInterval = null;
   }
   activeSessionState = null;
+  lastRenderedSecondKey = '';
   self.registration
     .getNotifications({ tag: 'fokus-active-timer' })
     .then((list) => list.forEach((n) => n.close()))
@@ -260,7 +149,7 @@ self.addEventListener('message', (event) => {
       renderActiveNotification();
       startBackgroundLoop();
     } else if (activeSessionState && !activeSessionState.isHidden) {
-      // App is visible on screen: close notification so it doesn't clutter while user is looking at the app
+      lastRenderedSecondKey = '';
       self.registration
         .getNotifications({ tag: 'fokus-active-timer' })
         .then((list) => list.forEach((n) => n.close()))
@@ -272,67 +161,6 @@ self.addEventListener('message', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
-  const action = event.action;
-
-  if (action === 'toggle_break') {
-    if (activeSessionState) {
-      const now = Date.now();
-      if (!activeSessionState.isCampActive) {
-        if (!activeSessionState.isPaused) {
-          const delta = Math.max(0, Math.floor((now - (activeSessionState.anchorTimestamp || now)) / 1000));
-          activeSessionState.accumulatedFocusSeconds = (activeSessionState.accumulatedFocusSeconds || 0) + delta;
-        }
-        activeSessionState.breakAnchorTimestamp = now;
-        activeSessionState.isCampActive = true;
-      } else {
-        if (!activeSessionState.isPaused) {
-          const bDelta = Math.max(0, Math.floor((now - (activeSessionState.breakAnchorTimestamp || now)) / 1000));
-          activeSessionState.accumulatedBreakSeconds = (activeSessionState.accumulatedBreakSeconds || 0) + bDelta;
-        }
-        activeSessionState.anchorTimestamp = now;
-        activeSessionState.isCampActive = false;
-      }
-      renderActiveNotification();
-    }
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-        clientList.forEach((client) => {
-          client.postMessage({
-            type: 'FOKUS_NOTIFICATION_ACTION',
-            action: 'toggle_break',
-          });
-        });
-      })
-    );
-    return;
-  }
-
-  if (action === 'toggle_pause') {
-    if (activeSessionState) {
-      const now = Date.now();
-      if (!activeSessionState.isPaused) {
-        const delta = Math.max(0, Math.floor((now - (activeSessionState.anchorTimestamp || now)) / 1000));
-        activeSessionState.accumulatedFocusSeconds = (activeSessionState.accumulatedFocusSeconds || 0) + delta;
-        activeSessionState.isPaused = true;
-      } else {
-        activeSessionState.anchorTimestamp = now;
-        activeSessionState.isPaused = false;
-      }
-      renderActiveNotification();
-    }
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-        clientList.forEach((client) => {
-          client.postMessage({
-            type: 'FOKUS_NOTIFICATION_ACTION',
-            action: 'toggle_pause',
-          });
-        });
-      })
-    );
-    return;
-  }
-
   event.notification.close();
 
   event.waitUntil(
@@ -383,7 +211,6 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Never intercept Firebase, Google APIs, Vite dev endpoints, or source modules
   if (
     url.hostname.includes('firebase') ||
     url.hostname.includes('googleapis') ||
@@ -414,7 +241,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for HTML & app assets so refresh always serves latest state
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
@@ -425,4 +251,3 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
-

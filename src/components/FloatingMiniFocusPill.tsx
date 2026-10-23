@@ -3,7 +3,6 @@ import {
   Coffee,
   Pause,
   Play,
-  Maximize2,
 } from 'lucide-react';
 import { FocusModeType, SubjectItem } from '../types';
 import { soundEngine } from '../utils/audio';
@@ -95,7 +94,7 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
       setBreakSeconds(computeLiveBreakSeconds());
     };
     sync();
-    const interval = window.setInterval(sync, 250);
+    const interval = window.setInterval(sync, 200);
     return () => window.clearInterval(interval);
   }, [computeLiveFocusSeconds, computeLiveBreakSeconds]);
 
@@ -118,24 +117,34 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
           : 'bottom-6 right-6'
       }`}
     >
-      {/* Saf Siyah Kapsül: En solda beyaz süre, sağında Turuncu Mola, Kırmızı Durdur / Yeşil Başlat ve Beyaz Büyüt */}
-      <div className="bg-black border border-white/15 rounded-full px-6 py-3.5 shadow-[0_16px_50px_rgba(0,0,0,0.95)] flex items-center gap-5 sm:gap-6 select-none">
-        {/* En Solda: Premium Beyaz Süre */}
+      {/* Genişletmesiz Saf Siyah Kapsül + Beyaz Premium Saat */}
+      <div className="bg-black border border-white/15 rounded-full px-5 py-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.96)] flex items-center gap-4 select-none">
+        {/* Beyaz Premium Saat (Tıklanınca doğrudan Focus ekranını açar) */}
         <button
           type="button"
           onClick={() => {
             soundEngine.playClick();
             onMaximize();
           }}
-          className="font-mono text-2xl sm:text-3xl font-black text-white tracking-tight tabular-nums leading-none cursor-pointer focus:outline-none"
-          title="Focus Ekranını Aç"
+          className="flex items-center gap-2.5 cursor-pointer focus:outline-none group"
+          title="Focus Ekranına Dön"
         >
-          {timeString}
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${
+              session.isCampActive
+                ? 'bg-amber-400'
+                : session.isPaused
+                ? 'bg-red-500'
+                : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]'
+            }`}
+          />
+          <span className="font-mono text-2xl sm:text-[28px] font-black text-white tracking-tight tabular-nums leading-none group-hover:opacity-90 transition-opacity">
+            {timeString}
+          </span>
         </button>
 
-        {/* Sağda: Eşit Büyüklükte 3 İkon Buton (Mola Turuncu, Durdur Kırmızı / Başlat Yeşil, Büyüt Beyaz) */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          {/* 1. Mola Butonu (Turuncu - Focus ekranındaki gibi) */}
+        {/* Kompakt Mola & Durdur/Başlat Kontrolleri (Genişletme butonu yok) */}
+        <div className="flex items-center gap-2 shrink-0 pl-1 border-l border-white/10">
           <button
             type="button"
             onClick={() => {
@@ -146,51 +155,36 @@ export const FloatingMiniFocusPill: React.FC<FloatingMiniFocusPillProps> = ({
                 onMaximize();
               }
             }}
-            className={`w-11 h-11 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-lg ${
+            className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
               session.isCampActive
-                ? 'bg-amber-400 text-black ring-2 ring-amber-200 shadow-amber-500/40'
-                : 'bg-[#ff5500] hover:bg-[#ff6600] text-white shadow-[#ff5500]/35'
+                ? 'bg-amber-400 text-black'
+                : 'bg-white/10 hover:bg-white/20 text-white'
             }`}
             title={session.isCampActive ? 'Molayı Bitir' : 'Mola Ver'}
             aria-label={session.isCampActive ? 'Molayı Bitir' : 'Mola Ver'}
           >
-            <Coffee className="w-5 h-5 stroke-[2.4]" />
+            <Coffee className="w-4 h-4 stroke-[2.3]" />
           </button>
 
-          {/* 2. Durdur (Kırmızı) / Başlat (Yeşil) Butonu */}
           <button
             type="button"
             onClick={() => {
               soundEngine.playClick();
               onTogglePause();
             }}
-            className={`w-11 h-11 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-lg ${
+            className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
               session.isPaused
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/40'
-                : 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/40'
+                ? 'bg-white text-black'
+                : 'bg-white/10 hover:bg-white/20 text-white'
             }`}
-            title={session.isPaused ? 'Başlat' : 'Durdur'}
-            aria-label={session.isPaused ? 'Başlat' : 'Durdur'}
+            title={session.isPaused ? 'Başlat' : 'Duraklat'}
+            aria-label={session.isPaused ? 'Başlat' : 'Duraklat'}
           >
             {session.isPaused ? (
-              <Play className="w-5 h-5 fill-current ml-0.5" />
+              <Play className="w-4 h-4 fill-current ml-0.5" />
             ) : (
-              <Pause className="w-5 h-5 fill-current" />
+              <Pause className="w-4 h-4 fill-current" />
             )}
-          </button>
-
-          {/* 3. Büyütme Butonu (Beyaz - Basınca Focus ekranına atar) */}
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playClick();
-              onMaximize();
-            }}
-            className="w-11 h-11 rounded-full bg-white hover:bg-neutral-200 text-black flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-lg shadow-white/20"
-            title="Büyüt (Focus Ekranına Dön)"
-            aria-label="Büyüt"
-          >
-            <Maximize2 className="w-5 h-5 stroke-[2.5]" />
           </button>
         </div>
       </div>

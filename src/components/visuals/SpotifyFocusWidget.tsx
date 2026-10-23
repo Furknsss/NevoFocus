@@ -19,12 +19,8 @@ import { MusicPlatform } from '../../types';
 import { soundEngine } from '../../utils/audio';
 
 export const SpotifyIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-    <rect x="0" y="0" width="24" height="24" rx="5" fill="#1DB954" />
-    <path
-      fill="#000000"
-      d="M17.517 17.307c-.217.355-.678.468-1.033.251-2.827-1.728-6.386-2.119-10.578-1.162-.403.092-.806-.157-.898-.56-.093-.404.156-.807.56-.899 4.587-1.047 8.528-.598 11.698 1.337.355.217.468.678.251 1.033zm1.472-3.272c-.273.444-.856.587-1.3.314-3.236-1.99-8.169-2.565-11.997-1.401-.497.151-1.026-.134-1.177-.631-.151-.497.134-1.026.631-1.177 4.38-1.331 9.815-.688 13.53 1.595.444.273.587.856.314 1.3zm.127-3.408C15.244 8.324 8.877 8.113 5.168 9.24c-.604.183-1.246-.167-1.429-.771-.183-.604.167-1.246.771-1.429 4.265-1.295 11.302-1.054 15.74 1.581.543.322.722 1.026.4 1.569-.322.543-1.026.722-1.569.4z"
-    />
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
   </svg>
 );
 
@@ -60,7 +56,7 @@ export const PlatformIcon: React.FC<{ platform: MusicPlatform; className?: strin
 }) => {
   if (platform === 'youtube_music') return <YouTubeMusicIcon className={className} />;
   if (platform === 'apple_music') return <AppleMusicIcon className={className} />;
-  return <SpotifyIcon className={className} />;
+  return <SpotifyIcon className={`${className} text-[#1DB954]`} />;
 };
 
 interface SpotifyFocusWidgetProps {
@@ -242,7 +238,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = ({
         if (activePlayingPlatform === 'apple_music') {
           return 'p-0 overflow-hidden border-[#FA2D48] shadow-[#FA2D48]/50 ring-2 ring-[#FA2D48] scale-105';
         }
-        return 'p-0 overflow-hidden border-[#1DB954] shadow-[#1DB954]/50 ring-2 ring-[#1DB954] scale-105';
+        return 'bg-[#1DB954] text-black border-[#1DB954] shadow-[#1DB954]/50 scale-105';
       }
 
       if (activePlayingPlatform === 'youtube_music') {
@@ -251,7 +247,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = ({
       if (activePlayingPlatform === 'apple_music') {
         return 'p-0 overflow-hidden border-[#FA2D48]/80 hover:scale-105 ring-2 ring-[#FA2D48]/40 shadow-[#FA2D48]/30';
       }
-      return 'p-0 overflow-hidden border-[#1DB954]/80 hover:scale-105 ring-2 ring-[#1DB954]/40 shadow-[#1DB954]/30';
+      return 'bg-black/85 text-[#1DB954] border-[#1DB954]/60 hover:bg-[#1DB954]/15 hover:scale-105 ring-2 ring-[#1DB954]/30 shadow-[#1DB954]/20';
     }
 
     if (isOpen) {
@@ -265,7 +261,8 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = ({
     <>
       {/* 1. Sol Müzik Butonu:
           Bağlanılmadıysa veya o an çalan bir şey yoksa: Müzik Logosu (<Music />).
-          Spotify, YouTube Music veya Apple Music'ten dinleniyorsa: İlgili platformun logosu butonu tam kapsar (full-bleed). */}
+          Spotify çalıyorsa: Klasik Spotify buton ve logo stili.
+          YouTube Music veya Apple Music çalıyorsa: İlgili platformun logosu butonu tam kapsar (full-bleed). */}
       <button
         type="button"
         onClick={() => {
@@ -277,10 +274,14 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = ({
         aria-label="Müzik Çalar"
       >
         {showPlatformIdentity && activePlayingPlatform ? (
-          <PlatformIcon
-            platform={activePlayingPlatform}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-          />
+          activePlayingPlatform === 'spotify' ? (
+            <SpotifyIcon className="w-7 h-7 sm:w-8 sm:h-8 transition-transform group-hover:scale-110" />
+          ) : (
+            <PlatformIcon
+              platform={activePlayingPlatform}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+          )
         ) : (
           <Music className="w-7 h-7 sm:w-8 sm:h-8 transition-transform group-hover:scale-110" />
         )}

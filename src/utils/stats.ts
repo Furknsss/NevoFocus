@@ -165,3 +165,85 @@ export function calculateTodayMinutes(sessions: FocusSession[]): number {
   return Math.max(1, Math.round(todaySeconds / 60));
 }
 
+/**
+ * Returns the Monday YYYY-MM-DD of the current week (Monday-start).
+ */
+export function getCurrentWeekKey(now: Date = new Date()): string {
+  const dayOfWeek = (now.getDay() + 6) % 7; // 0 = Monday ... 6 = Sunday
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+  return getLocalDateString(monday);
+}
+
+/**
+ * Returns YYYY-MM for the current month.
+ */
+export function getCurrentMonthKey(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+/**
+ * Calculates current week's (Monday through Sunday) total studied minutes.
+ */
+export function calculateWeeklyMinutes(sessions: FocusSession[]): number {
+  const validSessions = getValidCompletedSessions(sessions);
+  if (validSessions.length === 0) return 0;
+  const mondayStr = getCurrentWeekKey(new Date());
+  const todayStr = getLocalDateString(new Date());
+  const weekSeconds = validSessions
+    .filter((s) => s.dateString >= mondayStr && s.dateString <= todayStr)
+    .reduce((acc, s) => acc + s.completedSeconds, 0);
+  if (weekSeconds <= 0) return 0;
+  return Math.max(1, Math.round(weekSeconds / 60));
+}
+
+/**
+ * Calculates current month's total studied minutes and rich summary metrics.
+ */
+export function calculateMonthlyStatsSummary(sessions: FocusSession[]): {
+  monthlyMinutes: number;
+  monthlySessionsCount: number;
+  monthlyActiveDays: number;
+  favoriteSubject: string;
+} {
+  const validSessions = getValidCompletedSessions(sessions);
+  const monthPrefix = getCurrentMonthKey(new Date());
+  const monthSessions = validSessions.filter((s) => s.dateString.startsWith(monthPrefix));
+
+  if (monthSessions.length === 0) {
+    return {
+      monthlyMinutes: 0,
+      monthlySessionsCount: 0,
+      monthlyActiveDays: 0,
+      favoriteSubject: 'Genel Odak',
+    };
+  }
+
+  const totalSecs = monthSessions.reduce((acc, s) => acc + s.completedSeconds, 0);
+  const monthlyMinutes = totalSecs > 0 ? Math.max(1, Math.round(totalSecs / 60)) : 0;
+  const activeDaysSet = new Set(monthSessions.map((s) => s.dateString));
+
+  const subjectMap = new Map<string, number>();
+  for (const s of monthSessions) {
+    const subj = s.subjectName || 'Genel Odak';
+    subjectMap.set(subj, (subjectMap.get(subj) || 0) + s.completedSeconds);
+  }
+  let favoriteSubject = 'Genel Odak';
+  let maxSubjSecs = -1;
+  subjectMap.forEach((secs, subj) => {
+    if (secs > maxSubjSecs) {
+      maxSubjSecs = secs;
+      favoriteSubject = subj;
+    }
+  });
+
+  return {
+    monthlyMinutes,
+    monthlySessionsCount: monthSessions.length,
+    monthlyActiveDays: activeDaysSet.size,
+    favoriteSubject,
+  };
+}
+
+

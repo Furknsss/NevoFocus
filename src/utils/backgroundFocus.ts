@@ -1,4 +1,4 @@
-// Background Focus Persistence, Pure Black PiP Capsule, Live Notification & Lock-Screen MediaSession Engine
+// Background Focus Persistence, Non-Expanding Pure Black PiP Capsule & Live Synchronized Notification Engine
 
 const DEVICE_ID_KEY = 'fokus_device_id_v1';
 const TERMINATED_STARTS_KEY = 'fokus_terminated_session_starts_v1';
@@ -155,32 +155,48 @@ export function computeDisplayTimeFromPayload(payload: LiveNotificationPayload):
   };
 }
 
-// Pure Black 96x96 Circle Icon Generator (eliminates the orange "F" app icon in notifications)
-let cachedBlackIconDataUrl: string | null = null;
-function getPureBlackIconDataUrl(): string {
-  if (cachedBlackIconDataUrl) return cachedBlackIconDataUrl;
+// Pure Black Capsule Clock Icon Generator for Notifications
+let cachedBlackClockIconUrl: string | null = null;
+let cachedLastTimeRendered = '';
+
+function getPureBlackClockIconDataUrl(timeFormatted: string): string {
   if (typeof document === 'undefined') return '';
+  if (cachedBlackClockIconUrl && cachedLastTimeRendered === timeFormatted) {
+    return cachedBlackClockIconUrl;
+  }
   try {
     const c = document.createElement('canvas');
-    c.width = 96;
-    c.height = 96;
+    c.width = 192;
+    c.height = 192;
     const ctx = c.getContext('2d');
     if (ctx) {
+      // Pure black rounded capsule square
       ctx.fillStyle = '#000000';
       ctx.beginPath();
-      ctx.arc(48, 48, 46, 0, Math.PI * 2);
+      ctx.roundRect(8, 36, 176, 120, 60);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // White premium clock digits inside the black capsule
+      ctx.fillStyle = '#ffffff';
+      const fontSize = timeFormatted.length > 5 ? 36 : 48;
+      ctx.font = `900 ${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(timeFormatted, 96, 98);
     }
-    cachedBlackIconDataUrl = c.toDataURL('image/png');
-    return cachedBlackIconDataUrl;
+    cachedLastTimeRendered = timeFormatted;
+    cachedBlackClockIconUrl = c.toDataURL('image/png');
+    return cachedBlackClockIconUrl;
   } catch {
     return '';
   }
 }
 
 /**
- * Draws the Pure Black Focus Capsule (#000000 pill, bold white timer on left,
- * Orange Break + Red/Green Pause-Play + White Maximize circular icon buttons on right)
+ * Draws the Non-Expanding Pure Black Focus Capsule (#000000 pill + bold white premium clock)
  * onto a 2D canvas context.
  */
 function renderPureBlackCapsuleToContext(
@@ -207,102 +223,26 @@ function renderPureBlackCapsuleToContext(
   ctx.closePath();
   ctx.fill();
 
-  // Subtle dark border so capsule edges look crisp on dark notification shade
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  // Subtle dark border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Left: Bold White Timer (no left icon/logo)
+  // Status indicator dot
+  const dotX = 44;
+  const dotY = h / 2;
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 7, 0, Math.PI * 2);
+  ctx.fillStyle = isCampActive ? '#fbbf24' : isPaused ? '#ef4444' : '#ffffff';
+  ctx.fill();
+
+  // Centered/Left White Premium Clock (no expand button)
   ctx.fillStyle = '#ffffff';
-  const fontSize = timeFormatted.length > 5 ? 46 : 56;
+  const fontSize = timeFormatted.length > 5 ? 54 : 66;
   ctx.font = `900 ${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
   ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  ctx.fillText(timeFormatted, 34, h / 2 + 2);
-
-  // Right: 3 Equal-Sized Circular Icon Buttons (Orange Break, Red Pause / Green Play, White Maximize)
-  const r = 34;
-  const cy = h / 2;
-  const cx3 = w - 58;
-  const cx2 = cx3 - 82;
-  const cx1 = cx2 - 82;
-
-  // 1. Orange Break Button (Coffee Cup Icon)
-  ctx.beginPath();
-  ctx.arc(cx1, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = isCampActive ? '#f59e0b' : '#ff5500';
-  ctx.fill();
-
-  // Draw crisp vector coffee cup in white (black if active amber)
-  ctx.strokeStyle = isCampActive ? '#000000' : '#ffffff';
-  ctx.lineWidth = 3.2;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // Cup body
-  ctx.beginPath();
-  ctx.moveTo(cx1 - 11, cy - 4);
-  ctx.lineTo(cx1 + 7, cy - 4);
-  ctx.lineTo(cx1 + 5, cy + 9);
-  ctx.quadraticCurveTo(cx1 - 2, cy + 12, cx1 - 9, cy + 9);
-  ctx.closePath();
-  ctx.stroke();
-  // Cup handle
-  ctx.beginPath();
-  ctx.arc(cx1 + 8, cy + 2, 4.5, -Math.PI / 2, Math.PI / 2);
-  ctx.stroke();
-  // Steam lines
-  ctx.beginPath();
-  ctx.moveTo(cx1 - 5, cy - 11);
-  ctx.lineTo(cx1 - 5, cy - 8);
-  ctx.moveTo(cx1 + 1, cy - 11);
-  ctx.lineTo(cx1 + 1, cy - 8);
-  ctx.stroke();
-
-  // 2. Red Pause / Green Play Button
-  ctx.beginPath();
-  ctx.arc(cx2, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = isPaused ? '#10b981' : '#dc2626';
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  if (isPaused) {
-    // Play triangle
-    ctx.beginPath();
-    ctx.moveTo(cx2 - 7, cy - 12);
-    ctx.lineTo(cx2 + 12, cy);
-    ctx.lineTo(cx2 - 7, cy + 12);
-    ctx.closePath();
-    ctx.fill();
-  } else {
-    // Pause bars
-    ctx.beginPath();
-    ctx.roundRect(cx2 - 9, cy - 11, 6, 22, 2);
-    ctx.roundRect(cx2 + 3, cy - 11, 6, 22, 2);
-    ctx.fill();
-  }
-
-  // 3. White Maximize Button
-  ctx.beginPath();
-  ctx.arc(cx3, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 3.4;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // Top-right expand arrow
-  ctx.beginPath();
-  ctx.moveTo(cx3 + 2, cy - 10);
-  ctx.lineTo(cx3 + 10, cy - 10);
-  ctx.lineTo(cx3 + 10, cy - 2);
-  ctx.moveTo(cx3 + 10, cy - 10);
-  ctx.lineTo(cx3 + 2, cy - 2);
-  // Bottom-left expand arrow
-  ctx.moveTo(cx3 - 2, cy + 10);
-  ctx.lineTo(cx3 - 10, cy + 10);
-  ctx.lineTo(cx3 - 10, cy + 2);
-  ctx.moveTo(cx3 - 10, cy + 10);
-  ctx.lineTo(cx3 - 2, cy + 2);
-  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillText(timeFormatted, w / 2 + 10, h / 2 + 2);
 }
 
 class BackgroundFocusManager {
@@ -314,9 +254,9 @@ class BackgroundFocusManager {
   // Document Picture-in-Picture & Canvas Video PiP state
   private docPipWindow: Window | null = null;
   private pipCanvas: HTMLCanvasElement | null = null;
-  private notificationBannerCanvas: HTMLCanvasElement | null = null;
   private pipVideo: HTMLVideoElement | null = null;
   private lastPayload: LiveNotificationPayload | null = null;
+  private lastNotifiedSecond: string = '';
 
   constructor() {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -346,10 +286,6 @@ class BackgroundFocusManager {
     this.onMaximizeCallback = handler;
   }
 
-  /**
-   * Uses silent Web Locks API (NO <audio> element and NO MediaSession)
-   * so Android / One UI NEVER displays the "Medya çıkışı" (Media Output) player card!
-   */
   public startKeepAlive() {
     if (typeof window === 'undefined') return;
     this.clearMediaSession();
@@ -388,8 +324,6 @@ class BackgroundFocusManager {
     }
   }
 
-  // --- PURE BLACK PICTURE-IN-PICTURE (PiP) FLOATING CAPSULE ---
-
   public isPipActive(): boolean {
     if (typeof window === 'undefined') return false;
     return Boolean(
@@ -405,10 +339,9 @@ class BackgroundFocusManager {
       this.lastPayload = currentPayload;
     }
 
-    // Ensure MediaSession is cleared so PiP never spawns "Medya çıkışı"
     this.clearMediaSession();
 
-    // 1. Try Document Picture-in-Picture API (Interactive Pure Black Capsule Window)
+    // 1. Document Picture-in-Picture API (Non-expanding Pure Black Capsule + White Premium Clock)
     const anyWin = window as any;
     if (anyWin.documentPictureInPicture && typeof anyWin.documentPictureInPicture.requestWindow === 'function') {
       try {
@@ -417,8 +350,8 @@ class BackgroundFocusManager {
           return true;
         }
         const pipWin: Window = await anyWin.documentPictureInPicture.requestWindow({
-          width: 310,
-          height: 84,
+          width: 240,
+          height: 72,
         });
         this.docPipWindow = pipWin;
         this.setupDocPipDOM(pipWin);
@@ -432,12 +365,12 @@ class BackgroundFocusManager {
       }
     }
 
-    // 2. Fallback: Canvas Stream Video Picture-in-Picture (Pure Black Capsule rendered on Canvas, 0 audio tracks)
+    // 2. Fallback: Canvas Stream Video Picture-in-Picture
     try {
       if (!this.pipCanvas) {
         this.pipCanvas = document.createElement('canvas');
-        this.pipCanvas.width = 560;
-        this.pipCanvas.height = 140;
+        this.pipCanvas.width = 420;
+        this.pipCanvas.height = 130;
       }
       this.drawCanvasPipFrame();
 
@@ -516,10 +449,26 @@ class BackgroundFocusManager {
           align-items: center;
           justify-content: space-between;
           padding: 0 18px;
-          gap: 12px;
+          gap: 10px;
         }
+        .clock-wrap {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+        }
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 9999px;
+          background: #ffffff;
+          box-shadow: 0 0 8px rgba(255,255,255,0.9);
+          flex-shrink: 0;
+        }
+        .dot.break { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.8); }
+        .dot.paused { background: #ef4444; box-shadow: none; }
         .timer {
-          font-size: 32px;
+          font-size: 30px;
           font-weight: 900;
           color: #ffffff;
           letter-spacing: -0.03em;
@@ -529,86 +478,63 @@ class BackgroundFocusManager {
         .actions {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 6px;
         }
         .btn {
-          width: 42px;
-          height: 42px;
+          width: 34px;
+          height: 34px;
           border-radius: 9999px;
-          border: none;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(255,255,255,0.08);
+          color: #ffffff;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          transition: transform 0.15s ease, filter 0.15s ease;
+          transition: transform 0.15s ease, background 0.15s ease;
           flex-shrink: 0;
         }
-        .btn:hover { transform: scale(1.06); filter: brightness(1.08); }
-        .btn:active { transform: scale(0.94); }
-        .btn-break {
-          background: #ff5500;
-          color: #ffffff;
-          box-shadow: 0 4px 14px rgba(255, 85, 0, 0.4);
-        }
-        .btn-break.active {
-          background: #f59e0b;
-          color: #000000;
-          box-shadow: 0 0 18px rgba(245, 158, 11, 0.7);
-        }
-        .btn-pause {
-          background: #dc2626;
-          color: #ffffff;
-          box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
-        }
-        .btn-play {
-          background: #10b981;
-          color: #ffffff;
-          box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
-        }
-        .btn-max {
-          background: #ffffff;
-          color: #000000;
-          box-shadow: 0 4px 14px rgba(255, 255, 255, 0.25);
-        }
-        svg { width: 20px; height: 20px; }
+        .btn:hover { background: rgba(255,255,255,0.18); }
+        .btn:active { transform: scale(0.92); }
+        .btn.active-amber { background: #fbbf24; color: #000000; border-color: #fbbf24; }
+        .btn.active-white { background: #ffffff; color: #000000; border-color: #ffffff; }
+        svg { width: 16px; height: 16px; }
       </style>
     `;
 
     doc.body.innerHTML = `
       <div class="capsule">
-        <div id="pip-timer" class="timer">00:00</div>
+        <div id="pip-clock-wrap" class="clock-wrap" title="Focus Ekranına Dön">
+          <span id="pip-dot" class="dot"></span>
+          <div id="pip-timer" class="timer">00:00</div>
+        </div>
         <div class="actions">
-          <button id="pip-btn-break" class="btn btn-break" title="Mola">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <button id="pip-btn-break" class="btn" title="Mola">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>
             </svg>
           </button>
-          <button id="pip-btn-toggle" class="btn btn-pause" title="Durdur / Başlat"></button>
-          <button id="pip-btn-max" class="btn btn-max" title="Büyüt (Focus Ekranına Dön)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-            </svg>
-          </button>
+          <button id="pip-btn-toggle" class="btn" title="Duraklat / Başlat"></button>
         </div>
       </div>
     `;
 
+    const clockWrap = doc.getElementById('pip-clock-wrap');
     const breakBtn = doc.getElementById('pip-btn-break');
     const toggleBtn = doc.getElementById('pip-btn-toggle');
-    const maxBtn = doc.getElementById('pip-btn-max');
 
-    breakBtn?.addEventListener('click', () => {
-      if (this.onToggleBreakCallback) this.onToggleBreakCallback();
-    });
-    toggleBtn?.addEventListener('click', () => {
-      if (this.onTogglePauseCallback) this.onTogglePauseCallback();
-    });
-    maxBtn?.addEventListener('click', () => {
+    clockWrap?.addEventListener('click', () => {
       try {
         window.focus();
       } catch {}
       if (this.onMaximizeCallback) this.onMaximizeCallback();
       this.closePipCapsule();
+    });
+    breakBtn?.addEventListener('click', () => {
+      if (this.onToggleBreakCallback) this.onToggleBreakCallback();
+    });
+    toggleBtn?.addEventListener('click', () => {
+      if (this.onTogglePauseCallback) this.onTogglePauseCallback();
     });
   }
 
@@ -616,6 +542,7 @@ class BackgroundFocusManager {
     if (!this.docPipWindow || this.docPipWindow.closed || !this.lastPayload) return;
     const doc = this.docPipWindow.document;
     const timerEl = doc.getElementById('pip-timer');
+    const dotEl = doc.getElementById('pip-dot');
     const breakBtn = doc.getElementById('pip-btn-break');
     const toggleBtn = doc.getElementById('pip-btn-toggle');
 
@@ -624,24 +551,28 @@ class BackgroundFocusManager {
       timerEl.textContent = timeFormatted;
     }
 
+    if (dotEl) {
+      dotEl.className = this.lastPayload.isCampActive
+        ? 'dot break'
+        : this.lastPayload.isPaused
+        ? 'dot paused'
+        : 'dot';
+    }
+
     if (breakBtn) {
-      if (this.lastPayload.isCampActive) {
-        breakBtn.classList.add('active');
-      } else {
-        breakBtn.classList.remove('active');
-      }
+      breakBtn.className = this.lastPayload.isCampActive ? 'btn active-amber' : 'btn';
     }
 
     if (toggleBtn) {
       if (this.lastPayload.isPaused) {
-        toggleBtn.className = 'btn btn-play';
+        toggleBtn.className = 'btn active-white';
         toggleBtn.innerHTML = `
-          <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px;">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:1px;">
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         `;
       } else {
-        toggleBtn.className = 'btn btn-pause';
+        toggleBtn.className = 'btn';
         toggleBtn.innerHTML = `
           <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
@@ -667,34 +598,6 @@ class BackgroundFocusManager {
     );
   }
 
-  private generateCapsuleImageDataUrl(payload: LiveNotificationPayload): string {
-    if (typeof document === 'undefined') return '';
-    try {
-      if (!this.notificationBannerCanvas) {
-        this.notificationBannerCanvas = document.createElement('canvas');
-        this.notificationBannerCanvas.width = 560;
-        this.notificationBannerCanvas.height = 140;
-      }
-      const ctx = this.notificationBannerCanvas.getContext('2d');
-      if (!ctx) return '';
-      const { timeFormatted } = computeDisplayTimeFromPayload(payload);
-      renderPureBlackCapsuleToContext(
-        ctx,
-        this.notificationBannerCanvas.width,
-        this.notificationBannerCanvas.height,
-        timeFormatted,
-        payload.isPaused,
-        payload.isCampActive
-      );
-      return this.notificationBannerCanvas.toDataURL('image/png');
-    } catch {
-      return '';
-    }
-  }
-
-  /**
-   * Explicitly clears navigator.mediaSession so Android / One UI NEVER shows "Medya çıkışı".
-   */
   public clearMediaSession() {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
     try {
@@ -714,7 +617,6 @@ class BackgroundFocusManager {
     if (typeof window === 'undefined') return;
     this.lastPayload = payload;
 
-    // Ensure MediaSession is NEVER active so "Medya çıkışı" never appears
     this.clearMediaSession();
 
     // Update live PiP capsule if active
@@ -725,7 +627,10 @@ class BackgroundFocusManager {
 
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
-    // Forward state to Service Worker so it can maintain the sticky Pure Black Capsule notification in background
+    const { timeFormatted } = computeDisplayTimeFromPayload(payload);
+    const stateSignature = `${timeFormatted}_${payload.isPaused}_${payload.isCampActive}_${document.hidden}`;
+
+    // Forward state to Service Worker so it maintains the non-expanding Pure Black Capsule notification
     if ('serviceWorker' in navigator) {
       try {
         const reg = await navigator.serviceWorker.ready;
@@ -743,8 +648,9 @@ class BackgroundFocusManager {
       }
     }
 
-    // If tab is currently in background (or forceShow requested), also trigger showNotification directly
-    if (document.hidden || payload.forceShow) {
+    // Throttle direct notification updates to once per second change
+    if ((document.hidden || payload.forceShow) && this.lastNotifiedSecond !== stateSignature) {
+      this.lastNotifiedSecond = stateSignature;
       await this.showStickyNotificationNow(payload);
     }
   }
@@ -755,38 +661,27 @@ class BackgroundFocusManager {
     }
 
     const { timeFormatted } = computeDisplayTimeFromPayload(payload);
-    const title = timeFormatted;
+    const title = `⏱ ${timeFormatted}`;
     const body = payload.isCampActive
-      ? 'Mola Süresi'
+      ? `Mola · ${payload.subjectName}`
       : payload.isPaused
-      ? 'Duraklatıldı'
-      : 'Odak Süresi';
+      ? `Duraklatıldı · ${payload.subjectName}`
+      : `${payload.subjectName}`;
+    const iconUrl = getPureBlackClockIconDataUrl(timeFormatted);
 
     try {
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
         if (reg && reg.showNotification) {
+          // Non-expanding compact notification (no actions array, no large image banner)
           const notifOptions: any = {
             body,
+            icon: iconUrl || undefined,
             tag: 'fokus-active-timer',
             renotify: false,
             silent: true,
             requireInteraction: true,
             data: { url: '/' },
-            actions: [
-              {
-                action: 'toggle_break',
-                title: payload.isCampActive ? 'Mola Bitti' : 'Mola',
-              },
-              {
-                action: 'toggle_pause',
-                title: payload.isPaused ? 'Başlat' : 'Durdur',
-              },
-              {
-                action: 'open_app',
-                title: 'Büyüt',
-              },
-            ],
           };
           await reg.showNotification(title, notifOptions);
           return;
@@ -795,6 +690,7 @@ class BackgroundFocusManager {
 
       new Notification(title, {
         body,
+        icon: iconUrl || undefined,
         tag: 'fokus-active-timer',
         silent: true,
       });
@@ -807,6 +703,7 @@ class BackgroundFocusManager {
     this.stopKeepAlive();
     this.clearMediaSession();
     this.closePipCapsule();
+    this.lastNotifiedSecond = '';
 
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {
@@ -824,4 +721,3 @@ class BackgroundFocusManager {
 }
 
 export const backgroundFocus = new BackgroundFocusManager();
-

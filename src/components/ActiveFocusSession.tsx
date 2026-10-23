@@ -30,8 +30,16 @@ import { POPULAR_AIRPORTS } from '../utils/airports';
 import { useScreenWakeLock } from '../hooks/useScreenWakeLock';
 import { auth, db, safeSetDoc, parseNumericField } from '../firebase';
 import { doc, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { getLocalDateString } from '../utils/stats';
-import { saveSession } from '../utils/storage';
+import {
+  getLocalDateString,
+  getCurrentWeekKey,
+  getCurrentMonthKey,
+  calculateTodayMinutes,
+  calculateWeeklyMinutes,
+  calculateMonthlyStatsSummary,
+  calculateTotalFocusHours,
+} from '../utils/stats';
+import { saveSession, getStoredSessions } from '../utils/storage';
 import {
   backgroundFocus,
   getDeviceId,
@@ -328,6 +336,46 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           isFinished: false,
         };
         safeSetDoc(doc(db, 'users', userId, 'active_focus', 'current'), cloudPayload, { merge: true }).catch(() => {});
+
+        const liveSubjectLabel = selectedTaskTitle
+          ? `${subject.name} · ${selectedTaskTitle}`
+          : mode === 'clock' && !selectedTaskId
+          ? 'Serbest Çalışma'
+          : subject.name;
+
+        const storedSessions = getStoredSessions();
+        const baseToday = calculateTodayMinutes(storedSessions);
+        const baseWeekly = calculateWeeklyMinutes(storedSessions);
+        const monthlySummary = calculateMonthlyStatsSummary(storedSessions);
+        const baseTotalMins = Math.round(calculateTotalFocusHours(storedSessions) * 60);
+        const liveExtraMins = Math.floor(currentFocusSecs / 60);
+
+        safeSetDoc(
+          doc(db, 'users', userId),
+          {
+            status: isCampActiveRef.current || isPausedRef.current ? 'break' : 'studying',
+            currentSubject: liveSubjectLabel,
+            currentMode: mode,
+            currentSeconds: currentFocusSecs,
+            todayDateString: getLocalDateString(new Date()),
+            weekDateString: getCurrentWeekKey(new Date()),
+            monthDateString: getCurrentMonthKey(new Date()),
+            baseTodayMinutes: baseToday,
+            todayTotalMinutes: baseToday + liveExtraMins,
+            baseWeeklyMinutes: baseWeekly,
+            weeklyTotalMinutes: baseWeekly + liveExtraMins,
+            baseMonthlyMinutes: monthlySummary.monthlyMinutes,
+            monthlyTotalMinutes: monthlySummary.monthlyMinutes + liveExtraMins,
+            monthlySessionsCount: monthlySummary.monthlySessionsCount,
+            monthlyActiveDays: Math.max(1, monthlySummary.monthlyActiveDays),
+            favoriteSubject: monthlySummary.favoriteSubject || liveSubjectLabel,
+            totalFocusMinutes: baseTotalMins + liveExtraMins,
+            isOnline: true,
+            lastActiveAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        ).catch(() => {});
       }
     },
     [
@@ -626,6 +674,18 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         const activeRef = doc(db, 'users', userId, 'active_focus', 'current');
         safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
         deleteDoc(activeRef).catch(() => {});
+        safeSetDoc(
+          doc(db, 'users', userId),
+          {
+            status: 'idle',
+            currentSubject: '',
+            currentSeconds: 0,
+            isOnline: true,
+            lastActiveAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        ).catch(() => {});
       }
     } catch {
       // ignore
@@ -756,6 +816,18 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         const activeRef = doc(db, 'users', userId, 'active_focus', 'current');
         safeSetDoc(activeRef, { isFinished: true, isActive: false, updatedAt: Date.now() }, { merge: true }).catch(() => {});
         deleteDoc(activeRef).catch(() => {});
+        safeSetDoc(
+          doc(db, 'users', userId),
+          {
+            status: 'idle',
+            currentSubject: '',
+            currentSeconds: 0,
+            isOnline: true,
+            lastActiveAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        ).catch(() => {});
       }
     } catch {
       // ignore

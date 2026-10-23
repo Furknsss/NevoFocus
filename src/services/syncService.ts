@@ -10,7 +10,13 @@ import {
   getStoredProfile,
   updateStoredProfile,
 } from '../utils/storage';
-import { getLocalDateString } from '../utils/stats';
+import {
+  getLocalDateString,
+  getCurrentWeekKey,
+  getCurrentMonthKey,
+  calculateWeeklyMinutes,
+  calculateMonthlyStatsSummary,
+} from '../utils/stats';
 
 const LAST_SYNC_KEY = 'fokus_last_sync_timestamp';
 
@@ -64,10 +70,27 @@ export async function syncAllToFirestore(
 
     // 1. Sync User Profile doc
     const userDocRef = doc(db, 'users', uid);
+    const todayStr = getLocalDateString(new Date());
+    const weekStr = getCurrentWeekKey(new Date());
+    const monthStr = getCurrentMonthKey(new Date());
+    const validCompleted = sessions.filter((s) => s && s.completed !== false && Number(s.completedSeconds) > 0);
+    const computedTodaySecs = validCompleted
+      .filter((s) => (s.dateString || getLocalDateString(s.timestamp || Date.now())) === todayStr)
+      .reduce((acc, s) => acc + (Number(s.completedSeconds) || 0), 0);
+    const computedTodayMins = computedTodaySecs > 0 ? Math.max(1, Math.round(computedTodaySecs / 60)) : 0;
+    const computedWeeklyMins = calculateWeeklyMinutes(sessions);
+    const monthlySummary = calculateMonthlyStatsSummary(sessions);
+    const computedTotalSecs = validCompleted.reduce((acc, s) => acc + (Number(s.completedSeconds) || 0), 0);
+    const computedTotalMins = computedTotalSecs > 0 ? Math.max(1, Math.round(computedTotalSecs / 60)) : 0;
+    const computedTotalHours = Math.round((computedTotalSecs / 3600) * 10) / 10;
+
     const profilePayload = {
       userId: uid,
       email: user.email || profile.email || '',
+      name: profile.name || user.displayName || 'Öğrenci',
       displayName: profile.name || user.displayName || 'Öğrenci',
+      initials: profile.initials || 'Ö',
+      avatarUrl: profile.avatarUrl || '',
       targetUniversity: profile.targetUniversity || '',
       targetDepartment: profile.targetDepartment || '',
       targetExam: profile.targetExam || 'YKS 2026',
@@ -79,7 +102,28 @@ export async function syncAllToFirestore(
       desktopNotifications: profile.desktopNotifications ?? false,
       liveNotifications: profile.liveNotifications ?? false,
       theme: profile.theme || 'dark',
+      weeklyRestDays: Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : [],
+      customRestDates: Array.isArray(profile.customRestDates) ? profile.customRestDates : [],
+      excludedRestDates: Array.isArray(profile.excludedRestDates) ? profile.excludedRestDates : [],
       musicConnections: profile.musicConnections || undefined,
+      todayDateString: todayStr,
+      weekDateString: weekStr,
+      monthDateString: monthStr,
+      baseTodayMinutes: computedTodayMins,
+      todayTotalMinutes: Math.max(computedTodayMins, profile.todayTotalMinutes || 0),
+      baseWeeklyMinutes: computedWeeklyMins,
+      weeklyTotalMinutes: Math.max(computedWeeklyMins, computedTodayMins),
+      baseMonthlyMinutes: monthlySummary.monthlyMinutes,
+      monthlyTotalMinutes: Math.max(monthlySummary.monthlyMinutes, computedWeeklyMins, computedTodayMins),
+      monthlySessionsCount: monthlySummary.monthlySessionsCount,
+      monthlyActiveDays: monthlySummary.monthlyActiveDays,
+      favoriteSubject: monthlySummary.favoriteSubject,
+      totalFocusMinutes: computedTotalMins,
+      totalFocusHours: Math.max(computedTotalHours, profile.totalFocusHours || 0),
+      streakDays: profile.currentStreakDays || 0,
+      currentStreakDays: profile.currentStreakDays || 0,
+      isOnline: true,
+      lastActiveAt: Date.now(),
       lastSyncAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -112,6 +156,7 @@ export async function syncAllToFirestore(
         {
           ...task,
           userId: uid,
+          deleted: false,
           syncedAt: Date.now(),
         },
         { merge: true }
@@ -169,17 +214,22 @@ export async function restoreAllFromFirestore(
     // 1. Fetch Cloud Profile
     const userDocRef = doc(db, 'users', uid);
     const userSnap = await getDoc(userDocRef);
-    let cloudProfile: Partial<UserProfile> = {};
+    let cloudProfile: Record<string, any> = {};
     if (userSnap.exists()) {
-      cloudProfile = userSnap.data() as Partial<UserProfile>;
+      cloudProfile = userSnap.data() as Record<string, any>;
     }
 
     // 2. Fetch Cloud Sessions
     const sessionsCol = collection(db, 'users', uid, 'sessions');
     const sessionsSnap = await getDocs(sessionsCol);
     const cloudSessions: FocusSession[] = [];
+    const deletedSessionIds = new Set<string>();
     sessionsSnap.forEach((docSnap) => {
       const s = docSnap.data() as any;
+      if (s && s.deleted && (s.id || docSnap.id)) {
+        deletedSessionIds.add(s.id || docSnap.id);
+        return;
+      }
       if (s && s.id) {
         cloudSessions.push({
           ...s,
@@ -195,8 +245,13 @@ export async function restoreAllFromFirestore(
     const tasksCol = collection(db, 'users', uid, 'tasks');
     const tasksSnap = await getDocs(tasksCol);
     const cloudTasks: FocusTask[] = [];
+    const deletedTaskIds = new Set<string>();
     tasksSnap.forEach((docSnap) => {
       const t = docSnap.data() as any;
+      if (t && t.deleted && (t.id || docSnap.id)) {
+        deletedTaskIds.add(t.id || docSnap.id);
+        return;
+      }
       if (t && t.id && !t.deleted) {
         cloudTasks.push({
           ...t,
@@ -209,13 +264,11 @@ export async function restoreAllFromFirestore(
     // 4. Merge Sessions (local + cloud, deduplicated by ID, latest timestamp first)
     const localSessions = getStoredSessions();
     const sessionMap = new Map<string, FocusSession>();
-    // First put local
     for (const s of localSessions) {
-      if (s.id) sessionMap.set(s.id, s);
+      if (s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
     }
-    // Then overwrite/add cloud
     for (const s of cloudSessions) {
-      if (s.id) sessionMap.set(s.id, s);
+      if (s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
     }
     const mergedSessions = Array.from(sessionMap.values()).sort((a, b) => b.timestamp - a.timestamp);
     setAllStoredSessions(mergedSessions);
@@ -224,18 +277,33 @@ export async function restoreAllFromFirestore(
     const localTasks = getStoredTasks();
     const taskMap = new Map<string, FocusTask>();
     for (const t of localTasks) {
-      if (t.id) taskMap.set(t.id, t);
+      if (t.id && !deletedTaskIds.has(t.id)) taskMap.set(t.id, t);
     }
     for (const t of cloudTasks) {
-      if (t.id) taskMap.set(t.id, t);
+      if (t.id && !deletedTaskIds.has(t.id)) taskMap.set(t.id, t);
     }
-    const mergedTasks = Array.from(taskMap.values());
+    const mergedTasks = Array.from(taskMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     setAllStoredTasks(mergedTasks);
 
-    // 6. Update Profile
+    // 6. Update Profile cleanly
     let mergedProfile = getStoredProfile();
-    if (cloudProfile.name || cloudProfile.targetExam || cloudProfile.musicConnections) {
-      mergedProfile = updateStoredProfile(cloudProfile);
+    if (Object.keys(cloudProfile).length > 0) {
+      const patch: Partial<UserProfile> = {};
+      if (cloudProfile.name || cloudProfile.displayName) patch.name = cloudProfile.name || cloudProfile.displayName;
+      if (cloudProfile.initials) patch.initials = cloudProfile.initials;
+      if (cloudProfile.avatarUrl) patch.avatarUrl = cloudProfile.avatarUrl;
+      if (cloudProfile.avatarColor) patch.avatarColor = cloudProfile.avatarColor;
+      if (cloudProfile.targetUniversity !== undefined) patch.targetUniversity = cloudProfile.targetUniversity;
+      if (cloudProfile.targetDepartment !== undefined) patch.targetDepartment = cloudProfile.targetDepartment;
+      if (cloudProfile.targetExam) patch.targetExam = cloudProfile.targetExam;
+      if (cloudProfile.studyTrack) patch.studyTrack = cloudProfile.studyTrack;
+      if (cloudProfile.dailyGoalHours) patch.dailyGoalHours = parseNumericField(cloudProfile.dailyGoalHours, 6);
+      if (cloudProfile.theme) patch.theme = cloudProfile.theme;
+      if (Array.isArray(cloudProfile.weeklyRestDays)) patch.weeklyRestDays = cloudProfile.weeklyRestDays;
+      if (Array.isArray(cloudProfile.customRestDates)) patch.customRestDates = cloudProfile.customRestDates;
+      if (Array.isArray(cloudProfile.excludedRestDates)) patch.excludedRestDates = cloudProfile.excludedRestDates;
+      if (cloudProfile.musicConnections) patch.musicConnections = cloudProfile.musicConnections;
+      mergedProfile = updateStoredProfile(patch);
     }
 
     const now = Date.now();
