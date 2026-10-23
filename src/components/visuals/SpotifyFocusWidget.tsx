@@ -7,6 +7,8 @@ import {
   X,
   Music,
   Disc3,
+  Settings,
+  Radio,
 } from 'lucide-react';
 import {
   spotifyService,
@@ -18,7 +20,7 @@ import { soundEngine } from '../../utils/audio';
 
 export const SpotifyIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-    <circle cx="12" cy="12" r="12" fill="#1DB954" />
+    <rect x="0" y="0" width="24" height="24" rx="5" fill="#1DB954" />
     <path
       fill="#000000"
       d="M17.517 17.307c-.217.355-.678.468-1.033.251-2.827-1.728-6.386-2.119-10.578-1.162-.403.092-.806-.157-.898-.56-.093-.404.156-.807.56-.899 4.587-1.047 8.528-.598 11.698 1.337.355.217.468.678.251 1.033zm1.472-3.272c-.273.444-.856.587-1.3.314-3.236-1.99-8.169-2.565-11.997-1.401-.497.151-1.026-.134-1.177-.631-.151-.497.134-1.026.631-1.177 4.38-1.331 9.815-.688 13.53 1.595.444.273.587.856.314 1.3zm.127-3.408C15.244 8.324 8.877 8.113 5.168 9.24c-.604.183-1.246-.167-1.429-.771-.183-.604.167-1.246.771-1.429 4.265-1.295 11.302-1.054 15.74 1.581.543.322.722 1.026.4 1.569-.322.543-1.026.722-1.569.4z"
@@ -28,9 +30,9 @@ export const SpotifyIcon = ({ className = 'w-6 h-6' }: { className?: string }) =
 
 export const YouTubeMusicIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-    <circle cx="12" cy="12" r="12" fill="#FF0000" />
-    <circle cx="12" cy="12" r="6.7" fill="none" stroke="#FFFFFF" strokeWidth="1.45" />
-    <polygon points="9.8,8.7 15.6,12 9.8,15.3" fill="#FFFFFF" />
+    <rect x="0" y="0" width="24" height="24" rx="5" fill="#FF0000" />
+    <circle cx="12" cy="12" r="7.4" fill="none" stroke="#FFFFFF" strokeWidth="1.65" />
+    <polygon points="9.6,8.3 16.0,12 9.6,15.7" fill="#FFFFFF" />
   </svg>
 );
 
@@ -43,7 +45,7 @@ export const AppleMusicIcon = ({ className = 'w-6 h-6' }: { className?: string }
       </linearGradient>
     </defs>
     {/* Official Apple Music Pink-to-Coral Gradient App Squircle */}
-    <rect x="0" y="0" width="24" height="24" rx="5.5" fill="url(#appleMusicOfficialGrad)" />
+    <rect x="0" y="0" width="24" height="24" rx="5" fill="url(#appleMusicOfficialGrad)" />
     {/* Official White Beamed Eighth Notes + Apple Leaf Emblem */}
     <path
       fill="#FFFFFF"
@@ -65,7 +67,9 @@ interface SpotifyFocusWidgetProps {
   onOpenSettingsConnections?: () => void;
 }
 
-export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
+export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = ({
+  onOpenSettingsConnections,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [detectedPlatform, setDetectedPlatform] = useState<MusicPlatform | null>(() =>
@@ -112,7 +116,8 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
 
     const interval = setInterval(() => {
       spotifyService.pollSpotifyNowPlaying();
-    }, 1200);
+      spotifyService.pollYouTubeMusicAccountNowPlaying();
+    }, 1500);
 
     return () => {
       unsubConnections();
@@ -232,21 +237,21 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
     if (showPlatformIdentity && activePlayingPlatform) {
       if (isOpen) {
         if (activePlayingPlatform === 'youtube_music') {
-          return 'bg-black/95 border-[#FF0000] shadow-[#FF0000]/50 ring-2 ring-[#FF0000] scale-105';
+          return 'p-0 overflow-hidden border-[#FF0000] shadow-[#FF0000]/50 ring-2 ring-[#FF0000] scale-105';
         }
         if (activePlayingPlatform === 'apple_music') {
-          return 'bg-black/95 border-[#FA2D48] shadow-[#FA2D48]/50 ring-2 ring-[#FA2D48] scale-105';
+          return 'p-0 overflow-hidden border-[#FA2D48] shadow-[#FA2D48]/50 ring-2 ring-[#FA2D48] scale-105';
         }
-        return 'bg-black/95 border-[#1DB954] shadow-[#1DB954]/50 ring-2 ring-[#1DB954] scale-105';
+        return 'p-0 overflow-hidden border-[#1DB954] shadow-[#1DB954]/50 ring-2 ring-[#1DB954] scale-105';
       }
 
       if (activePlayingPlatform === 'youtube_music') {
-        return 'bg-black/90 border-[#FF0000]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FF0000]/35';
+        return 'p-0 overflow-hidden border-[#FF0000]/80 hover:scale-105 ring-2 ring-[#FF0000]/40 shadow-[#FF0000]/30';
       }
       if (activePlayingPlatform === 'apple_music') {
-        return 'bg-black/90 border-[#FA2D48]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#FA2D48]/35';
+        return 'p-0 overflow-hidden border-[#FA2D48]/80 hover:scale-105 ring-2 ring-[#FA2D48]/40 shadow-[#FA2D48]/30';
       }
-      return 'bg-black/90 border-[#1DB954]/75 opacity-95 hover:opacity-100 hover:scale-105 ring-2 ring-[#1DB954]/35';
+      return 'p-0 overflow-hidden border-[#1DB954]/80 hover:scale-105 ring-2 ring-[#1DB954]/40 shadow-[#1DB954]/30';
     }
 
     if (isOpen) {
@@ -260,9 +265,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
     <>
       {/* 1. Sol Müzik Butonu:
           Bağlanılmadıysa veya o an çalan bir şey yoksa: Müzik Logosu (<Music />).
-          Spotify'dan dinleniyorsa: Orjinal Spotify logosu.
-          YouTube Music'ten dinleniyorsa: Orjinal YouTube Music logosu.
-          Apple Music'ten dinleniyorsa: Orjinal Apple Music logosu. */}
+          Spotify, YouTube Music veya Apple Music'ten dinleniyorsa: İlgili platformun logosu butonu tam kapsar (full-bleed). */}
       <button
         type="button"
         onClick={() => {
@@ -276,7 +279,7 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
         {showPlatformIdentity && activePlayingPlatform ? (
           <PlatformIcon
             platform={activePlayingPlatform}
-            className="w-8 h-8 sm:w-9 sm:h-9 transition-transform group-hover:scale-110"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
           <Music className="w-7 h-7 sm:w-8 sm:h-8 transition-transform group-hover:scale-110" />
@@ -292,34 +295,63 @@ export const SpotifyFocusWidget: React.FC<SpotifyFocusWidgetProps> = () => {
         }`}
       >
         <div className="w-full max-w-3xl sm:max-w-4xl bg-neutral-950/98 border border-neutral-800/90 backdrop-blur-2xl rounded-3xl sm:rounded-[2rem] p-5 sm:p-7 shadow-2xl shadow-black pointer-events-auto text-white flex flex-col gap-4 relative ring-1 ring-white/10">
-          {/* Top Bar: Otomatik algılanan platformun orjinal logosu + adı ve sağda Kapat (X) tuşu */}
+          {/* Top Bar: Auto-detected Platform (Logo + Name) + Settings & Close */}
           <div className="flex items-center justify-between gap-3 border-b border-neutral-800/80 pb-3">
-            <div className="flex items-center gap-2.5">
-              {detectedPlatform ? (
-                <>
-                  <PlatformIcon platform={detectedPlatform} className="w-6 h-6 sm:w-7 sm:h-7" />
-                  <span className="text-sm sm:text-base font-extrabold text-white tracking-wide">
-                    {activeMeta.name}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Music className="w-5 h-5 sm:w-6 sm:h-6 text-neutral-300" />
-                  <span className="text-sm sm:text-base font-extrabold text-white tracking-wide">
-                    Müzik Çalar
-                  </span>
-                </>
-              )}
+            {/* Auto-detected platform display (Logo + Name) */}
+            <div className="flex items-center gap-2">
+              <div
+                className="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border bg-neutral-900/90 border-neutral-800/90 shadow-sm"
+                style={{
+                  borderColor: isPlayingNow ? `${activeMeta.accentHex}66` : undefined,
+                }}
+              >
+                {activePlayingPlatform ? (
+                  <PlatformIcon platform={activePlayingPlatform} className="w-4 h-4" />
+                ) : detectedPlatform ? (
+                  <PlatformIcon platform={detectedPlatform} className="w-4 h-4" />
+                ) : (
+                  <Music className="w-4 h-4 text-neutral-400" />
+                )}
+                <span className="text-white font-extrabold tracking-wide">
+                  {activePlayingPlatform
+                    ? PLATFORM_METADATA[activePlayingPlatform].name
+                    : detectedPlatform
+                    ? PLATFORM_METADATA[detectedPlatform].name
+                    : 'Müzik Çalar'}
+                </span>
+                {isPlayingNow && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                )}
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsOpen(false)}
-              className="p-1.5 rounded-full text-neutral-400 hover:text-white hover:bg-neutral-800/80 transition-colors cursor-pointer"
-              title="Paneli Kapat"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {onOpenSettingsConnections && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setIsOpen(false);
+                    onOpenSettingsConnections();
+                  }}
+                  className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                  title="Müzik Hesap Bağlantıları"
+                  aria-label="Ayarlar"
+                >
+                  <Settings className="w-4 h-4 text-neutral-400 hover:text-white" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800/80 transition-colors cursor-pointer flex items-center justify-center"
+                title="Paneli Kapat"
+                aria-label="Kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Music Info & Album Cover */}

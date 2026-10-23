@@ -1,6 +1,4 @@
 import { MusicPlatform, MusicConnectionsConfig } from '../types';
-import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export interface SpotifyTrack {
   id: string;
@@ -159,6 +157,30 @@ const DEFAULT_CONNECTIONS: MusicConnectionsConfig = {
   },
 };
 
+export const DEFAULT_YOUTUBE_FOCUS_TRACKS: StreamTrackItem[] = [];
+
+export const DEFAULT_APPLE_MUSIC_FOCUS_TRACKS: StreamTrackItem[] = [];
+
+export const DEFAULT_SPOTIFY_FOCUS_TRACKS: StreamTrackItem[] = [];
+
+const FAKE_DEFAULT_TITLES = [
+  'lofi hip hop radio',
+  'synthwave radio',
+  'deep focus & study',
+  'classical music for brain power',
+  'peaceful piano focus',
+  'cozy coffee shop',
+  'lofi study session',
+  'pure focus piano',
+  'deep focus & concentration',
+];
+
+function isFakeDefaultTitle(title?: string): boolean {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return FAKE_DEFAULT_TITLES.some((fake) => lower.includes(fake));
+}
+
 declare global {
   interface Window {
     YT?: any;
@@ -188,6 +210,9 @@ class SpotifyService {
   private listeners: ((track: SpotifyTrack | null) => void)[] = [];
   private connectionListeners: ((config: MusicConnectionsConfig) => void)[] = [];
   private lastLiveTrack: SpotifyTrack | null = null;
+  private lastYouTubeLiveTrack: SpotifyTrack | null = null;
+  private ytLiveStartTimestamp: number = 0;
+  private ytLiveTrackId: string | null = null;
   private connections: MusicConnectionsConfig = { ...DEFAULT_CONNECTIONS };
 
   constructor() {
@@ -240,20 +265,57 @@ class SpotifyService {
       });
 
       // When user switches back to our app from Spotify / YT Music / Apple Music, sync immediately
-      window.addEventListener('focus', () => {
-        this.pollSpotifyNowPlaying();
+      const handleAppFocusOrVisibility = () => {
+        if (this.getAccessToken()) {
+          this.pollSpotifyNowPlaying();
+        }
+        if (this.connections.youtube_music.connected) {
+          this.pollYouTubeMusicAccountNowPlaying();
+        }
         this.tryAutoSyncFromClipboardOnFocus();
+      };
+
+      window.addEventListener('focus', handleAppFocusOrVisibility);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          handleAppFocusOrVisibility();
+        }
       });
 
-      // If YouTube Music is connected with an access token, fetch user's liked songs
-      if (this.connections.youtube_music.connected && this.connections.youtube_music.accessToken) {
-        this.fetchYouTubeMusicUserTracks(this.connections.youtube_music.accessToken);
+      // If YouTube Music is connected, poll immediately
+      if (this.connections.youtube_music.connected) {
+        this.pollYouTubeMusicAccountNowPlaying();
       }
 
       // If Spotify has a token, immediately poll live playback
       if (this.getAccessToken()) {
         this.pollSpotifyNowPlaying();
       }
+
+      // Periodic check for YouTube Music and Spotify live updates
+      setInterval(() => {
+        if (this.connections.youtube_music.connected) {
+          this.pollYouTubeMusicAccountNowPlaying();
+        }
+      }, 2000);
+
+      // Periodic progress ticker for YouTube Player (since iframe doesn't emit native timeupdate event)
+      setInterval(() => {
+        if (
+          this.ytPlayer &&
+          this.ytPlayerReady &&
+          this.isStreamPlaying &&
+          (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')
+        ) {
+          try {
+            const cur = this.ytPlayer.getCurrentTime?.() || 0;
+            if (cur > 0) {
+              this.streamProgressMs = Math.floor(cur * 1000);
+              this.notifyListeners();
+            }
+          } catch {}
+        }
+      }, 500);
     }
   }
 
@@ -274,12 +336,13 @@ class SpotifyService {
           container = document.createElement('div');
           container.id = 'fokus-yt-music-container';
           container.style.position = 'fixed';
-          container.style.left = '-9999px';
-          container.style.top = '-9999px';
-          container.style.width = '1px';
-          container.style.height = '1px';
-          container.style.opacity = '0';
+          container.style.bottom = '0px';
+          container.style.right = '0px';
+          container.style.width = '200px';
+          container.style.height = '120px';
+          container.style.opacity = '0.001';
           container.style.pointerEvents = 'none';
+          container.style.zIndex = '-1';
           const inner = document.createElement('div');
           inner.id = 'fokus-yt-music-player';
           container.appendChild(inner);
@@ -292,8 +355,8 @@ class SpotifyService {
         }
 
         this.ytPlayer = new window.YT.Player('fokus-yt-music-player', {
-          height: '1',
-          width: '1',
+          height: '120',
+          width: '200',
           playerVars: {
             autoplay: 0,
             controls: 0,
@@ -319,6 +382,10 @@ class SpotifyService {
               } else if (e.data === 0) {
                 this.nextStream();
               }
+            },
+            onError: (err: any) => {
+              console.warn('YouTube Player notice:', err?.data);
+              this.nextStream();
             },
           },
         });
@@ -448,6 +515,7 @@ class SpotifyService {
             });
             const built = this.buildStreamTrackForPlatform('youtube_music');
             this.notifyListeners(built);
+            this.playStream();
             return { success: true, track: built, platform: 'youtube_music' };
           }
         } catch {}
@@ -619,118 +687,337 @@ class SpotifyService {
     return { success: false, error: 'Şarkı bulunamadı.' };
   }
 
-  // --- YOUTUBE MUSIC REAL GOOGLE OAUTH & USER LIBRARY FETCH ---
+  // --- YOUTUBE MUSIC DIRECT ZERO-TOKEN INTEGRATION (SEARCH, STREAM & LIVE SCROBBLE) ---
 
-  public async connectYouTubeMusicWithGooglePopup(): Promise<{
-    success: boolean;
-    accountName?: string;
-    trackCount?: number;
-    error?: string;
-  }> {
-    if (typeof window === 'undefined') {
-      return { success: false, error: 'Tarayıcı ortamı bulunamadı.' };
+  public hasYouTubeLiveToken(): boolean {
+    return Boolean(this.connections.youtube_music?.connected);
+  }
+
+  /**
+   * Searches real YouTube Music tracks directly via our zero-token /api/ytmusic/search endpoint
+   * (with oEmbed & public API fallbacks) — no OAuth token or API key required.
+   */
+  public async searchYouTubeMusicTracks(query: string): Promise<StreamTrackItem[]> {
+    const q = query.trim();
+    if (!q) return [];
+
+    // 1. If user pasted a direct YouTube / YouTube Music URL, resolve via oEmbed
+    const videoIdMatch =
+      q.match(/[?&]v=([a-zA-Z0-9_-]{11})/) || q.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+    if (videoIdMatch && videoIdMatch[1]) {
+      const videoId = videoIdMatch[1];
+      try {
+        const oembedRes = await fetch(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(
+            `https://www.youtube.com/watch?v=${videoId}`
+          )}&format=json`
+        );
+        if (oembedRes.ok) {
+          const meta = await oembedRes.json();
+          return [
+            {
+              id: `yt-${videoId}`,
+              ytVideoId: videoId,
+              name: meta.title || 'YouTube Music Parçası',
+              artist: (meta.author_name || 'YouTube Music').replace(/ - Topic$/i, ''),
+              album: 'YouTube Music',
+              cover: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              audioUrl: '',
+              durationMs: 210000,
+              platform: 'youtube_music',
+              externalUrl: `https://music.youtube.com/watch?v=${videoId}`,
+            },
+          ];
+        }
+      } catch {}
     }
 
+    // 2. Query zero-token /api/ytmusic/search backend middleware
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
+      const res = await fetch(`/api/ytmusic/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          return data.items.map((item: any) => ({
+            id: item.id || `yt-${item.ytVideoId}`,
+            ytVideoId: item.ytVideoId,
+            name: item.name || 'YouTube Music Parçası',
+            artist: item.artist || 'YouTube Music',
+            album: item.album || 'YouTube Music',
+            cover: item.cover || `https://i.ytimg.com/vi/${item.ytVideoId}/hqdefault.jpg`,
+            audioUrl: '',
+            durationMs: item.durationMs || 210000,
+            platform: 'youtube_music' as const,
+            externalUrl: item.externalUrl || `https://music.youtube.com/watch?v=${item.ytVideoId}`,
+          }));
+        }
+      }
+    } catch {}
 
-      const result = await signInWithPopup(auth, provider);
-      const displayName =
-        result.user?.displayName || result.user?.email || 'YouTube Music Hesabım';
+    // 3. Fallback to iTunes Search API if offline or static
+    try {
+      const itunesRes = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(
+          q
+        )}&media=music&entity=song&limit=6&country=TR`
+      );
+      if (itunesRes.ok) {
+        const itunesData = await itunesRes.json();
+        return (itunesData.results || [])
+          .filter((r: any) => r.trackName && r.artistName)
+          .map((item: any) => ({
+            id: `yt-itunes-${item.trackId}`,
+            name: item.trackName,
+            artist: item.artistName,
+            album: item.collectionName || 'YouTube Music',
+            cover: (item.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+            audioUrl: item.previewUrl || '',
+            durationMs: item.trackTimeMillis || 210000,
+            platform: 'youtube_music' as const,
+            externalUrl: 'https://music.youtube.com',
+          }));
+      }
+    } catch {}
 
+    return [];
+  }
+
+  /**
+   * Immediately plays a selected YouTube Music track inside the app, sets YouTube Music active,
+   * and updates the live track state so the red YouTube Music logo and player reflect it at once.
+   */
+  public async playYouTubeMusicTrackImmediate(track: StreamTrackItem): Promise<SpotifyTrack> {
+    if (!this.connections.youtube_music.connected) {
       this.connections.youtube_music = {
         ...this.connections.youtube_music,
         connected: true,
-        accountName: displayName,
+        accountName: this.connections.youtube_music.accountName || 'YouTube Music',
         connectedAt: Date.now(),
       };
-      this.connections.activePlatform = 'youtube_music';
-      this.saveConnectionsToStorage();
-      await this.ensureYouTubePlayer();
-      this.notifyListeners();
+    }
 
-      return {
-        success: true,
-        accountName: displayName,
-        trackCount: 1,
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err?.message || 'Google ile YouTube Music girişi tamamlanamadı.',
-      };
+    this.platformQueues.youtube_music = [
+      track,
+      ...this.platformQueues.youtube_music.filter((t) => t.id !== track.id),
+    ];
+    this.platformIndices.youtube_music = 0;
+    this.connections.activePlatform = 'youtube_music';
+    this.ytLiveTrackId = track.ytVideoId || track.id;
+    this.ytLiveStartTimestamp = Date.now();
+
+    const liveBuilt: SpotifyTrack = {
+      id: track.id,
+      name: track.name,
+      artists: [track.artist],
+      albumName: track.album || 'YouTube Music',
+      albumArt: track.cover,
+      durationMs: track.durationMs || 210000,
+      progressMs: 0,
+      isPlaying: true,
+      source: 'youtube_music',
+      externalUrl: track.externalUrl || 'https://music.youtube.com',
+      ytVideoId: track.ytVideoId,
+    };
+
+    this.lastYouTubeLiveTrack = liveBuilt;
+    this.saveConnectionsToStorage();
+    this.notifyListeners(liveBuilt);
+    await this.playStream();
+    return liveBuilt;
+  }
+
+  /**
+   * Zero-token 1-click connection for YouTube Music from the UI.
+   * Optionally accepts a song/artist query or Last.fm username for background device sync.
+   */
+  public async connectYouTubeMusicDirect(
+    userDisplayName?: string,
+    optionalQueryOrScrobbler?: string
+  ): Promise<{
+    success: boolean;
+    accountName: string;
+    track?: SpotifyTrack;
+    error?: string;
+  }> {
+    const accountLabel =
+      userDisplayName?.trim() ||
+      this.connections.youtube_music.accountName ||
+      'YouTube Music Hesabım';
+
+    const input = (optionalQueryOrScrobbler || '').trim();
+
+    // If user entered a Last.fm username (single word or prefixed with lastfm:)
+    if (input && !input.includes(' ') && !input.includes('http') && input.length >= 2) {
+      const cleanUser = input.replace(/^lastfm:/i, '').trim();
+      try {
+        const lfmRes = await fetch(
+          `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(
+            cleanUser
+          )}&api_key=b25b959554ed76058ac220b7b2e0a026&format=json&limit=1`,
+          { cache: 'no-store' }
+        );
+        if (lfmRes.ok) {
+          const lfmData = await lfmRes.json();
+          if (!lfmData.error && lfmData.recenttracks) {
+            const displayUser = lfmData.recenttracks?.['@attr']?.user || cleanUser;
+            this.connections.youtube_music = {
+              connected: true,
+              accountName: `${displayUser} (Canlı)`,
+              accessToken: `lastfm:${displayUser}`,
+              customPlaylistUrl: 'https://music.youtube.com',
+              customTrackTitle: '',
+              customArtistName: '',
+              connectedAt: Date.now(),
+            };
+            this.connections.activePlatform = 'youtube_music';
+            this.saveConnectionsToStorage();
+            const live = await this.pollYouTubeMusicAccountNowPlaying();
+            this.notifyListeners();
+            return {
+              success: true,
+              accountName: `${displayUser} (Canlı)`,
+              track: live || undefined,
+            };
+          }
+        }
+      } catch {}
+    }
+
+    // Connect YouTube Music directly with zero token required
+    this.connections.youtube_music = {
+      ...this.connections.youtube_music,
+      connected: true,
+      accountName: accountLabel,
+      customPlaylistUrl: 'https://music.youtube.com',
+      connectedAt: Date.now(),
+    };
+    this.connections.activePlatform = 'youtube_music';
+    this.saveConnectionsToStorage();
+
+    // If user also typed a song name or YouTube Music link, search and play it immediately!
+    if (input) {
+      const results = await this.searchYouTubeMusicTracks(input);
+      if (results.length > 0) {
+        const played = await this.playYouTubeMusicTrackImmediate(results[0]);
+        return {
+          success: true,
+          accountName: accountLabel,
+          track: played,
+        };
+      }
+    }
+
+    this.notifyListeners();
+    return {
+      success: true,
+      accountName: accountLabel,
+    };
+  }
+
+  public getPlatformQueue(platform: MusicPlatform): StreamTrackItem[] {
+    return this.platformQueues[platform] || [];
+  }
+
+  public getPlatformIndex(platform: MusicPlatform): number {
+    return this.platformIndices[platform] || 0;
+  }
+
+  public selectPlatformTrack(platform: MusicPlatform, trackId: string, autoPlay = true) {
+    const queue = this.platformQueues[platform] || [];
+    const idx = queue.findIndex((t) => t.id === trackId);
+    if (idx !== -1) {
+      this.platformIndices[platform] = idx;
+      this.connections.activePlatform = platform;
+      this.saveConnectionsToStorage();
+      this.loadStreamTrack(platform);
+      if (autoPlay) {
+        this.playStream();
+      } else {
+        this.notifyListeners();
+      }
     }
   }
 
-  public async fetchYouTubeMusicUserTracks(accessToken: string): Promise<number> {
-    if (!accessToken) return 0;
-    try {
-      // 1. Fetch user's Liked Music Videos (videoCategoryId=10 is Music)
-      const likedMusicRes = await fetch(
-        'https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&myRating=like&videoCategoryId=10&maxResults=25',
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
+  public async pollYouTubeMusicAccountNowPlaying(): Promise<SpotifyTrack | null> {
+    if (!this.connections.youtube_music.connected) return null;
 
-      let items: any[] = [];
-      if (likedMusicRes.ok) {
-        const data = await likedMusicRes.json();
-        items = data.items || [];
-      }
+    const scrobbleRef = this.connections.youtube_music.accessToken || '';
 
-      // 2. If user has no category-10 liked videos, fallback to all liked videos
-      if (items.length === 0) {
-        const allLikedRes = await fetch(
-          'https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&myRating=like&maxResults=20',
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }
-        );
-        if (allLikedRes.ok) {
-          const data = await allLikedRes.json();
-          items = data.items || [];
-        }
-      }
-
-      if (items.length > 0) {
-        const tracks: StreamTrackItem[] = items.map((item: any) => {
-          const snippet = item.snippet || {};
-          const rawTitle = snippet.title || 'YouTube Music Parçası';
-          const channelTitle = (snippet.channelTitle || 'YouTube Music').replace(
-            / - Topic$/i,
-            ''
+    // 1. If user linked a Last.fm scrobbler username, poll real-time playing track
+    if (scrobbleRef.startsWith('lastfm:')) {
+      const lfmUser = scrobbleRef.replace(/^lastfm:/i, '').trim();
+      if (lfmUser) {
+        try {
+          const res = await fetch(
+            `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(
+              lfmUser
+            )}&api_key=b25b959554ed76058ac220b7b2e0a026&format=json&limit=1`,
+            { cache: 'no-store' }
           );
-          const thumb =
-            snippet.thumbnails?.maxres?.url ||
-            snippet.thumbnails?.high?.url ||
-            snippet.thumbnails?.medium?.url ||
-            `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
-          const durationMs = parseIsoDurationToMs(item.contentDetails?.duration);
+          if (res.ok) {
+            const data = await res.json();
+            const trk = data?.recenttracks?.track?.[0] || data?.recenttracks?.track;
+            if (trk && trk.name) {
+              const isNowPlaying = trk?.['@attr']?.nowplaying === 'true';
+              const title = String(trk.name);
+              const artist = String(trk.artist?.['#text'] || trk.artist || 'YouTube Music');
+              const album = String(trk.album?.['#text'] || 'YouTube Music');
+              const images = Array.isArray(trk.image) ? trk.image : [];
+              const largeImg =
+                images[images.length - 1]?.['#text'] ||
+                images[2]?.['#text'] ||
+                '';
+              const trackId = `yt-lfm-${title}-${artist}`.replace(/\s+/g, '-').toLowerCase();
 
-          return {
-            id: `yt-${item.id}`,
-            name: rawTitle,
-            artist: channelTitle,
-            album: 'YouTube Music · Beğenilen Şarkılarım',
-            cover: thumb,
-            audioUrl: '',
-            durationMs,
-            platform: 'youtube_music',
-            externalUrl: `https://music.youtube.com/watch?v=${item.id}`,
-            ytVideoId: item.id,
-          };
-        });
+              if (this.ytLiveTrackId !== trackId) {
+                this.ytLiveTrackId = trackId;
+                this.ytLiveStartTimestamp = Date.now();
+              }
 
-        this.platformQueues.youtube_music = tracks;
-        this.platformIndices.youtube_music = 0;
-        this.ensureYouTubePlayer();
-        this.notifyListeners();
-        return tracks.length;
+              const elapsed = isNowPlaying
+                ? Math.min(210000, Math.max(0, Date.now() - this.ytLiveStartTimestamp))
+                : 0;
+
+              const liveTrack: SpotifyTrack = {
+                id: trackId,
+                name: title,
+                artists: [artist],
+                albumName: album,
+                albumArt: largeImg,
+                durationMs: 210000,
+                progressMs: elapsed,
+                isPlaying: isNowPlaying,
+                source: 'youtube_music',
+                externalUrl: trk.url || 'https://music.youtube.com',
+              };
+
+              this.lastYouTubeLiveTrack = liveTrack;
+
+              if (
+                isNowPlaying &&
+                this.connections.activePlatform !== 'youtube_music' &&
+                !this.lastLiveTrack?.isPlaying
+              ) {
+                this.connections.activePlatform = 'youtube_music';
+                this.saveConnectionsToStorage();
+              }
+
+              this.notifyListeners();
+              return liveTrack;
+            }
+          }
+        } catch {}
       }
-    } catch {}
-    return 0;
+    }
+
+    // 2. If playing via built-in YouTube IFrame Player, keep lastYouTubeLiveTrack synced with real player time
+    if (this.isStreamPlaying && this.connections.activePlatform === 'youtube_music') {
+      const built = this.buildStreamTrackForPlatform('youtube_music');
+      this.lastYouTubeLiveTrack = { ...built, isPlaying: true };
+      return this.lastYouTubeLiveTrack;
+    }
+
+    return this.lastYouTubeLiveTrack;
   }
 
   // --- APPLE MUSIC CONNECTION & CATALOG SYNC ---
@@ -761,6 +1048,18 @@ class SpotifyService {
 
   // --- MULTI-PLATFORM PERSISTENT CONNECTION STORAGE ---
 
+  private sanitizeFakeTitlesInConnections() {
+    (['spotify', 'youtube_music', 'apple_music'] as MusicPlatform[]).forEach((p) => {
+      if (isFakeDefaultTitle(this.connections[p]?.customTrackTitle)) {
+        this.connections[p].customTrackTitle = '';
+        this.connections[p].customArtistName = '';
+      }
+      this.platformQueues[p] = (this.platformQueues[p] || []).filter(
+        (item) => !isFakeDefaultTitle(item.name)
+      );
+    });
+  }
+
   private loadConnectionsFromStorage() {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     try {
@@ -774,6 +1073,8 @@ class SpotifyService {
           apple_music: { ...DEFAULT_CONNECTIONS.apple_music, ...(parsed.apple_music || {}) },
         };
       }
+
+      this.sanitizeFakeTitlesInConnections();
 
       // Restore Spotify tokens if stored in connections config
       if (this.connections.spotify.accessToken && !localStorage.getItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN)) {
@@ -807,6 +1108,8 @@ class SpotifyService {
   private saveConnectionsToStorage() {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     try {
+      this.sanitizeFakeTitlesInConnections();
+
       // Keep Spotify token fields synced inside connections.spotify for Firestore backup
       const spToken = localStorage.getItem(SPOTIFY_STORAGE_KEYS.ACCESS_TOKEN);
       const spRefresh = localStorage.getItem(SPOTIFY_STORAGE_KEYS.REFRESH_TOKEN);
@@ -895,8 +1198,10 @@ class SpotifyService {
       },
     };
 
-    if (this.connections.youtube_music.accessToken && this.platformQueues.youtube_music.length === 0) {
-      this.fetchYouTubeMusicUserTracks(this.connections.youtube_music.accessToken);
+    this.sanitizeFakeTitlesInConnections();
+
+    if (this.connections.youtube_music.connected) {
+      this.pollYouTubeMusicAccountNowPlaying();
     }
     if (this.getAccessToken()) {
       this.pollSpotifyNowPlaying();
@@ -906,7 +1211,7 @@ class SpotifyService {
   }
 
   public getActivePlatform(): MusicPlatform {
-    return this.connections.activePlatform || 'spotify';
+    return this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
   }
 
   public setActivePlatform(platform: MusicPlatform, autoPlay = false) {
@@ -975,10 +1280,15 @@ class SpotifyService {
       this.lastLiveTrack = null;
     }
 
-    if (platform === 'youtube_music' && this.ytPlayer && this.ytPlayerReady) {
-      try {
-        this.ytPlayer.stopVideo();
-      } catch {}
+    if (platform === 'youtube_music') {
+      this.lastYouTubeLiveTrack = null;
+      this.ytLiveTrackId = null;
+      this.platformQueues.youtube_music = [];
+      if (this.ytPlayer && this.ytPlayerReady) {
+        try {
+          this.ytPlayer.stopVideo();
+        } catch {}
+      }
     }
 
     this.connections[platform] = {
@@ -1010,6 +1320,9 @@ class SpotifyService {
     if (platform === 'spotify') {
       return Boolean(this.getAccessToken());
     }
+    if (platform === 'youtube_music') {
+      return Boolean(this.connections.youtube_music?.connected);
+    }
     return Boolean(
       this.connections[platform]?.connected &&
         this.connections[platform]?.accountName &&
@@ -1030,21 +1343,30 @@ class SpotifyService {
   }
 
   /**
-   * Automatically detects which music platform is actively playing or connected.
+   * Automatically detects which music platform is actively playing right now.
+   * No manual "Aktif Et" needed: whichever platform is playing takes priority automatically.
    */
   public getDetectedPlatform(): MusicPlatform | null {
-    // 1. If Spotify live Web API is actively playing a track right now, prioritize Spotify immediately
+    // 1. If Spotify is actively playing right now, return Spotify
     if (this.lastLiveTrack?.isPlaying && this.isPlatformConnected('spotify')) {
       return 'spotify';
     }
 
-    // 2. If activePlatform is connected, return it
-    const active = this.connections.activePlatform;
-    if (active && this.isPlatformConnected(active)) {
-      return active;
+    // 2. If YouTube Music is actively playing right now, return YouTube Music
+    if (
+      (this.lastYouTubeLiveTrack?.isPlaying ||
+        (this.isStreamPlaying && this.connections.activePlatform === 'youtube_music')) &&
+      this.isPlatformConnected('youtube_music')
+    ) {
+      return 'youtube_music';
     }
 
-    // 3. Otherwise pick the most recently connected platform
+    // 3. If local stream is playing for another connected platform, return it
+    if (this.isStreamPlaying && this.isPlatformConnected(this.connections.activePlatform)) {
+      return this.connections.activePlatform;
+    }
+
+    // 4. Otherwise pick the most recently connected platform
     const platforms: MusicPlatform[] = ['spotify', 'youtube_music', 'apple_music'];
     const connectedList = platforms
       .filter((p) => this.isPlatformConnected(p))
@@ -1303,7 +1625,7 @@ class SpotifyService {
 
   public async exchangeCodeOrUrl(
     input: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; userName?: string }> {
     if (!input || typeof input !== 'string') {
       return { success: false, error: 'Lütfen geçerli bir kod veya token girin.' };
     }
@@ -1315,7 +1637,7 @@ class SpotifyService {
       (!raw.includes('code=') && raw.length > 50 && !raw.includes('http') && !raw.includes(' '))
     ) {
       const directRes = await this.setDirectAccessToken(raw);
-      if (directRes.success) return { success: true };
+      if (directRes.success) return { success: true, userName: directRes.userName };
       if (directRes.error) return { success: false, error: directRes.error };
     }
 
@@ -1331,7 +1653,7 @@ class SpotifyService {
     } catch {}
 
     const success = await this.exchangeCodeForToken(code);
-    if (success) return { success: true };
+    if (success) return { success: true, userName: this.getConnectedUserName() || undefined };
 
     const altRedirects = [
       `${window.location.origin}/auth/callback`,
@@ -1343,7 +1665,7 @@ class SpotifyService {
 
     for (const alt of altRedirects) {
       const altSuccess = await this.exchangeCodeForToken(code, alt);
-      if (altSuccess) return { success: true };
+      if (altSuccess) return { success: true, userName: this.getConnectedUserName() || undefined };
     }
 
     return {
@@ -1693,6 +2015,10 @@ class SpotifyService {
   // --- AUDIO STREAM & PLATFORM-AWARE LIVE TRACK RESOLUTION ---
 
   public buildStreamTrackForPlatform(platform: MusicPlatform): SpotifyTrack {
+    if (platform === 'youtube_music' && this.lastYouTubeLiveTrack && !this.isStreamPlaying) {
+      return this.lastYouTubeLiveTrack;
+    }
+
     const queue = this.platformQueues[platform] || [];
     const idx = queue.length > 0 ? (this.platformIndices[platform] || 0) % queue.length : 0;
     const stream = queue[idx];
@@ -1725,7 +2051,10 @@ class SpotifyService {
         albumArt: stream.cover,
         durationMs: duration,
         progressMs: progress,
-        isPlaying: this.isStreamPlaying,
+        isPlaying:
+          platform === 'youtube_music'
+            ? Boolean(this.isStreamPlaying || this.lastYouTubeLiveTrack?.isPlaying)
+            : this.isStreamPlaying,
         source: platform,
         externalUrl: stream.externalUrl || meta.externalAppUrl,
         ytVideoId: stream.ytVideoId,
@@ -1733,7 +2062,7 @@ class SpotifyService {
     }
 
     // If no track is queued yet for this connected platform, show real connected status (NEVER fake songs!)
-    if (conn?.customTrackTitle) {
+    if (conn?.customTrackTitle && !isFakeDefaultTitle(conn.customTrackTitle)) {
       return {
         id: `${platform}-custom`,
         name: conn.customTrackTitle,
@@ -1755,7 +2084,7 @@ class SpotifyService {
         : 'Müzik Başlatılmadı',
       artists: [
         conn?.connected
-          ? `${meta.name} üzerinden bir şarkı açın veya aşağıdan senkronize edin`
+          ? `${meta.name} üzerinden bir şarkı açtığınızda anında buraya yansır`
           : 'Ayarlar > Bağlantılar sekmesinden müzik hesabınızı bağlayabilirsiniz',
       ],
       albumName: conn?.connected ? `${meta.name} · ${conn.accountName}` : '',
@@ -1773,6 +2102,9 @@ class SpotifyService {
     const active = detected || this.connections.activePlatform || 'spotify';
     if (active === 'spotify' && this.lastLiveTrack) {
       return this.lastLiveTrack;
+    }
+    if (active === 'youtube_music' && this.lastYouTubeLiveTrack && !this.isStreamPlaying) {
+      return this.lastYouTubeLiveTrack;
     }
     return this.buildStreamTrackForPlatform(active);
   }
@@ -1810,6 +2142,9 @@ class SpotifyService {
             player.playVideo();
           }
           this.isStreamPlaying = true;
+          if (this.lastYouTubeLiveTrack && active === 'youtube_music') {
+            this.lastYouTubeLiveTrack = { ...this.lastYouTubeLiveTrack, isPlaying: true };
+          }
           this.notifyListeners();
           return;
         } catch {}
@@ -1843,6 +2178,12 @@ class SpotifyService {
       this.audioEl.pause();
     }
     this.isStreamPlaying = false;
+    if (
+      this.lastYouTubeLiveTrack &&
+      !this.connections.youtube_music.accessToken?.startsWith('lastfm:')
+    ) {
+      this.lastYouTubeLiveTrack = { ...this.lastYouTubeLiveTrack, isPlaying: false };
+    }
     this.notifyListeners();
   }
 

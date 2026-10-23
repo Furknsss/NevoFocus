@@ -15,7 +15,97 @@ export default defineConfig(() => {
       {
         name: 'suppress-websocket-errors',
         configureServer(server) {
-          server.middlewares.use((req, res, next) => {
+          server.middlewares.use(async (req, res, next) => {
+            if (req.url && req.url.startsWith('/api/ytmusic/search')) {
+              try {
+                const parsedUrl = new URL(req.url, 'http://localhost:3000');
+                const q = (parsedUrl.searchParams.get('q') || '').trim();
+                if (!q) {
+                  res.statusCode = 200;
+                  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                  res.end(JSON.stringify({ items: [] }));
+                  return;
+                }
+
+                const ytRes = await fetch(
+                  `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&hl=tr`,
+                  {
+                    headers: {
+                      'User-Agent':
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                      'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+                    },
+                  }
+                );
+                const html = await ytRes.text();
+                const match = html.match(/var ytInitialData = (\{.*?\});<\/script>/s);
+                const items: any[] = [];
+
+                if (match && match[1]) {
+                  const data = JSON.parse(match[1]);
+                  const contents =
+                    data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
+                      ?.sectionListRenderer?.contents || [];
+
+                  for (const section of contents) {
+                    const rawItems = section?.itemSectionRenderer?.contents || [];
+                    for (const entry of rawItems) {
+                      const v = entry?.videoRenderer;
+                      if (!v || !v.videoId) continue;
+                      const videoId = String(v.videoId);
+                      const title =
+                        v.title?.runs?.[0]?.text ||
+                        v.title?.simpleText ||
+                        'YouTube Music Parçası';
+                      const author = (
+                        v.ownerText?.runs?.[0]?.text ||
+                        v.longBylineText?.runs?.[0]?.text ||
+                        'YouTube Music'
+                      ).replace(/ - Topic$/i, '');
+                      const lengthText = v.lengthText?.simpleText || '3:30';
+                      const parts = String(lengthText)
+                        .split(':')
+                        .map((n: string) => parseInt(n, 10) || 0);
+                      let durationMs = 210000;
+                      if (parts.length === 2) {
+                        durationMs = (parts[0] * 60 + parts[1]) * 1000;
+                      } else if (parts.length === 3) {
+                        durationMs = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+                      }
+
+                      const thumbs = v.thumbnail?.thumbnails || [];
+                      const cover =
+                        thumbs[thumbs.length - 1]?.url ||
+                        `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+                      items.push({
+                        id: `yt-${videoId}`,
+                        ytVideoId: videoId,
+                        name: title,
+                        artist: author,
+                        album: 'YouTube Music',
+                        cover,
+                        durationMs: durationMs || 210000,
+                        externalUrl: `https://music.youtube.com/watch?v=${videoId}`,
+                      });
+                      if (items.length >= 8) break;
+                    }
+                    if (items.length >= 8) break;
+                  }
+                }
+
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.end(JSON.stringify({ items }));
+                return;
+              } catch (err) {
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.end(JSON.stringify({ items: [] }));
+                return;
+              }
+            }
+
             if (req.url && (req.url.startsWith('/auth/callback') || req.url.includes('code='))) {
               if (req.url.startsWith('/auth/callback')) {
                 res.statusCode = 200;
