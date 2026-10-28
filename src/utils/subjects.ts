@@ -18,27 +18,29 @@ export const ALL_SUBJECTS: AreaSubjectConfig[] = [
   { name: 'TYT Matematik', color: '#10b981', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
   { name: 'TYT Geometri', color: '#059669', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] }, // Geometri ayrı!
   { name: 'TYT Türkçe', color: '#f59e0b', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Sosyal', color: '#8b5cf6', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Fen Bilimleri', color: '#06b6d4', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
   { name: 'Paragraf', color: '#f59e0b', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] }, // Günlük Rutin
   { name: 'Problem', color: '#10b981', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] }, // Günlük Rutin
-  { name: 'TYT Fizik', color: '#3b82f6', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
-  { name: 'TYT Kimya', color: '#ec4899', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
-  { name: 'TYT Biyoloji', color: '#84cc16', area: 'tyt', trackWhitelist: ['Sayısal', 'Genel'] },
-  { name: 'TYT Tarih', color: '#8b5cf6', area: 'tyt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },
-  { name: 'TYT Coğrafya', color: '#06b6d4', area: 'tyt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },
-  { name: 'TYT Felsefe', color: '#a855f7', area: 'tyt', trackWhitelist: ['Sözel', 'Genel'] },
-  { name: 'TYT Din Kültürü', color: '#6366f1', area: 'tyt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },
+  { name: 'TYT Fizik', color: '#3b82f6', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Kimya', color: '#ec4899', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Biyoloji', color: '#84cc16', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Tarih', color: '#8b5cf6', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Coğrafya', color: '#06b6d4', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Felsefe', color: '#a855f7', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
+  { name: 'TYT Din Kültürü', color: '#6366f1', area: 'tyt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'Genel'] },
 
   // --- AYT (Alan Yeterlilik) ---
-  // Sayısal subjects: Only for Sayısal & Genel (NO Edebiyat, NO Felsefe Grubu, NO Coğrafya)
   { name: 'AYT Matematik', color: '#0d9488', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Genel'] },
   { name: 'AYT Geometri', color: '#14b8a6', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Genel'] }, // Geometri ayrı!
+  { name: 'AYT Fen Bilimleri', color: '#0284c7', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Genel'] },
   { name: 'Paragraf', color: '#f59e0b', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
   { name: 'Problem', color: '#10b981', area: 'ayt', trackWhitelist: ['Sayısal', 'Eşit Ağırlık', 'Sözel', 'Dil', 'KPSS', 'Genel'] },
   { name: 'AYT Fizik', color: '#2563eb', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'AYT Kimya', color: '#db2777', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },
   { name: 'AYT Biyoloji', color: '#65a30d', area: 'ayt', trackWhitelist: ['Sayısal', 'Genel'] },
 
-  // Eşit Ağırlık & Sözel subjects (EXCLUDED from pure Sayısal!)
+  // Eşit Ağırlık & Sözel subjects
   { name: 'AYT Edebiyat', color: '#e11d48', area: 'ayt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },
   { name: 'AYT Tarih-1', color: '#7c3aed', area: 'ayt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },
   { name: 'AYT Coğrafya-1', color: '#0891b2', area: 'ayt', trackWhitelist: ['Eşit Ağırlık', 'Sözel', 'Genel'] },

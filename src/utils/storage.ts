@@ -51,12 +51,15 @@ export const FOCUS_MODES: FocusModeConfig[] = [
 export const DEFAULT_SUBJECTS: SubjectItem[] = [
   { id: 'sub-tyt-mat', name: 'TYT Matematik', color: '#10b981' },
   { id: 'sub-tyt-geo', name: 'TYT Geometri', color: '#059669' },
+  { id: 'sub-tyt-turk', name: 'TYT Türkçe', color: '#f59e0b' },
+  { id: 'sub-tyt-sos', name: 'TYT Sosyal', color: '#8b5cf6' },
+  { id: 'sub-tyt-fen', name: 'TYT Fen Bilimleri', color: '#06b6d4' },
   { id: 'sub-tyt-fiz', name: 'TYT Fizik', color: '#3b82f6' },
   { id: 'sub-tyt-kim', name: 'TYT Kimya', color: '#ec4899' },
   { id: 'sub-tyt-biyo', name: 'TYT Biyoloji', color: '#84cc16' },
-  { id: 'sub-tyt-turk', name: 'TYT Türkçe', color: '#f59e0b' },
   { id: 'sub-ayt-mat', name: 'AYT Matematik', color: '#0d9488' },
   { id: 'sub-ayt-geo', name: 'AYT Geometri', color: '#14b8a6' },
+  { id: 'sub-ayt-fen', name: 'AYT Fen Bilimleri', color: '#0284c7' },
   { id: 'sub-ayt-fiz', name: 'AYT Fizik', color: '#2563eb' },
   { id: 'sub-ayt-kim', name: 'AYT Kimya', color: '#db2777' },
   { id: 'sub-ayt-biyo', name: 'AYT Biyoloji', color: '#65a30d' },
@@ -162,7 +165,16 @@ export function getStoredSubjects(): SubjectItem[] {
       localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(DEFAULT_SUBJECTS));
       return DEFAULT_SUBJECTS;
     }
-    return JSON.parse(raw);
+    const parsed: SubjectItem[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_SUBJECTS;
+    const existingNames = new Set(parsed.map((s) => s.name));
+    const missingDefaults = DEFAULT_SUBJECTS.filter((d) => !existingNames.has(d.name));
+    if (missingDefaults.length > 0) {
+      const merged = [...parsed, ...missingDefaults];
+      localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(merged));
+      return merged;
+    }
+    return parsed;
   } catch {
     return DEFAULT_SUBJECTS;
   }

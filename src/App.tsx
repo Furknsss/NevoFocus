@@ -1177,10 +1177,12 @@ export default function App() {
     setSelectedTask(task);
     setDurationMinutes(task.plannedMinutes);
 
-    const matchedSubject = subjects.find((s) => s.name === task.subjectName);
-    if (matchedSubject) {
-      setSelectedSubject(matchedSubject);
-    }
+    const matchedSubject = subjects.find((s) => s.name === task.subjectName) || {
+      id: `sub-${task.subjectName}`,
+      name: task.subjectName,
+      color: task.subjectColor || '#10b981',
+    };
+    setSelectedSubject(matchedSubject);
 
     setCurrentTab('focus');
   };

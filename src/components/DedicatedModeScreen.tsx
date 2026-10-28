@@ -155,8 +155,12 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
                   onSelectTask(t);
                   if (t) {
                     onChangeDuration(t.plannedMinutes);
-                    const sub = subjects.find((s) => s.name === t.subjectName);
-                    if (sub) onSelectSubject(sub);
+                    const sub = subjects.find((s) => s.name === t.subjectName) || {
+                      id: `sub-${t.subjectName}`,
+                      name: t.subjectName,
+                      color: t.subjectColor || '#10b981',
+                    };
+                    onSelectSubject(sub);
                   } else {
                     onSelectSubject(SERBEST_CALISMA_SUBJECT);
                   }
