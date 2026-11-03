@@ -262,14 +262,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google Sign In error:', err);
-      if (isAndroidNativeAuth && (
-        err.code === 'SIGN_IN_CANCELED' ||
-        err.code === 'SIGN_IN_FAILED' ||
-        /UNREGISTERED_ON_API_CONSOLE|Account reauth failed/i.test(err.message || '')
-      )) {
-        setErrorMsg(
-          'Android Google giriş yapılandırması tamamlanmamış olabilir. Firebase/Google Cloud üzerinde NevoFocus Android paket adı ve APK SHA-1 sertifikasının kayıtlı olduğundan emin olun. Hesap seçicisini kapattıysanız yeniden deneyin.'
-        );
+      if (isAndroidNativeAuth && /UNREGISTERED_ON_API_CONSOLE|Account reauth failed/i.test(err.message || '')) {
+        setErrorMsg('Google Cloud\'da bu APK için Android OAuth istemcisi bulunamadı. Paket adı ve SHA-1 sertifikasını kaydedin.');
+      } else if (isAndroidNativeAuth && err.code === 'SIGN_IN_CANCELED') {
+        setErrorMsg('Google hesap seçimi iptal edildi. Tekrar deneyebilirsiniz. Hesap seçtikten sonra bu hata oluşuyorsa Android OAuth SHA-1 kaydını kontrol edin.');
+      } else if (isAndroidNativeAuth && err.code === 'SIGN_IN_FAILED') {
+        setErrorMsg('Android Google giriş servisi başarısız oldu. Google Play Hizmetleri, bağlantı ve Android OAuth ayarlarını kontrol edin.');
       } else if (err.code === 'auth/unauthorized-domain') {
         const hostname = typeof window !== 'undefined' ? window.location.hostname : 'run.app';
         setDomainErrorHostname(hostname);
