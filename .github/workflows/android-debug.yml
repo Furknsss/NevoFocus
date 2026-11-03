@@ -44,11 +44,13 @@ jobs:
         run: npm run android:setup
       - name: Compile installable debug APK
         run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
-      - name: Print Android debug signing certificate fingerprints
+      - name: Print actual APK signing certificate fingerprints
         run: |
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android -keypass android \
-            | grep -E 'SHA1:|SHA256:' | tee android-debug-signing-fingerprints.txt
-          echo "Copy SHA1 into the Google Cloud Android OAuth client configuration."
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-debug-signing-fingerprints.txt
+          grep -q 'certificate SHA-1 digest' android-debug-signing-fingerprints.txt
+          echo "Copy the APK certificate SHA-1 digest into the Google Cloud Android OAuth client."
       - name: Publish APK and signing fingerprints
         uses: actions/upload-artifact@v4
         with:
