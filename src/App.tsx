@@ -91,6 +91,7 @@ import {
 } from './utils/backgroundFocus';
 import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
+import { signOutNativeGoogle } from './services/nativeGoogleAuth';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -1257,6 +1258,7 @@ export default function App() {
       setIsGuestMode(false);
       await updateCloudStatus('idle');
       await signOut(auth);
+      await signOutNativeGoogle();
       setCurrentUser(null);
       const fresh = getStoredProfile();
       fresh.userId = '';
