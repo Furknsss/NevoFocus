@@ -42,8 +42,8 @@ const permissions = [
 ];
 for (const permission of permissions) {
   if (!manifest.includes('android:name="' + permission + '"')) {
-    manifest = manifest.replace(/<manifest\\b[^>]*>/, match =>
-      match + '\\n    <uses-permission android:name="' + permission + '" />'
+    manifest = manifest.replace(/<manifest\b[^>]*>/, match =>
+      match + '\n    <uses-permission android:name="' + permission + '" />'
     );
   }
 }
