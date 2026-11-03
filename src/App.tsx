@@ -90,6 +90,7 @@ import {
   isSessionTerminated,
 } from './utils/backgroundFocus';
 import { Flame, X, Download } from 'lucide-react';
+import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -864,6 +865,7 @@ export default function App() {
   const handleSessionComplete = async (newSession: FocusSession) => {
     markSessionTerminated();
     backgroundFocus.stopAll();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
     const finalSession: FocusSession = {
       ...newSession,
@@ -945,6 +947,7 @@ export default function App() {
   const handleAbandonSession = async (partialSession?: FocusSession) => {
     markSessionTerminated();
     backgroundFocus.stopAll();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
     setIsSessionActive(false);
     setLocalMinimizedSession(null);
     setCloudActiveSession(null);
@@ -1892,6 +1895,7 @@ export default function App() {
             setSessions(updated);
             soundEngine.playCompletionBell();
             backgroundFocus.stopAll();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
             const effectiveUid = currentUser?.uid || auth.currentUser?.uid || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_uid') : null);
             if (effectiveUid) {
@@ -1962,6 +1966,7 @@ export default function App() {
             const target = localMinimizedSession || cloudActiveSession;
             markSessionTerminated(target?.startedAt);
             backgroundFocus.stopAll();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
             setLocalMinimizedSession(null);
             setCloudActiveSession(null);
             try {
