@@ -39,6 +39,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
+import { isAndroidNativeAuth, signInWithNativeGoogle, signOutNativeGoogle } from '../services/nativeGoogleAuth';
 import {
   syncAllToFirestore,
   restoreAllFromFirestore,
@@ -144,7 +145,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setDomainErrorHostname(null);
       soundEngine.playClick();
 
-      const result = await signInWithPopup(auth, googleProvider);
+      // Android's native Google account picker avoids Chrome/WebView storage separation.
+      // Keep the existing popup flow exactly as-is on the website and PWA.
+      const result = isAndroidNativeAuth
+        ? await signInWithNativeGoogle()
+        : await signInWithPopup(auth, googleProvider);
       const user = result.user;
       const additionalInfo = getAdditionalUserInfo(result);
       const isNewUser = additionalInfo?.isNewUser ?? false;
@@ -257,7 +262,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google Sign In error:', err);
-      if (err.code === 'auth/unauthorized-domain') {
+      if (isAndroidNativeAuth && (
+        err.code === 'SIGN_IN_CANCELED' ||
+        err.code === 'SIGN_IN_FAILED' ||
+        /UNREGISTERED_ON_API_CONSOLE|Account reauth failed/i.test(err.message || '')
+      )) {
+        setErrorMsg(
+          'Android Google giriş yapılandırması tamamlanmamış olabilir. Firebase/Google Cloud üzerinde NevoFocus Android paket adı ve APK SHA-1 sertifikasının kayıtlı olduğundan emin olun. Hesap seçicisini kapattıysanız yeniden deneyin.'
+        );
+      } else if (err.code === 'auth/unauthorized-domain') {
         const hostname = typeof window !== 'undefined' ? window.location.hostname : 'run.app';
         setDomainErrorHostname(hostname);
         setErrorMsg(
@@ -267,6 +280,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMsg('Giriş penceresi kapatıldı.');
       } else if (err.code === 'auth/popup-blocked') {
         setErrorMsg('Tarayıcınız açılır pencereyi engelledi. Lütfen açılır pencerelere izin verip tekrar deneyin.');
+      } else if (err.code === 'auth/account-exists-with-different-credential') {
+        setErrorMsg('Bu e-posta adresi daha önce farklı giriş yöntemiyle kaydedilmiş. Önce mevcut yönteminizle giriş yapın.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setErrorMsg('Google girişinde internet bağlantısı kurulamadı. Bağlantınızı kontrol edin.');
+      } else if (isAndroidNativeAuth && err.code === 'auth/invalid-credential') {
+        setErrorMsg('Google kimliği Firebase tarafından kabul edilmedi. Google Cloud Android OAuth ve web istemci ayarlarını kontrol edin.');
       } else {
         setErrorMsg(err.message || 'Google ile giriş yapılırken bir sorun oluştu.');
       }
@@ -278,7 +297,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // 2. E-posta & Şifre ile Giriş / Kayıt Ol
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !password) {
       setErrorMsg('Lütfen e-posta adresinizi ve şifrenizi girin.');
       return;
@@ -429,6 +448,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         msg = 'Çok fazla başarısız deneme yapıldı. Lütfen biraz bekleyip tekrar deneyin veya şifrenizi sıfırlayın.';
       } else if (err.code === 'auth/network-request-failed') {
         msg = 'İnternet bağlantısı kurulamadı. Lütfen bağlantınızı kontrol edin.';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        msg = 'Firebase üzerinde E-posta/Şifre giriş yöntemi etkin değil. Yönetici tarafından etkinleştirilmesi gerekiyor.';
+      } else if (err.code === 'auth/user-disabled') {
+        msg = 'Bu hesap devre dışı bırakılmış. Destek ile iletişime geçin.';
+      } else if (err.code === 'auth/web-storage-unsupported') {
+        msg = 'Bu cihazda oturum saklama kullanılamıyor. Android WebView ve Chrome bileşenlerini güncelleyin.';
+      } else if (/API_KEY|REFERER_BLOCKED|blocked by API key/i.test(err.message || '')) {
+        msg = 'Android uygulamasının Firebase API anahtarı yetkisi engelleniyor. Proje API anahtarı kısıtlamaları kontrol edilmeli.';
       }
 
       setErrorMsg(msg);
@@ -493,6 +520,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       soundEngine.playClick();
       await signOut(auth);
+      await signOutNativeGoogle();
       onClose();
     } catch (err) {
       console.error('Sign out error:', err);
@@ -970,6 +998,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                   <input
                     type="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     required
                     placeholder="ornek@ogrenci.com"
                     value={email}
@@ -1002,6 +1033,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
                   <input
                     type={showPassword ? 'text' : 'password'}
+                    autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
                     required
                     minLength={6}
                     placeholder="En az 6 karakter"
