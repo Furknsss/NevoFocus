@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { GoogleSignIn } from '@capawesome/capacitor-google-sign-in';
 import { GoogleAuthProvider, signInWithCredential, type UserCredential } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -51,4 +51,36 @@ export async function signOutNativeGoogle(): Promise<void> {
     // was already cleared or the Google service is temporarily unavailable.
     console.warn('[NevoFocus] Google native sign-out:', error);
   }
+}
+
+interface SigningIdentity {
+  packageName: string;
+  sha1: string;
+  sha256: string;
+  androidSdk: number;
+}
+
+const nativeDiagnostics = registerPlugin<{
+  getSigningIdentity: () => Promise<SigningIdentity>;
+}>('NativeOAuthDiagnostics');
+
+/**
+ * This report contains only public app configuration and APK certificate
+ * fingerprints. It deliberately never includes passwords, Google ID tokens,
+ * Firebase refresh tokens or private signing keys.
+ */
+export async function getNativeGoogleOAuthDiagnosticReport(): Promise<string> {
+  if (!isAndroidNativeAuth) return 'Android uygulaması dışında tanılama kullanılamaz.';
+  const signing = await nativeDiagnostics.getSigningIdentity();
+  return [
+    'NevoFocus Android Google OAuth tanılama',
+    'Firebase proje ID: ' + firebaseConfig.projectId,
+    'Google Cloud proje numarası: ' + firebaseConfig.messagingSenderId,
+    'Kurulu Android paket: ' + signing.packageName,
+    'Kurulu APK SHA-1: ' + signing.sha1,
+    'Kurulu APK SHA-256: ' + signing.sha256,
+    'Web OAuth istemci ID: ' + firebaseConfig.oAuthClientId,
+    'Android SDK: ' + signing.androidSdk,
+    'Gereken: Bu Web ve Android OAuth istemcileri AYNI Google Cloud projesinde olmalı.',
+  ].join('\\n');
 }
