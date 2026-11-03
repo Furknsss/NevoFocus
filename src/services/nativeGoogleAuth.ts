@@ -82,5 +82,5 @@ export async function getNativeGoogleOAuthDiagnosticReport(): Promise<string> {
     'Web OAuth istemci ID: ' + firebaseConfig.oAuthClientId,
     'Android SDK: ' + signing.androidSdk,
     'Gereken: Bu Web ve Android OAuth istemcileri AYNI Google Cloud projesinde olmalı.',
-  ].join('\\n');
+  ].join('\n');
 }
