@@ -130,18 +130,18 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
   return (
     <div className="relative w-full h-full min-h-screen bg-[#000000] text-white flex flex-col justify-between select-none overflow-hidden font-sans">
 
-      {/* Center Stage: Saati çok ufak aşşağıya alıp (pt-20 sm:pt-28 md:pt-32 lg:pt-36) birazcık büyüt ve tam sağdan ve soldan ortala */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-start pt-20 sm:pt-28 md:pt-32 lg:pt-36 px-4 w-full max-w-7xl mx-auto">
+      {/* Pure-black stopwatch: keep the white digits centered on phone and tablet screens. */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center pt-20 pb-6 sm:pt-24 sm:pb-8 px-3 sm:px-6 w-full max-w-7xl mx-auto">
         {clockStyle === 'ipad' ? (
           /* IPAD STOPWATCH STYLE (PURE SİPSİYAH, ZERO GLOW, BÜYÜTÜLMÜŞ PREMIUM APPLE TYPOGRAPHY, ROCK-SOLID CENTERING) */
-          <div className="flex flex-col items-center justify-center w-full">
+          <div className="flex flex-col items-center justify-center w-full min-w-0">
             {/*
               Her bir basamak sabit genişlikli slotlarda render edilir (w-[0.6em] inline-block text-center).
               Böylece saat saymaya başladığında '01', '02', '11' gibi rakamlar değişirken
               saat milimetrik bile sağa/sola oynamaz; tam sağdan ve soldan ekranın ortasında kalır!
             */}
             <div
-              className="flex items-baseline justify-center tracking-tight select-none tabular-nums text-center"
+              className="flex items-baseline justify-center tracking-[-0.035em] select-none tabular-nums text-center whitespace-nowrap max-w-full"
               style={{
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
@@ -151,29 +151,30 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
             >
               {hours > 0 && (
                 <>
-                  <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
-                    <span className="inline-block w-[0.6em] text-center">{hoursPadded[0]}</span>
-                    <span className="inline-block w-[0.6em] text-center">{hoursPadded[1]}</span>
+                  <div className="inline-flex shrink-0 items-baseline text-[clamp(4.25rem,17vw,15rem)] leading-none text-white font-extralight">
+                    {hoursPadded.split('').map((digit, index) => (
+                      <span key={index} className="inline-block w-[0.6em] text-center">{digit}</span>
+                    ))}
                   </div>
-                  <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
+                  <span className="inline-block shrink-0 w-[0.35em] text-center text-[clamp(3rem,10vw,9rem)] leading-none text-white/50 font-extralight select-none">
                     :
                   </span>
                 </>
               )}
 
               {/* Dakika: Büyütülmüş ve her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
+              <div className="inline-flex shrink-0 items-baseline text-[clamp(4.25rem,17vw,15rem)] leading-none text-white font-extralight">
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[1]}</span>
               </div>
 
               {/* İki nokta ayırıcı */}
-              <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
+              <span className="inline-block shrink-0 w-[0.35em] text-center text-[clamp(3rem,10vw,9rem)] leading-none text-white/50 font-extralight select-none">
                 :
               </span>
 
               {/* Saniye: Büyütülmüş ama saat/dakikadan sakin ve dengeli, her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-5xl sm:text-7xl md:text-8xl lg:text-9xl xl:text-[10.5rem] leading-none text-neutral-300 font-light">
+              <div className="inline-flex shrink-0 items-baseline text-[clamp(3.65rem,12vw,10.5rem)] leading-none text-white/90 font-light">
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[1]}</span>
               </div>
