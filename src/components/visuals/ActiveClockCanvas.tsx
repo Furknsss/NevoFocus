@@ -81,9 +81,6 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
   const handleToggleMola = () => {
 
     if (!isBreakRunning) {
-      if (!isPaused) {
-        onTogglePause();
-      }
       if (onTakeBreak && !parentBreakActive) {
         onTakeBreak();
       }
@@ -100,9 +97,6 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
       if (onTakeBreak && parentBreakActive) {
         onTakeBreak();
       }
-      if (isPaused) {
-        onTogglePause();
-      }
     }
   };
 
@@ -114,9 +108,6 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
       setBreaks((prev) => prev.map((b) => (b.isActive ? { ...b, isActive: false } : b)));
       if (onTakeBreak && parentBreakActive) {
         onTakeBreak();
-      }
-      if (isPaused) {
-        onTogglePause();
       }
     } else {
       onTogglePause();
