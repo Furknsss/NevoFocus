@@ -36,6 +36,13 @@ jobs:
         run: |
           echo "Android SDK: $ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" || true
+      # Debug builds only. Cache avoids a new SHA-1 on every PR commit.
+      # Do NOT use this key for a release submitted to Google Play.
+      - name: Reuse test-only debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: nevofocus-android-debug-keystore-v1
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Check TypeScript
