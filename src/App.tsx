@@ -91,7 +91,7 @@ import {
 } from './utils/backgroundFocus';
 import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
-import { signOutNativeGoogle } from './services/nativeGoogleAuth';
+import { isAndroidNativeAuth, signOutNativeGoogle } from './services/nativeGoogleAuth';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -111,6 +111,9 @@ export default function App() {
 
   // Tablet & Phone authentication persistence: never flash or dump user to landing screen
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(() => {
+    // Native WebView must wait for Firebase Auth initialization, not trust stale
+    // localStorage user IDs left by a previous account or an interrupted login.
+    if (isAndroidNativeAuth) return true;
     if (typeof window !== 'undefined') {
       const hadAuth = localStorage.getItem('fokus_user_authenticated') === 'true';
       const stored = getStoredProfile();
@@ -256,6 +259,7 @@ export default function App() {
 
   // Fast loading safety timeout: unlock within max 1500ms so auth has time to hydrate without showing wrong state
   useEffect(() => {
+    if (isAndroidNativeAuth) return;
     const timer = setTimeout(() => {
       setIsAuthChecking(false);
     }, 1500);
@@ -1298,15 +1302,23 @@ export default function App() {
 
   // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
   // Kullanıcı zaten kayıtlıysa veya misafir modundaysa ASLA bekleme ekranında takılı kalmaz, 0ms anında açılır!
-  const isExistingUser = Boolean(
-    currentUser ||
-    isGuestMode ||
-    profile.userId ||
-    (typeof window !== 'undefined' && (
-      localStorage.getItem('fokus_user_authenticated') === 'true' ||
-      localStorage.getItem('fokus_user_uid')
-    ))
-  );
+  const isExistingUser = isAndroidNativeAuth
+    ? Boolean(currentUser || isGuestMode)
+    : Boolean(
+        currentUser || isGuestMode || profile.userId ||
+        (typeof window !== 'undefined' && (
+          localStorage.getItem('fokus_user_authenticated') === 'true' ||
+          localStorage.getItem('fokus_user_uid')
+        ))
+      );
+
+  if (isAndroidNativeAuth && isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-[#07090e] text-white flex items-center justify-center font-sans">
+        <span className="text-sm text-neutral-400 tracking-wide">NevoFocus · Hesap doğrulanıyor…</span>
+      </div>
+    );
+  }
 
   // 2. YENİ TARAYICIDA / İLK KEZ SİTEYE GİRİLDİĞİNDE:
   // Onboarding ASLA açılmaz; sağ üstte Giriş Yap ve Kaydol butonları olan Tanıtım Sayfası (LandingPage) gösterilir!
