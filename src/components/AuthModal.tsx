@@ -39,7 +39,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
-import { isAndroidNativeAuth, signInWithNativeGoogle, signOutNativeGoogle } from '../services/nativeGoogleAuth';
+import { isAndroidNativeAuth, signInWithNativeGoogle, signOutNativeGoogle, getNativeGoogleOAuthDiagnosticReport } from '../services/nativeGoogleAuth';
 import {
   syncAllToFirestore,
   restoreAllFromFirestore,
@@ -98,6 +98,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   // Domain authorization banner for Google sign-in
   const [domainErrorHostname, setDomainErrorHostname] = useState<string | null>(null);
+  const [androidOAuthReport, setAndroidOAuthReport] = useState<string | null>(null);
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Hidden file input for backup restore
@@ -110,6 +111,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMsg(null);
     setSyncNotice(null);
     setDomainErrorHostname(null);
+    setAndroidOAuthReport(null);
     setCopiedDomain(false);
     setLoginSuccessState(null);
     setRedirectCountdown(2);
@@ -143,6 +145,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setLoading(true);
       setErrorMsg(null);
       setDomainErrorHostname(null);
+      setAndroidOAuthReport(null);
       soundEngine.playClick();
 
       // Android's native Google account picker avoids Chrome/WebView storage separation.
@@ -262,6 +265,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google Sign In error:', err);
+      if (isAndroidNativeAuth) {
+        try {
+          setAndroidOAuthReport(await getNativeGoogleOAuthDiagnosticReport());
+        } catch (diagnosticError) {
+          console.warn('Android signing certificate diagnostics unavailable:', diagnosticError);
+          setAndroidOAuthReport('Kurulu APK imzası okunamadı. Bu sürümde tanılama desteklenmiyor.');
+        }
+      }
       if (isAndroidNativeAuth && /UNREGISTERED_ON_API_CONSOLE|Account reauth failed/i.test(err.message || '')) {
         setErrorMsg('Google Cloud\'da bu APK için Android OAuth istemcisi bulunamadı. Paket adı ve SHA-1 sertifikasını kaydedin.');
       } else if (isAndroidNativeAuth && err.code === 'SIGN_IN_CANCELED') {
@@ -964,6 +975,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="p-3 rounded-xl bg-red-950/50 border border-red-800/60 text-xs text-red-300 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
                 <span className="leading-relaxed">{errorMsg}</span>
+              </div>
+            )}
+
+            {/* Error-only native APK identity report. Never includes user secrets or tokens. */}
+            {isAndroidNativeAuth && androidOAuthReport && errorMsg && (
+              <div className="rounded-xl border border-neutral-700 bg-neutral-900/90 p-3 space-y-2 text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-neutral-200">Android Google giriş tanılama bilgileri</span>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(androidOAuthReport); }}
+                    className="shrink-0 flex items-center gap-1 rounded-md border border-neutral-600 px-2 py-1 text-[10px] text-neutral-300"
+                  >
+                    <Copy className="h-3 w-3" /> Kopyala
+                  </button>
+                </div>
+                <pre className="select-text whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed text-neutral-400 max-h-44 overflow-auto">{androidOAuthReport}</pre>
               </div>
             )}
 
