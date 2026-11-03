@@ -15,6 +15,7 @@
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capawesome/capacitor-google-sign-in": "0.1.4",
     "@capacitor/android": "8.6.0",
     "@capacitor/core": "8.6.0",
     "@google/genai": "^2.4.0",
