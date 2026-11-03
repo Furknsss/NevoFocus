@@ -23,6 +23,7 @@ import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
+import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
 import { SpotifyFocusWidget } from './visuals/SpotifyFocusWidget';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
@@ -400,6 +401,72 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     ]
   );
 
+  // Foreground-service chronometer is driven by Android; never a background JS interval.
+  const syncNativeState = useCallback(() => {
+    if (!isNativeFocusAvailable || mode !== 'clock' || currentTimerType !== 'stopwatch' ||
+        isSessionEndedRef.current) return;
+    void nativeFocus.sync({
+      sessionKey: String(startTimeRef.current),
+      isPaused: isPausedRef.current,
+      isBreakActive: isCampActiveRef.current,
+      elapsedFocusSeconds: computeCurrentFocusSeconds(),
+      elapsedBreakSeconds: computeCurrentBreakSeconds(),
+    }).catch(error => console.warn('[NevoFocus] native sync:', error));
+  }, [mode, currentTimerType, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
+
+  // Notification controls still operate while the WebView is paused.
+  // Recover authoritative Android time and button states whenever the app returns.
+  useEffect(() => {
+    if (!isNativeFocusAvailable || mode !== 'clock' || currentTimerType !== 'stopwatch') return;
+    let mounted = true;
+    let busy = false;
+    const reconcile = async () => {
+      if (busy || !mounted || isSessionEndedRef.current) return;
+      busy = true;
+      try {
+        const state = await nativeFocus.getState();
+        if (!mounted || isSessionEndedRef.current) return;
+        if (!state.active || state.sessionKey !== String(startTimeRef.current)) {
+          syncNativeState();
+          return;
+        }
+        const now = Date.now();
+        accumulatedFocusSecondsRef.current = Math.max(0, state.elapsedFocusSeconds);
+        accumulatedBreakSecondsRef.current = Math.max(0, state.elapsedBreakSeconds);
+        anchorTimestampRef.current = now;
+        breakAnchorTimestampRef.current = now;
+        isPausedRef.current = state.isPaused;
+        isCampActiveRef.current = state.isBreakActive;
+        setIsPaused(state.isPaused);
+        setIsCampActive(state.isBreakActive);
+        const focus = computeCurrentFocusSeconds();
+        setElapsedCountUp(focus);
+        setSecondsRemaining(Math.max(0, totalSeconds - focus));
+        setBreakSeconds(computeCurrentBreakSeconds());
+        persistSessionState(true);
+      } catch (error) {
+        console.warn('[NevoFocus] native restore:', error);
+      } finally {
+        busy = false;
+      }
+    };
+    const onVisible = () => {
+      if (!document.hidden) void reconcile();
+    };
+    void reconcile();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    window.addEventListener('pageshow', onVisible);
+    return () => {
+      mounted = false;
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      window.removeEventListener('pageshow', onVisible);
+    };
+    // Session identity remains fixed while ActiveFocusSession is mounted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, currentTimerType]);
+
   // Pause / Resume with exact Wall-Clock Anchor updates
   const handleTogglePause = useCallback(() => {
     soundEngine.playClick();
@@ -431,11 +498,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
     setBreakSeconds(computeCurrentBreakSeconds());
     persistSessionState(true);
-  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState]);
+    syncNativeState();
+  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
 
   // Thematic Break toggle with exact Wall-Clock Anchor updates
   const toggleThematicBreak = useCallback(() => {
     const now = Date.now();
+    // Active breaks must not be globally paused.
+    if (isPausedRef.current) {
+      isPausedRef.current = false;
+      setIsPaused(false);
+    }
     if (!isCampActiveRef.current) {
       // Entering break: accumulate focus seconds up to now, start break anchor
       if (!isPausedRef.current) {
@@ -461,13 +534,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
     setBreakSeconds(computeCurrentBreakSeconds());
     persistSessionState(true);
-  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState]);
+    syncNativeState();
+  }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
 
   // Register pause & break handlers for Lock-Screen MediaSession, PiP Capsule & Service Worker notification buttons
   useEffect(() => {
     backgroundFocus.setPauseHandler(handleTogglePause);
     backgroundFocus.setBreakHandler(toggleThematicBreak);
-    backgroundFocus.startKeepAlive();
+    if (!isNativeFocusAvailable) backgroundFocus.startKeepAlive();
     return () => {
       backgroundFocus.setPauseHandler(null);
       backgroundFocus.setBreakHandler(null);
@@ -599,7 +673,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setBreakSeconds(currentBreak);
 
       // Update MediaSession & Service Worker notification
-      backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+      if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
       if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
         handleFinish(true);
@@ -619,11 +693,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       if (document.hidden) {
         // User just switched away from the app on phone/tablet/PC: push sticky notification immediately
         persistSessionState(true);
-        backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
       } else {
         // User returned to the app: keep audio keep-alive active and resync immediately
         backgroundFocus.startKeepAlive();
-        backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
       }
     };
 
@@ -663,6 +737,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     soundEngine.playCompletionBell();
     backgroundFocus.stopAll();
+    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
 
     const finalFocusSecs = computeCurrentFocusSeconds();
     const finalBreakSecs = computeCurrentBreakSeconds();
@@ -809,6 +884,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
+    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
 
     try {
       const userId = getEffectiveUid();
