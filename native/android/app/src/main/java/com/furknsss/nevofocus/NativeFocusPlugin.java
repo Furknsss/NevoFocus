@@ -23,7 +23,11 @@ public class NativeFocusPlugin extends Plugin {
             return;
         }
         if (Build.VERSION.SDK_INT >= 33 &&
-                getPermissionState("notifications") != PermissionState.GRANTED) {
+                getPermissionState("notifications") != PermissionState.GRANTED &&
+                !getContext().getSharedPreferences("nevofocus_permission_prompt", 0)
+                        .getBoolean("notificationRequested", false)) {
+            getContext().getSharedPreferences("nevofocus_permission_prompt", 0).edit()
+                    .putBoolean("notificationRequested", true).apply();
             requestPermissionForAlias("notifications", call, "onNotificationPermission");
             return;
         }
