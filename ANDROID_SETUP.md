@@ -75,3 +75,51 @@ not pretending to be a media player or data synchronization task.
 
 The native Java and Android projects have **not** been verified on a physical
 device until the workflow builds and the real-device checklist passes.
+
+
+## Android Google and email sign-in (required OAuth setup)
+
+The Android app now calls the **native Google account picker** and passes a Google
+ID token to the **same Firebase JS Auth instance** that the website uses. This
+avoids the browser/WebView `missing initial state` error. Existing Firebase
+accounts, UID, user documents, sessions and tasks remain unchanged.
+
+**One-time Google Cloud setup for the test APK:**
+
+1. Build the APK with the GitHub Actions workflow. Its artifact ZIP includes
+   `android-debug-signing-fingerprints.txt` containing the exact build SHA1.
+2. Open [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   and select the project backing NevoFocus Firebase project
+   `plated-arbor-mxtlg` (project number `494971257901`).
+3. Under **Credentials > Create credentials > OAuth client ID > Android**,
+   set package name `com.furknsss.nevofocus`, and paste the APK SHA1 from the
+   fingerprint file. Save the new Android OAuth client. Do **not** replace the
+   existing Web OAuth client; the native plugin uses its Web client ID.
+4. Ensure Google sign-in is enabled in
+   [Firebase Authentication](https://console.firebase.google.com/) and that the
+   Web OAuth client belongs to the same Google Cloud project.
+5. Close and reopen NevoFocus, then try **Google ile Giriş Yap**.
+
+**Important:** Each GitHub-hosted debug APK can have a different temporary
+signing key and fingerprint. When that happens, add the new SHA1 as another
+Android OAuth client and uninstall the prior debug app before installing
+the new one (package signatures can differ). Uninstalling removes **local**
+app data, so export/backup unsynced data first. For routine updates we should
+use a dedicated, securely stored signing key (GitHub Actions secret).
+
+Email/password authentication uses the same Firebase JS user database and
+**does not** require an Android OAuth SHA1 client. Verify **Authentication >
+Sign-in method > Email/Password** is enabled. Email logins need the correct
+email/password for an account with that provider. Existing Google-only accounts
+do not automatically gain a password; use Google's sign-in or explicitly link
+an email/password provider in account settings.
+
+If the native picker returns `UNREGISTERED_ON_API_CONSOLE`, check the SHA1,
+package ID and Google Cloud project. If email/password returns
+`auth/operation-not-allowed`, enable its provider. If `auth/network-request-failed`
+occurs, check Android WebView/Chrome updates and Internet connection.
+
+**Validation required on an Android phone:** new Google login, returning
+Google login, email login, email registration, wrong password, password reset,
+sign-out/re-sign-in, app relaunch, and Firestore data restoration. Successful
+APK compilation alone does not prove live OAuth sign-in.
