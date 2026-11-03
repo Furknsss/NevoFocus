@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
+import { Capacitor } from '@capacitor/core';
 import {
   getAuth,
+  initializeAuth,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -18,17 +20,22 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+// Embedded Android WebViews must never start the browser popup/redirect resolver.
+// The native Google sign-in plugin provides a Google ID token which we exchange
+// with Firebase JS Auth, retaining exactly the same Firestore user identity.
+const nativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+export const auth = nativeAndroid
+  ? initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+    })
+  : getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Cihaz ve PWA kalıcı oturum: Tarayıcı veya PWA kapatılıp açılsa bile hesap kalıcı kalır
-if (typeof window !== 'undefined') {
-  // Try indexedDBLocalPersistence first, with browserLocalPersistence fallback
+// Keep the browser/PWA persistence path unchanged.
+if (typeof window !== 'undefined' && !nativeAndroid) {
   setPersistence(auth, indexedDBLocalPersistence)
     .catch(() => setPersistence(auth, browserLocalPersistence))
-    .catch((err) => {
-      console.warn('Firebase persistence warning:', err);
-    });
+    .catch((err) => console.warn('Firebase persistence warning:', err));
 }
 
 export enum OperationType {
