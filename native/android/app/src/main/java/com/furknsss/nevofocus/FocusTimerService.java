@@ -12,7 +12,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
-import android.view.RemoteViews;
+import android.widget.RemoteViews;
 
 public final class FocusTimerService extends Service {
     static final String ACTION_SYNC = "com.furknsss.nevofocus.SYNC";
