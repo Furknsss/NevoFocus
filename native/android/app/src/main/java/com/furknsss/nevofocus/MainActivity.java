@@ -7,6 +7,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NativeFocusPlugin.class);
+        registerPlugin(NativeOAuthDiagnosticsPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
