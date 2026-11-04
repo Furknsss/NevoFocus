@@ -7,31 +7,13 @@
  * and both TWA browser/JS-bridge relationships.
  */
 import fs from 'node:fs';
+import { isValidTwaAssetLinks } from './twaAssetLinksValidation.mjs';
 
 const [siteRaw, expectedPath] = process.argv.slice(2);
 if (!siteRaw || !expectedPath || !fs.existsSync(expectedPath)) {
   throw new Error('Provide live PWA HTTPS URL and generated local android-twa-assetlinks.json.');
 }
 
-export function isValidTwaAssetLinks(found, expected) {
-  if (!Array.isArray(found) || !Array.isArray(expected) || !expected.length) return false;
-  const requiredRelations = [
-    'delegate_permission/common.handle_all_urls',
-    'delegate_permission/common.use_as_origin',
-  ];
-  for (const relation of requiredRelations) {
-    if (!found.some(row => row &&
-      Array.isArray(row.relation) && row.relation.includes(relation) &&
-      row.target?.namespace === 'android_app' &&
-      row.target?.package_name === 'com.furknsss.nevofocus' &&
-      expected.some(e => e.target?.package_name === 'com.furknsss.nevofocus' &&
-        e.target?.sha256_cert_fingerprints?.some(fp =>
-          row.target?.sha256_cert_fingerprints?.includes(fp))
-      )
-    )) return false;
-  }
-  return true;
-}
 
 const site = new URL(siteRaw);
 if (site.protocol !== 'https:' || site.username || site.password ||
