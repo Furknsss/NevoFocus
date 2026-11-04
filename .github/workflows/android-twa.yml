@@ -1,0 +1,79 @@
+name: Android TWA and Live Timer Capsule
+
+on:
+  pull_request:
+    paths:
+      - 'native/android-twa/**'
+      - 'native/android/app/src/main/**'
+      - 'scripts/setup-twa-android.mjs'
+      - 'scripts/generate-twa-assetlinks.mjs'
+      - 'src/services/nativeFocus.ts'
+      - 'src/services/twaFocusBridge.ts'
+      - 'package.json'
+      - '.github/workflows/android-twa.yml'
+  workflow_dispatch:
+    inputs:
+      pwa_url:
+        description: "Exact live HTTPS URL where NevoFocus PWA and Google login currently work"
+        required: true
+        type: string
+
+jobs:
+  twa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || 'https://nevofocus.invalid/' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Use GitHub runner Android SDK
+        run: echo "Using SDK at $ANDROID_HOME"
+      - name: Reuse test-only Android debug certificate
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: nevofocus-android-debug-keystore-v1
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run lint
+      - name: Prepare TWA Android app and signed origin communication
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "Compile-only smoke test with an unusable .invalid origin; no APK will be released."
+            node scripts/setup-twa-android.mjs --ci-smoke
+          else
+            node scripts/setup-twa-android.mjs
+          fi
+      - name: Compile native Android TWA and notification service
+        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Extract signing certificate and generate required asset links
+        shell: bash
+        run: |
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
+          node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
+      - name: Release test APK only for a real explicitly configured PWA URL
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-twa-debug-apk-and-assetlinks
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-twa-apk-signature.txt
+            android-twa-assetlinks.json
+          if-no-files-found: error
+          retention-days: 14
