@@ -269,10 +269,16 @@ public final class MainActivity extends Activity {
                 else startService(start);
                 sendResponse("NEVOFOCUS_NATIVE_STATE", requestId, readState(), null);
             } catch (IllegalStateException backgroundStartDenied) {
-                // The user's focus page runs inside Chrome. If Android sees
-                // NevoFocus as background, it can refuse the first FGS start.
-                // Keep exact timer anchors and offer an explicit, one-tap
-                // notification start (Android's documented user action path).
+                // Handle only the documented Android 12+ FGS restriction.
+                // An unrelated exception must not be misreported as a
+                // background-start issue or silently hide a broken APK.
+                if (Build.VERSION.SDK_INT < 31 ||
+                        !(backgroundStartDenied instanceof
+                            android.app.ForegroundServiceStartNotAllowedException)) {
+                    throw backgroundStartDenied;
+                }
+                // Chrome owns the TWA; Android may regard our package as a
+                // background process. Offer an explicit user-tapped PendingIntent.
                 FocusTimerService.queueStartAfterBackgroundRestriction(this, start);
                 sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null,
                         "Android arka plandan başlatmayı engelledi. Bildirimdeki " +
