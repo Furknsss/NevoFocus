@@ -9,6 +9,10 @@ const handlers = new Map<string, (event: any) => void>();
   addEventListener(type: string, listener: (event: any) => void) {
     handlers.set(type, listener);
   },
+  dispatchEvent(event: Event) {
+    handlers.get(event.type)?.(event);
+    return true;
+  },
 };
 const { isTwaFocusPage, twaFocus } = await import('../src/services/twaFocusBridge');
 
