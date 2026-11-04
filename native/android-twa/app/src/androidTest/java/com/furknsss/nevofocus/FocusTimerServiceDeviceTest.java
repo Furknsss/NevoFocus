@@ -2,11 +2,14 @@ package com.furknsss.nevofocus;
 
 import android.Manifest;
 import android.app.NotificationManager;
+import android.app.UiAutomation;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.SystemClock;
+import android.os.ParcelFileDescriptor;
 import android.service.notification.StatusBarNotification;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -16,6 +19,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import java.io.File;
+import java.io.FileOutputStream;
 
 import static org.junit.Assert.*;
 
@@ -65,6 +70,32 @@ public class FocusTimerServiceDeviceTest {
         }
     }
 
+    private void captureNotificationScreenshotIfPossible() {
+        UiAutomation automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+        try {
+            try (ParcelFileDescriptor unused =
+                    automation.executeShellCommand("cmd statusbar expand-notifications")) {
+                // Give the notification shade time to finish expanding.
+            }
+            Thread.sleep(1100L);
+            Bitmap image = automation.takeScreenshot();
+            if (image != null) {
+                try (FileOutputStream output = new FileOutputStream(
+                        new File(context.getFilesDir(), "nevofocus-emulator-notification.png"))) {
+                    image.compress(Bitmap.CompressFormat.PNG, 100, output);
+                }
+                image.recycle();
+            }
+        } catch (Exception ignored) {
+            // Explicitly optional visual evidence. Behavior assertions must
+            // pass on their own; a screenshot is not a pass/fail proxy.
+        } finally {
+            try (ParcelFileDescriptor unused =
+                    automation.executeShellCommand("cmd statusbar collapse")) {
+            } catch (Exception ignored) {}
+        }
+    }
+
     @Test
     public void foregroundNotificationPauseBreakResumeAndStop() throws Exception {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -93,6 +124,9 @@ public class FocusTimerServiceDeviceTest {
             if (!visible) Thread.sleep(60);
         }
         assertTrue("The premium Android chronometer notification must exist", visible);
+        // Capture the REAL Android emulator notification shade so the capsule
+        // can be visually inspected; screenshot failure cannot hide a timing bug.
+        captureNotificationScreenshotIfPossible();
 
         send(FocusTimerService.ACTION_PAUSE);
         awaitState(true, true, false);
