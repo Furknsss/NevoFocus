@@ -97,6 +97,38 @@ public class FocusTimerServiceDeviceTest {
     }
 
     @Test
+    public void backgroundServiceRestrictionOffersAnExplicitStartAction() throws Exception {
+        Intent start = new Intent(context, FocusTimerService.class)
+                .setAction(FocusTimerService.ACTION_SYNC)
+                .putExtra("sessionKey", "manual-start-device-test")
+                .putExtra("paused", false)
+                .putExtra("onBreak", false)
+                .putExtra("focusMs", 11_000L)
+                .putExtra("breakMs", 0L);
+        FocusTimerService.queueStartAfterBackgroundRestriction(context, start);
+        FocusTimerService.State state = FocusTimerService.read(context);
+        assertTrue(state.active);
+        assertEquals("manual-start-device-test", state.sessionKey);
+        assertTrue("Clock must keep its wall time while awaiting Android notification tap",
+                state.elapsedFocusMs() >= 11_000L);
+
+        NotificationManager manager = (NotificationManager)
+                context.getSystemService(Context.NOTIFICATION_SERVICE);
+        boolean found = false;
+        for (StatusBarNotification item : manager.getActiveNotifications()) {
+            if ("NevoFocus kronometreyi başlat".equals(
+                    item.getNotification().extras.getString(android.app.Notification.EXTRA_TITLE))) {
+                assertNotNull("Start action must be a real PendingIntent", item.getNotification().contentIntent);
+                assertTrue("Start notification must include an action button",
+                        item.getNotification().actions != null &&
+                        item.getNotification().actions.length > 0);
+                found = true;
+            }
+        }
+        assertTrue("Android must publish a user-tappable service-start fallback", found);
+    }
+
+    @Test
     public void foregroundNotificationPauseBreakResumeAndStop() throws Exception {
         if (Build.VERSION.SDK_INT >= 33) {
             assertEquals("CI must grant POST_NOTIFICATIONS before running Android instrumentation",
