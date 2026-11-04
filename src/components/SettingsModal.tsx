@@ -479,9 +479,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
 
   // Check if current user already has password credentials
+  // Check the Firebase Auth providers directly. A cached profile flag is not
+  // proof that a password credential was actually linked to this Firebase UID.
   const hasPasswordProvider =
-    currentUser?.providerData?.some((p: any) => p.providerId === 'password') ||
-    Boolean(profile.hasPassword);
+    Boolean(currentUser?.providerData?.some((p: { providerId: string }) => p.providerId === 'password'));
 
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -702,21 +703,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsUpdatingPassword(true);
       soundEngine.playClick();
 
-      // Properly link or update credential
-      const cred = EmailAuthProvider.credential(currentUser.email!, newPasswordInput);
-      try {
+      // Add email/password to the existing Google Firebase UID, never create
+      // another account or silently fall back to an unrelated operation.
+      if (!currentUser.email) {
+        throw new Error('Hesabınızda doğrulanmış bir e-posta adresi bulunamadı.');
+      }
+      if (hasPasswordProvider) {
+        await updatePassword(currentUser, newPasswordInput);
+      } else {
+        const cred = EmailAuthProvider.credential(currentUser.email, newPasswordInput);
         await linkWithCredential(currentUser, cred);
-      } catch (linkErr: any) {
-        if (
-          linkErr.code === 'auth/provider-already-linked' ||
-          linkErr.code === 'auth/credential-already-in-use' ||
-          linkErr.code === 'auth/email-already-in-use'
-        ) {
-          await updatePassword(currentUser, newPasswordInput);
-        } else {
-          // Fallback to updatePassword
-          await updatePassword(currentUser, newPasswordInput);
-        }
       }
 
       // Record in Firestore user profile safely
@@ -748,6 +744,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setPasswordErrorMsg('Güvenlik nedeniyle parola işleminden önce lütfen çıkış yapıp tekrar giriş yapın.');
       } else if (err.code === 'auth/weak-password') {
         setPasswordErrorMsg('Belirlediğiniz parola çok zayıf. Lütfen en az 6 karakterli güçlü bir parola girin.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setPasswordErrorMsg('Bu Firebase projesinde e-posta/şifre ile giriş etkinleştirilmemiş. Bu işlem için proje ayarı gerekiyor.');
+      } else if (err.code === 'auth/email-already-in-use' || err.code === 'auth/credential-already-in-use') {
+        setPasswordErrorMsg('Bu e-posta başka bir Firebase hesabına bağlı. Verilerinizin karışmaması için otomatik hesap birleştirme yapılmadı.');
+      } else if (err.code === 'auth/provider-already-linked') {
+        setPasswordErrorMsg('Parola sağlayıcısı zaten bağlı. Sayfayı yenileyip Parolayı Değiştir bölümünden tekrar deneyin.');
       } else {
         setPasswordErrorMsg(err.message || 'Parola güncellenirken bir hata oluştu.');
       }
