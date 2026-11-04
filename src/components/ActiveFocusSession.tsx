@@ -24,6 +24,7 @@ import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
 import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
+import { isTwaFocusPage } from '../services/twaFocusBridge';
 import { elapsedSecondsAtTransition } from '../utils/focusTimerTransitions';
 import { SpotifyFocusWidget } from './visuals/SpotifyFocusWidget';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
@@ -418,7 +419,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Notification controls still operate while the WebView is paused.
   // Recover authoritative Android time and button states whenever the app returns.
   useEffect(() => {
-    if (!isNativeFocusAvailable || mode !== 'clock' || currentTimerType !== 'stopwatch') return;
+    // Attach the TWA arrival listener even before Chrome finishes DAL validation.
+    // Until then the native bridge is unavailable and the PWA fallback still runs.
+    if ((!isNativeFocusAvailable && !isTwaFocusPage) ||
+        mode !== 'clock' || currentTimerType !== 'stopwatch') return;
     let mounted = true;
     let busy = false;
     const reconcile = async () => {
