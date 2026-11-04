@@ -71,6 +71,9 @@ if (isTwaFocusPage) {
     port.onmessage = onPortMessage;
     port.start();
     port.postMessage(JSON.stringify({ type: 'NEVOFOCUS_TWA_WEB_READY' }));
+    // A FocusSession may mount before Chrome finishes its DAL handshake.
+    // Notify it once to start native time without requiring the user to tap Pause.
+    window.dispatchEvent(new Event('nevofocus:twa-connected'));
     for (const waiter of bridgeWaiters) {
       clearTimeout(waiter.timeout);
       waiter.resolve();
