@@ -9,6 +9,8 @@ on:
       - 'scripts/generate-twa-assetlinks.mjs'
       - 'src/services/nativeFocus.ts'
       - 'src/services/twaFocusBridge.ts'
+      - 'src/utils/focusTimerTransitions.ts'
+      - 'tests/**'
       - 'package.json'
       - '.github/workflows/android-twa.yml'
   workflow_dispatch:
@@ -48,6 +50,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: TypeScript check
         run: npm run lint
+      - name: Unit and regression tests
+        run: npm run test:unit
       - name: Prepare TWA Android app and signed origin communication
         shell: bash
         run: |
