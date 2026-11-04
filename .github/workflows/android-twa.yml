@@ -1,0 +1,128 @@
+name: Android TWA and Live Timer Capsule
+
+on:
+  push:
+    branches:
+      - 'feat/twa-premium-native-focus-20261104'
+    paths:
+      - '.github/workflows/android-twa.yml'
+      - 'public/.well-known/assetlinks.json'
+  pull_request:
+    paths:
+      - 'native/android-twa/**'
+      - 'native/android/app/src/main/**'
+      - 'scripts/setup-twa-android.mjs'
+      - 'scripts/generate-twa-assetlinks.mjs'
+      - 'scripts/verify-twa-assetlinks.mjs'
+      - 'scripts/twaAssetLinksValidation.mjs'
+      - 'src/services/nativeFocus.ts'
+      - 'src/services/twaFocusBridge.ts'
+      - 'src/utils/focusTimerTransitions.ts'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/android-twa.yml'
+  workflow_dispatch:
+    inputs:
+      pwa_url:
+        description: "Exact live HTTPS URL where NevoFocus PWA and Google login currently work"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  twa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      NEVOFOCUS_TWA_SIGNING_STORE: ${{ github.workspace }}/.signing/nevofocus-debug.keystore
+      NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || (github.event_name == 'push' && 'https://nevofocus.vercel.app/' || 'https://nevofocus.invalid/') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache and validate Gradle dependencies
+        uses: gradle/actions/setup-gradle@v4
+      - name: Use GitHub runner Android SDK
+        run: echo "Using SDK at $ANDROID_HOME"
+      - name: Restore reusable test-only Android signing certificate
+        id: signing-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
+      - name: Create a test-only keystore on first build
+        shell: bash
+        run: |
+          mkdir -p .signing
+          if [[ ! -s .signing/nevofocus-debug.keystore ]]; then
+            keytool -genkeypair -v -keystore .signing/nevofocus-debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -dname "CN=NevoFocus Android Debug,O=NevoFocus,C=TR" \
+              -keyalg RSA -keysize 2048 -validity 3650 -noprompt
+          fi
+          test -s .signing/nevofocus-debug.keystore
+      - name: Save signing certificate independently of Maven availability
+        if: github.event_name == 'push' && steps.signing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run lint
+      - name: Unit and regression tests
+        run: npm run test:unit
+      - name: Prepare TWA Android app and signed origin communication
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "Compile-only smoke test with an unusable .invalid origin; no APK will be released."
+            node scripts/setup-twa-android.mjs --ci-smoke
+          else
+            node scripts/setup-twa-android.mjs
+          fi
+      - name: Compile native Android TWA and notification service
+        run: cd android && chmod +x ./gradlew && ./gradlew testDebugUnitTest assembleDebug --no-daemon
+      - name: Extract signing certificate and generate required asset links
+        shell: bash
+        run: |
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
+          node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
+      - name: Export Digital Asset Links for site deployment
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-twa-site-association-prep
+          path: |
+            android-twa-apk-signature.txt
+            android-twa-assetlinks.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify live HTTPS domain and signed application association
+        if: github.event_name != 'pull_request'
+        run: node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+      - name: Publish test APK only after site association is actually live
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-twa-verified-debug-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-twa-apk-signature.txt
+          if-no-files-found: error
+          retention-days: 14

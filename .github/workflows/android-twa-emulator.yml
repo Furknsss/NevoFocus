@@ -1,0 +1,94 @@
+name: NevoFocus Android Emulator Integration Tests
+
+on:
+  pull_request:
+    paths:
+      - 'native/android-twa/app/src/androidTest/**'
+      - 'native/android/app/src/main/**'
+      - 'scripts/setup-twa-android.mjs'
+      - '.github/workflows/android-twa-emulator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Build-only origin. Emulator tests exercise native service, not live PWA login.
+      NEVOFOCUS_TWA_URL: https://nevofocus.invalid/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Allow KVM hardware acceleration for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - name: Free unused runner disk space for Android 14 emulator
+        run: |
+          # Hosted runners include large toolchains unrelated to this Android job.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          df -h / 
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate TWA app with instrumentation runner
+        run: node scripts/setup-twa-android.mjs --ci-smoke
+      - name: Compile Android app and instrumentation tests
+        run: cd android && chmod +x ./gradlew && ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+      - name: Start Android 14 emulator and run foreground timer integration
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          # ATD images are smaller/faster; these native tests do not use Google auth.
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_7
+          # GitHub runner has ~5 GB left after Gradle/Android SDK setup.
+          # The Pixel 7 default userdata image needs >7 GB and cannot boot.
+          disk-size: 3072M
+          ram-size: 2048M
+          disable-animations: true
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
+            cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon
+            # Capture the real system shade, not run-as stderr disguised as a .png.
+            adb shell cmd statusbar expand-notifications
+            sleep 2
+            adb exec-out screencap -p > ../nevofocus-emulator-notification.png
+            python3 -c "from pathlib import Path; p=Path('../nevofocus-emulator-notification.png'); assert p.read_bytes().startswith(bytes.fromhex('89504e470d0a1a0a')), 'Emulator screenshot is not PNG data'"
+            file ../nevofocus-emulator-notification.png
+      - name: Save screenshot of actual Android notification shade
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-emulator-notification-preview
+          path: nevofocus-emulator-notification.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Save Android instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-android-emulator-results
+          path: |
+            android/app/build/outputs/androidTest-results/**
+            android/app/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 14

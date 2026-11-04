@@ -1,0 +1,69 @@
+name: Android NevoFocus Debug APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'native/android/**'
+      - 'scripts/setup-android.mjs'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - 'vite.config.ts'
+      - '.github/workflows/android-debug.yml'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'package.json'
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Use runner Android SDK
+        run: |
+          echo "Android SDK: $ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+      # Debug builds only. Cache avoids a new SHA-1 on every PR commit.
+      # Do NOT use this key for a release submitted to Google Play.
+      - name: Reuse test-only debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: nevofocus-android-debug-keystore-v1
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check TypeScript
+        run: npm run lint
+      - name: Generate Android project and native focus service
+        run: npm run android:setup
+      - name: Compile installable debug APK
+        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Print actual APK signing certificate fingerprints
+        run: |
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-debug-signing-fingerprints.txt
+          grep -q 'certificate SHA-1 digest' android-debug-signing-fingerprints.txt
+          echo "Copy the APK certificate SHA-1 digest into the Google Cloud Android OAuth client."
+      - name: Publish APK and signing fingerprints
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-android-auth-test-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-debug-signing-fingerprints.txt
+          if-no-files-found: error
+          retention-days: 14

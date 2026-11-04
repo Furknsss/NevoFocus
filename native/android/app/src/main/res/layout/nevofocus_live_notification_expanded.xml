@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Larger black capsule with the same placement as NevoFocus's original PWA mockup. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="19dp"
+    android:paddingEnd="13dp"
+    android:background="@drawable/nevofocus_black_capsule">
+
+    <ImageView
+        android:id="@+id/focus_status_dot"
+        android:layout_width="9dp"
+        android:layout_height="9dp"
+        android:layout_marginEnd="11dp"
+        android:src="@drawable/nevofocus_status_white"
+        android:contentDescription="Odaklanma durumu"/>
+
+    <Chronometer
+        android:id="@+id/focus_chronometer"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical|start"
+        android:textColor="#FFFFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:includeFontPadding="false"
+        android:contentDescription="Canlı kronometre"/>
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="30dp"
+        android:layout_marginStart="5dp"
+        android:layout_marginEnd="10dp"
+        android:background="#333333"/>
+
+    <ImageView
+        android:id="@+id/focus_break"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:layout_marginEnd="8dp"
+        android:src="@drawable/nevofocus_action_break"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Mola ver veya molayı bitir"/>
+
+    <ImageView
+        android:id="@+id/focus_pause"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:src="@drawable/nevofocus_action_pause"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Kronometreyi duraklat veya devam ettir"/>
+</LinearLayout>
