@@ -68,7 +68,7 @@ jobs:
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
             cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon
-            adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-emulator-notification.png > ../nevofocus-emulator-notification.png && file ../nevofocus-emulator-notification.png || { rm -f ../nevofocus-emulator-notification.png; echo "No emulator notification screenshot was captured."; }
+            adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-emulator-notification.png > nevofocus-emulator-notification.png && file nevofocus-emulator-notification.png || { rm -f nevofocus-emulator-notification.png; echo "No emulator notification screenshot was captured."; }
       - name: Save screenshot of actual Android notification shade
         if: always()
         uses: actions/upload-artifact@v4
