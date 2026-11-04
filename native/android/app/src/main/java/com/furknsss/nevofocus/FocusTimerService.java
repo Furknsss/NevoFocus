@@ -18,10 +18,13 @@ public final class FocusTimerService extends Service {
     static final String ACTION_SYNC = "com.furknsss.nevofocus.SYNC";
     static final String ACTION_PAUSE = "com.furknsss.nevofocus.PAUSE";
     static final String ACTION_BREAK = "com.furknsss.nevofocus.BREAK";
+    static final String ACTION_RETRY = "com.furknsss.nevofocus.RETRY";
 
     private static final String CHANNEL_ID = "nevofocus_live_timer";
+    private static final String START_CHANNEL_ID = "nevofocus_timer_start_action";
     private static final String PREFS = "nevofocus_native_focus_v1";
     private static final int NOTIFICATION_ID = 31415;
+    private static final int START_NOTIFICATION_ID = 31416;
 
     static final class State {
         boolean active;
@@ -79,6 +82,9 @@ public final class FocusTimerService extends Service {
         s.active = false;
         store(context, s);
         context.stopService(new Intent(context, FocusTimerService.class));
+        NotificationManager manager = (NotificationManager)
+                context.getSystemService(Context.NOTIFICATION_SERVICE);
+        manager.cancel(START_NOTIFICATION_ID);
     }
 
     @Override
@@ -114,12 +120,72 @@ public final class FocusTimerService extends Service {
 
         ensureChannel();
         Notification notification = buildNotification(state);
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(START_NOTIFICATION_ID);
+            return START_STICKY;
+        } catch (RuntimeException error) {
+            // TWA runs inside Chrome: Android can regard our app as background.
+            // Android 12+ then refuses the first FGS launch. A notification tap
+            // is a documented user-initiated exception; never crash or fake a
+            // live capsule when OS refused the background start.
+            if (Build.VERSION.SDK_INT >= 31 &&
+                    error instanceof android.app.ForegroundServiceStartNotAllowedException) {
+                showStartActionNotification(this);
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
+            throw error;
         }
-        return START_STICKY;
+    }
+
+    static void queueStartAfterBackgroundRestriction(Context context, Intent sync) {
+        if (!ACTION_SYNC.equals(sync.getAction())) return;
+        State state = read(context);
+        state.active = true;
+        state.sessionKey = sync.getStringExtra("sessionKey");
+        state.paused = sync.getBooleanExtra("paused", false);
+        state.onBreak = sync.getBooleanExtra("onBreak", false);
+        state.focusMs = Math.max(0, sync.getLongExtra("focusMs", 0L));
+        state.breakMs = Math.max(0, sync.getLongExtra("breakMs", 0L));
+        state.anchorMs = System.currentTimeMillis();
+        store(context, state);
+        showStartActionNotification(context);
+    }
+
+    private static void showStartActionNotification(Context context) {
+        NotificationManager manager = (NotificationManager)
+                context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= 26 &&
+                manager.getNotificationChannel(START_CHANNEL_ID) == null) {
+            NotificationChannel channel = new NotificationChannel(START_CHANNEL_ID,
+                    "Kronometre başlatma izni", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Android arka plan sınırlamasında kronometreyi bir kez dokunarak başlat");
+            channel.setShowBadge(false);
+            manager.createNotificationChannel(channel);
+        }
+        Intent intent = new Intent(context, FocusTimerService.class).setAction(ACTION_RETRY);
+        PendingIntent start = Build.VERSION.SDK_INT >= 26
+                ? PendingIntent.getForegroundService(context, START_NOTIFICATION_ID, intent,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)
+                : PendingIntent.getService(context, START_NOTIFICATION_ID, intent,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification notification = new Notification.Builder(context, START_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle("NevoFocus kronometreyi başlat")
+                .setContentText("Android arka plan kısıtlaması için bir kez dokun")
+                .setCategory(Notification.CATEGORY_REMINDER)
+                .setContentIntent(start)
+                .addAction(new Notification.Action.Builder(
+                        android.R.drawable.ic_media_play, "Kronometreyi Başlat", start).build())
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .build();
+        manager.notify(START_NOTIFICATION_ID, notification);
     }
 
     private PendingIntent serviceAction(String action, int requestCode) {
