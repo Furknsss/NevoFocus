@@ -33,13 +33,13 @@ public final class FocusTimerService extends Service {
         long anchorMs;
 
         long elapsedFocusMs() {
-            return Math.max(0L, focusMs + (active && !paused && !onBreak
-                    ? Math.max(0L, System.currentTimeMillis() - anchorMs) : 0L));
+            return FocusTimerMath.elapsedMillis(
+                    focusMs, anchorMs, System.currentTimeMillis(), active && !paused && !onBreak);
         }
 
         long elapsedBreakMs() {
-            return Math.max(0L, breakMs + (active && !paused && onBreak
-                    ? Math.max(0L, System.currentTimeMillis() - anchorMs) : 0L));
+            return FocusTimerMath.elapsedMillis(
+                    breakMs, anchorMs, System.currentTimeMillis(), active && !paused && onBreak);
         }
 
         void freeze() {
