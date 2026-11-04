@@ -34,6 +34,11 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 execFileSync(npm, ['run', 'android:setup'], { cwd: root, stdio: 'inherit' });
 fs.cpSync(nativeMain, androidMain, { recursive: true, force: true });
+const nativeTest = path.join(root, 'native', 'android-twa', 'app', 'src', 'test');
+if (fs.existsSync(nativeTest)) {
+  fs.cpSync(nativeTest, path.join(root, 'android', 'app', 'src', 'test'),
+    { recursive: true, force: true });
+}
 fs.mkdirSync(targetJava, { recursive: true });
 const webConfig = `package com.furknsss.nevofocus;
 
@@ -72,9 +77,13 @@ fs.writeFileSync(manifestPath, manifest);
 
 let gradle = fs.readFileSync(appGradlePath, 'utf8');
 const dependency = 'implementation "androidx.browser:browser:1.10.0"';
+const junitDependency = 'testImplementation "junit:junit:4.13.2"';
 if (!gradle.includes(dependency)) {
   if (!gradle.includes('dependencies {')) throw new Error('Android Gradle dependencies block not found.');
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
+}
+if (!gradle.includes(junitDependency)) {
+  gradle = gradle.replace('dependencies {', 'dependencies {\\n    ' + junitDependency);
 }
 fs.writeFileSync(appGradlePath, gradle);
 
