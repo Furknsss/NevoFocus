@@ -39,6 +39,10 @@ if (fs.existsSync(nativeTest)) {
   fs.cpSync(nativeTest, path.join(root, 'android', 'app', 'src', 'test'),
     { recursive: true, force: true });
 }
+// Remove Capacitor's generated example tests, whose package assertion targets
+// the template app rather than NevoFocus. Keep our native regression suites.
+fs.rmSync(path.join(root, 'android', 'app', 'src', 'androidTest', 'java', 'com', 'getcapacitor', 'myapp'),
+  { recursive: true, force: true });
 const nativeDeviceTest = path.join(root, 'native', 'android-twa', 'app', 'src', 'androidTest');
 if (fs.existsSync(nativeDeviceTest)) {
   fs.cpSync(nativeDeviceTest, path.join(root, 'android', 'app', 'src', 'androidTest'),
