@@ -47,6 +47,7 @@ public final class MainActivity extends Activity {
     private boolean webReady;
     private boolean channelRequested;
     private boolean launched;
+    private boolean browserWasInFront;
     private boolean notificationPermissionResolved;
 
     private final CustomTabsCallback callback = new CustomTabsCallback() {
@@ -269,6 +270,22 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             Log.e(TAG, "native command failed", error);
             sendResponse("NEVOFOCUS_NATIVE_ERROR", "", null, error.getMessage());
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (launched) browserWasInFront = true;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // When the Chrome/TWA activity closes, do not expose a blank native
+        // launcher behind it. The separate foreground timer service survives.
+        if (launched && browserWasInFront) {
+            finish();
         }
     }
 
