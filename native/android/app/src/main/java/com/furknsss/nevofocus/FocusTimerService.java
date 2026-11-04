@@ -130,7 +130,7 @@ public final class FocusTimerService extends Service {
 
     private Notification buildNotification(State state) {
         RemoteViews compact = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification);
-        RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification);
+        RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification_expanded);
         prepareViews(compact, state);
         prepareViews(expanded, state);
 
@@ -140,6 +140,8 @@ public final class FocusTimerService extends Service {
 
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setColor(android.graphics.Color.BLACK)
+                .setColorized(true)
                 .setContentTitle("NevoFocus")
                 .setContentText(state.onBreak ? "Mola sürüyor" : "Odaklanma sürüyor")
                 .setCategory(Notification.CATEGORY_SERVICE)
@@ -150,6 +152,7 @@ public final class FocusTimerService extends Service {
                 .setContentIntent(openApp)
                 .setCustomContentView(compact)
                 .setCustomBigContentView(expanded)
+                .setCustomHeadsUpContentView(expanded)
                 .build();
     }
 
@@ -161,7 +164,7 @@ public final class FocusTimerService extends Service {
         views.setChronometer(R.id.focus_chronometer, base, null, !state.paused);
         views.setTextViewText(R.id.focus_pause, state.paused ? "▶" : "Ⅱ");
         views.setContentDescription(R.id.focus_pause, state.paused ? "Devam et" : "Durdur");
-        views.setTextViewText(R.id.focus_break, state.onBreak ? "Devam" : "Mola");
+        views.setTextViewText(R.id.focus_break, state.onBreak ? "DEVAM" : "MOLA");
         views.setContentDescription(R.id.focus_break, state.onBreak ? "Molayı bitir" : "Mola ver");
         views.setOnClickPendingIntent(R.id.focus_pause, serviceAction(ACTION_PAUSE, 1));
         views.setOnClickPendingIntent(R.id.focus_break, serviceAction(ACTION_BREAK, 2));
