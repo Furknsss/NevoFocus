@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.use_as_origin"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.furknsss.nevofocus",
+      "sha256_cert_fingerprints": [
+        "0D:33:E8:2B:75:E3:0D:77:56:59:54:69:3C:94:83:28:91:7C:14:DC:78:35:51:19:69:66:1B:01:D3:8C:DE:F8"
+      ]
+    }
+  }
+]
