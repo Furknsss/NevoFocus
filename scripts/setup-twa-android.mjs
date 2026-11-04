@@ -110,6 +110,25 @@ if (!gradle.includes('testInstrumentationRunner "androidx.test.runner.AndroidJUn
     '\n        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"' +
     gradle.slice(defaultConfigStart + 'defaultConfig {'.length);
 }
+// CI test builds must use an explicit reusable signing key. Relying on
+// Gradle's machine-local debug.keystore produces a new SHA-256 on each run,
+// permanently breaking the TWA site/app association.
+if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
+  const store = path.resolve(process.env.NEVOFOCUS_TWA_SIGNING_STORE);
+  if (!fs.existsSync(store)) {
+    throw new Error('Configured TWA debug keystore is missing: ' + store);
+  }
+  if (!gradle.includes('android {')) throw new Error('Android Gradle android block not found.');
+  gradle = gradle.replace('android {', `android {
+    signingConfigs {
+        debug {
+            storeFile file(${JSON.stringify(store)})
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }`);
+}
 fs.writeFileSync(appGradlePath, gradle);
 
 console.log('Chrome-backed NevoFocus TWA Android variant prepared.');
