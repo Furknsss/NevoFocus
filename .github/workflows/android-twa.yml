@@ -39,6 +39,7 @@ jobs:
     permissions:
       contents: read
     env:
+      NEVOFOCUS_TWA_SIGNING_STORE: ${{ github.workspace }}/.signing/nevofocus-debug.keystore
       NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || (github.event_name == 'push' && 'https://nevofocus.vercel.app/' || 'https://nevofocus.invalid/') }}
     steps:
       - uses: actions/checkout@v4
@@ -53,12 +54,23 @@ jobs:
           java-version: '21'
       - name: Use GitHub runner Android SDK
         run: echo "Using SDK at $ANDROID_HOME"
-      - name: Reuse test-only Android debug certificate
+      - name: Restore reusable test-only Android signing certificate
         id: signing-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
-          key: nevofocus-android-debug-keystore-v1
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
+      - name: Create a test-only keystore on first build
+        shell: bash
+        run: |
+          mkdir -p .signing
+          if [[ ! -s .signing/nevofocus-debug.keystore ]]; then
+            keytool -genkeypair -v -keystore .signing/nevofocus-debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -dname "CN=NevoFocus Android Debug,O=NevoFocus,C=TR" \
+              -keyalg RSA -keysize 2048 -validity 3650 -noprompt
+          fi
+          test -s .signing/nevofocus-debug.keystore
       - name: Install Node dependencies
         run: npm install --no-audit --no-fund
       - name: TypeScript check
@@ -94,11 +106,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Preserve test signing certificate before live association gate
-        if: github.event_name != 'pull_request' && steps.signing-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ~/.android/debug.keystore
-          key: nevofocus-android-debug-keystore-v1
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
       - name: Verify live HTTPS domain and signed application association
         if: github.event_name != 'pull_request'
         run: node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
