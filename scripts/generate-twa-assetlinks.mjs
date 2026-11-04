@@ -16,7 +16,7 @@ if (!signaturePath || !fs.existsSync(signaturePath)) {
 }
 const output = process.argv[3] || 'android-twa-assetlinks.json';
 const raw = fs.readFileSync(signaturePath, 'utf8');
-const match = raw.match(/Signer #1 certificate SHA-256 digest:\s*([0-9a-f:]{64,95})/i);
+const match = raw.match(/(?:^|\n)(?:(?:V[1234]|SourceStamp)\s+)?Signer(?:\s+#\d+)?\s+certificate\s+SHA-256\s+digest:\s*([0-9a-f:]{64,95})/i);
 if (!match) throw new Error('Could not parse the APK signer certificate SHA-256 fingerprint.');
 const digits = match[1].replaceAll(':', '').toUpperCase();
 if (digits.length !== 64 || !/^[0-9A-F]{64}$/.test(digits)) {
