@@ -68,7 +68,12 @@ jobs:
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
             cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon
-            adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-emulator-notification.png > nevofocus-emulator-notification.png && file nevofocus-emulator-notification.png || { rm -f nevofocus-emulator-notification.png; echo "No emulator notification screenshot was captured."; }
+            # Capture the real system shade, not run-as stderr disguised as a .png.
+            adb shell cmd statusbar expand-notifications
+            sleep 2
+            adb exec-out screencap -p > ../nevofocus-emulator-notification.png
+            python3 -c "from pathlib import Path; p=Path('../nevofocus-emulator-notification.png'); assert p.read_bytes().startswith(bytes.fromhex('89504e470d0a1a0a')), 'Emulator screenshot is not PNG data'"
+            file ../nevofocus-emulator-notification.png
       - name: Save screenshot of actual Android notification shade
         if: always()
         uses: actions/upload-artifact@v4
