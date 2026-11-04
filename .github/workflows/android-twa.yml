@@ -54,6 +54,7 @@ jobs:
       - name: Use GitHub runner Android SDK
         run: echo "Using SDK at $ANDROID_HOME"
       - name: Reuse test-only Android debug certificate
+        id: signing-cache
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
@@ -92,6 +93,12 @@ jobs:
             android-twa-assetlinks.json
           if-no-files-found: error
           retention-days: 14
+      - name: Preserve test signing certificate before live association gate
+        if: github.event_name != 'pull_request' && steps.signing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: nevofocus-android-debug-keystore-v1
       - name: Verify live HTTPS domain and signed application association
         if: github.event_name != 'pull_request'
         run: node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
