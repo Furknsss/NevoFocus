@@ -52,6 +52,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Cache and validate Gradle dependencies
+        uses: gradle/actions/setup-gradle@v4
       - name: Use GitHub runner Android SDK
         run: echo "Using SDK at $ANDROID_HOME"
       - name: Restore reusable test-only Android signing certificate
@@ -71,6 +73,12 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 3650 -noprompt
           fi
           test -s .signing/nevofocus-debug.keystore
+      - name: Save signing certificate independently of Maven availability
+        if: github.event_name == 'push' && steps.signing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
       - name: Install Node dependencies
         run: npm install --no-audit --no-fund
       - name: TypeScript check
@@ -105,12 +113,6 @@ jobs:
             android-twa-assetlinks.json
           if-no-files-found: error
           retention-days: 14
-      - name: Preserve test signing certificate before live association gate
-        if: github.event_name == 'push' && steps.signing-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .signing/nevofocus-debug.keystore
-          key: nevofocus-twa-debug-signing-v2
       - name: Verify live HTTPS domain and signed application association
         if: github.event_name != 'pull_request'
         run: node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
