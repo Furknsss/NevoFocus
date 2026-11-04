@@ -39,6 +39,11 @@ if (fs.existsSync(nativeTest)) {
   fs.cpSync(nativeTest, path.join(root, 'android', 'app', 'src', 'test'),
     { recursive: true, force: true });
 }
+const nativeDeviceTest = path.join(root, 'native', 'android-twa', 'app', 'src', 'androidTest');
+if (fs.existsSync(nativeDeviceTest)) {
+  fs.cpSync(nativeDeviceTest, path.join(root, 'android', 'app', 'src', 'androidTest'),
+    { recursive: true, force: true });
+}
 fs.mkdirSync(targetJava, { recursive: true });
 const webConfig = `package com.furknsss.nevofocus;
 
@@ -78,12 +83,28 @@ fs.writeFileSync(manifestPath, manifest);
 let gradle = fs.readFileSync(appGradlePath, 'utf8');
 const dependency = 'implementation "androidx.browser:browser:1.10.0"';
 const junitDependency = 'testImplementation "junit:junit:4.13.2"';
+const instrumentationDependency = 'androidTestImplementation "androidx.test:runner:1.6.2"';
+const instrumentationJunitDependency = 'androidTestImplementation "androidx.test.ext:junit:1.2.1"';
 if (!gradle.includes(dependency)) {
   if (!gradle.includes('dependencies {')) throw new Error('Android Gradle dependencies block not found.');
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
 }
 if (!gradle.includes(junitDependency)) {
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + junitDependency);
+}
+for (const required of [instrumentationDependency, instrumentationJunitDependency]) {
+  if (!gradle.includes(required)) {
+    gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + required);
+  }
+}
+// Add a real instrumentation runner without changing the existing app's
+// package ID, minSdk, targetSdk, or build variant.
+if (!gradle.includes('testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"')) {
+  const defaultConfigStart = gradle.indexOf('defaultConfig {');
+  if (defaultConfigStart < 0) throw new Error('Android Gradle defaultConfig block missing.');
+  gradle = gradle.slice(0, defaultConfigStart + 'defaultConfig {'.length) +
+    '\n        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"' +
+    gradle.slice(defaultConfigStart + 'defaultConfig {'.length);
 }
 fs.writeFileSync(appGradlePath, gradle);
 
