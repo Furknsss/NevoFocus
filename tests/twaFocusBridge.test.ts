@@ -14,10 +14,12 @@ const handlers = new Map<string, (event: any) => void>();
     return true;
   },
 };
-const { isTwaFocusPage, twaFocus } = await import('../src/services/twaFocusBridge');
+const { isTwaFocusPage, hasTwaFocusChannel, twaFocus } = await import('../src/services/twaFocusBridge');
 
 test('TWA bridge uses only the validated origin and native request IDs', async () => {
   assert.equal(isTwaFocusPage, true);
+  // Query string alone must not disable the current PWA timer notifications.
+  assert.equal(hasTwaFocusChannel(), false);
   const messageHandler = handlers.get('message');
   assert.ok(messageHandler);
 
@@ -28,6 +30,7 @@ test('TWA bridge uses only the validated origin and native request IDs', async (
     data: JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }),
   });
 
+  assert.equal(hasTwaFocusChannel(), false, 'Foreign origin must not activate native focus');
   const channel = new MessageChannel();
   const received: string[] = [];
   let nativeHandshake = false;
@@ -59,6 +62,7 @@ test('TWA bridge uses only the validated origin and native request IDs', async (
     ports: [channel.port1],
     data: JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }),
   });
+  assert.equal(hasTwaFocusChannel(), true, 'Native TWA available only after verified hello');
   const sync = await twaFocus.sync({
     sessionKey: '1712345678',
     isPaused: false,
