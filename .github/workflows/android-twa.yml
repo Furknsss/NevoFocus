@@ -62,7 +62,7 @@ jobs:
             node scripts/setup-twa-android.mjs
           fi
       - name: Compile native Android TWA and notification service
-        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+        run: cd android && chmod +x ./gradlew && ./gradlew testDebugUnitTest assembleDebug --no-daemon
       - name: Extract signing certificate and generate required asset links
         shell: bash
         run: |
