@@ -89,7 +89,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        browserPackage = CustomTabsClient.getPackageName(this, null);
+        // Prefer the same stable Chrome browser that hosts the user's PWA
+        // profile. Other Custom Tabs providers may have a separate login store.
+        browserPackage = CustomTabsClient.getPackageName(this,
+                java.util.Arrays.asList("com.android.chrome", "com.chrome.beta"));
         if (browserPackage == null) {
             Log.e(TAG, "No browser with Android Custom Tabs is installed.");
             Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse(TwaWebConfig.START_URL));
