@@ -39,7 +39,7 @@ jobs:
     permissions:
       contents: read
     env:
-      NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || (github.event_name == 'push' && 'https://nevo-focus-git-feat-twa-premium-native-focus-20261104-furknsss.vercel.app/' || 'https://nevofocus.invalid/') }}
+      NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || (github.event_name == 'push' && 'https://nevofocus.vercel.app/' || 'https://nevofocus.invalid/') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
