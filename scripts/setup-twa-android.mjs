@@ -65,7 +65,7 @@ if (!manifest.includes('android.support.customtabs.action.CustomTabsService')) {
     </queries>
 `;
   if (!manifest.includes('<application')) throw new Error('Capacitor AndroidManifest.xml missing application.');
-  manifest = manifest.replace(/<application\\b/, queries + '    <application');
+  manifest = manifest.replace(/<application\b/, queries + '    <application');
 }
 // Use the same app package as the original test build.
 fs.writeFileSync(manifestPath, manifest);
@@ -74,7 +74,7 @@ let gradle = fs.readFileSync(appGradlePath, 'utf8');
 const dependency = 'implementation "androidx.browser:browser:1.10.0"';
 if (!gradle.includes(dependency)) {
   if (!gradle.includes('dependencies {')) throw new Error('Android Gradle dependencies block not found.');
-  gradle = gradle.replace('dependencies {', 'dependencies {\\n    ' + dependency);
+  gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
 }
 fs.writeFileSync(appGradlePath, gradle);
 
