@@ -54,6 +54,21 @@ jobs:
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
             cd android && ./gradlew connectedDebugAndroidTest --no-daemon
+            cd ..
+            if adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-emulator-notification.png > nevofocus-emulator-notification.png; then
+              file nevofocus-emulator-notification.png
+            else
+              rm -f nevofocus-emulator-notification.png
+              echo "No emulator notification screenshot was captured."
+            fi
+      - name: Save screenshot of actual Android notification shade
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-emulator-notification-preview
+          path: nevofocus-emulator-notification.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Save Android instrumentation reports
         if: always()
         uses: actions/upload-artifact@v4
