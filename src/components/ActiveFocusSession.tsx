@@ -457,11 +457,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
     window.addEventListener('pageshow', onVisible);
+    window.addEventListener('nevofocus:twa-connected', onVisible);
     return () => {
       mounted = false;
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
       window.removeEventListener('pageshow', onVisible);
+      window.removeEventListener('nevofocus:twa-connected', onVisible);
     };
     // Session identity remains fixed while ActiveFocusSession is mounted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
