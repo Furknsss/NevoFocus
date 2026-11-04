@@ -115,15 +115,22 @@ public class FocusTimerServiceDeviceTest {
         NotificationManager manager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
         boolean found = false;
-        for (StatusBarNotification item : manager.getActiveNotifications()) {
-            if ("NevoFocus kronometreyi başlat".equals(
-                    item.getNotification().extras.getString(android.app.Notification.EXTRA_TITLE))) {
-                assertNotNull("Start action must be a real PendingIntent", item.getNotification().contentIntent);
-                assertTrue("Start notification must include an action button",
-                        item.getNotification().actions != null &&
-                        item.getNotification().actions.length > 0);
-                found = true;
+        long fallbackDeadline = SystemClock.uptimeMillis() + 8_000L;
+        // NotificationManager may enqueue notify() asynchronously. Observe
+        // the actual posted notification rather than asserting in the same tick.
+        while (!found && SystemClock.uptimeMillis() < fallbackDeadline) {
+            for (StatusBarNotification item : manager.getActiveNotifications()) {
+                if ("NevoFocus kronometreyi başlat".equals(
+                        item.getNotification().extras.getString(android.app.Notification.EXTRA_TITLE))) {
+                    assertNotNull("Start action must be a real PendingIntent", item.getNotification().contentIntent);
+                    assertTrue("Start notification must include an action button",
+                            item.getNotification().actions != null &&
+                            item.getNotification().actions.length > 0);
+                    found = true;
+                    break;
+                }
             }
+            if (!found) Thread.sleep(80L);
         }
         assertTrue("Android must publish a user-tappable service-start fallback", found);
     }
