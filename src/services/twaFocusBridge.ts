@@ -19,6 +19,9 @@ interface NativeReply {
 }
 
 let port: MessagePort | null = null;
+// A ?nevofocus_twa=1 URL parameter is NOT proof of an actual Android bridge.
+// Preserve normal PWA notifications until Chrome validates origin and delivers the port.
+export const hasTwaFocusChannel = (): boolean => Boolean(port);
 let nextRequestId = 0;
 const pending = new Map<string, {
   resolve: (state: NativeFocusState) => void;
