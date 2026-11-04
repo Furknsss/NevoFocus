@@ -24,6 +24,7 @@ import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
 import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
+import { elapsedSecondsAtTransition } from '../utils/focusTimerTransitions';
 import { SpotifyFocusWidget } from './visuals/SpotifyFocusWidget';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
@@ -506,27 +507,25 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Thematic Break toggle with exact Wall-Clock Anchor updates
   const toggleThematicBreak = useCallback(() => {
     const now = Date.now();
-    // Active breaks must not be globally paused.
-    if (isPausedRef.current) {
+    // Capture the pause state BEFORE clearing it. Otherwise a break started
+    // during a pause would incorrectly add the entire paused interval as work.
+    const wasPaused = isPausedRef.current;
+    if (wasPaused) {
       isPausedRef.current = false;
       setIsPaused(false);
     }
     if (!isCampActiveRef.current) {
-      // Entering break: accumulate focus seconds up to now, start break anchor
-      if (!isPausedRef.current) {
-        const delta = Math.max(0, Math.floor((now - anchorTimestampRef.current) / 1000));
-        accumulatedFocusSecondsRef.current += delta;
-      }
+      accumulatedFocusSecondsRef.current += elapsedSecondsAtTransition(
+        anchorTimestampRef.current, now, wasPaused
+      );
       breakAnchorTimestampRef.current = now;
       isCampActiveRef.current = true;
       setIsCampActive(true);
       setBreakCount((prev) => prev + 1);
     } else {
-      // Exiting break: accumulate break seconds up to now, start focus anchor
-      if (!isPausedRef.current) {
-        const bDelta = Math.max(0, Math.floor((now - breakAnchorTimestampRef.current) / 1000));
-        accumulatedBreakSecondsRef.current += bDelta;
-      }
+      accumulatedBreakSecondsRef.current += elapsedSecondsAtTransition(
+        breakAnchorTimestampRef.current, now, wasPaused
+      );
       anchorTimestampRef.current = now;
       isCampActiveRef.current = false;
       setIsCampActive(false);
