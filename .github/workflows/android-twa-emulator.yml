@@ -40,6 +40,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -e /dev/kvm
+      - name: Free unused runner disk space for Android 14 emulator
+        run: |
+          # Hosted runners include large toolchains unrelated to this Android job.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          df -h / 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Generate TWA app with instrumentation runner
