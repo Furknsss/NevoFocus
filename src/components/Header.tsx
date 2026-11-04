@@ -21,6 +21,7 @@ import {
   Mountain,
   Download,
   Sparkles,
+  Cloud,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -31,6 +32,7 @@ interface HeaderProps {
   currentUser: any;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
+  onOpenBackup?: () => void;
   onOpenMarket: () => void;
   onOpenAchievements: () => void;
   onOpenAuth: () => void;
@@ -50,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onOpenProfile,
   onOpenSettings,
+  onOpenBackup,
   onOpenMarket,
   onOpenAchievements,
   onOpenAuth,
@@ -322,6 +325,25 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="flex-1">
                     <span className="block font-bold">Ayarlar</span>
                     <span className="text-[10px] text-neutral-500">Bildirim, tema ve hesap güvenliği</span>
+                  </div>
+                </button>
+
+                {/* 3.5. Bulut Yedekleme & Geri Yükle */}
+                <button
+                  onClick={() => {
+                    setIsDropdownOpen(false);
+                    if (onOpenBackup) {
+                      onOpenBackup();
+                    } else {
+                      onOpenSettings();
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors cursor-pointer text-left"
+                >
+                  <Cloud className="w-4 h-4 text-sky-400" />
+                  <div className="flex-1">
+                    <span className="block font-bold">Bulut Yedekleme & Geri Yükle</span>
+                    <span className="text-[10px] text-neutral-500">Cihazlar arası anında veri eşitleme</span>
                   </div>
                 </button>
 

@@ -93,6 +93,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   // Cloud sync status
   const [syncingCloud, setSyncingCloud] = useState(false);
+  const [restoringCloud, setRestoringCloud] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   // Domain authorization banner for Google sign-in
@@ -222,14 +223,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
       }
 
-      // 3. Silent bidirectional sync with Firestore
+      // 3. Silent bidirectional sync with Firestore (pull & merge first, then push)
       try {
-        await restoreAllFromFirestore(user);
+        const restored = await restoreAllFromFirestore(user);
+        if (restored.profile && onProfileUpdate) {
+          onProfileUpdate(restored.profile);
+        }
         await syncAllToFirestore(
           user,
-          getStoredSessions(),
-          getStoredTasks(),
-          getStoredProfile()
+          restored.sessions,
+          restored.tasks,
+          restored.profile || getStoredProfile()
         );
       } catch (syncErr) {
         console.warn('Google login background sync notice:', syncErr);
@@ -386,12 +390,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         // Buluttaki verileri yerel ile sessizce birleştir
         try {
-          await restoreAllFromFirestore(user);
+          const restored = await restoreAllFromFirestore(user, cleanEmail);
+          if (restored.profile && onProfileUpdate) {
+            onProfileUpdate(restored.profile);
+          }
           await syncAllToFirestore(
             user,
-            getStoredSessions(),
-            getStoredTasks(),
-            getStoredProfile()
+            restored.sessions,
+            restored.tasks,
+            restored.profile || getStoredProfile()
           );
         } catch (syncErr) {
           console.warn('Login sync notice:', syncErr);
@@ -462,29 +469,53 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // 4. Manuel Bulut Eşitlemesi (Giriş yapılmış durumda)
+  // 4. Manuel Bulut Eşitlemesi & Geri Yükleme
   const handleManualSyncNow = async () => {
-    if (!currentUser) return;
     try {
       setSyncingCloud(true);
       setSyncNotice(null);
+      soundEngine.playClick();
       const res = await syncAllToFirestore(
-        currentUser,
+        currentUser || auth.currentUser,
         getStoredSessions(),
         getStoredTasks(),
-        getStoredProfile()
+        getStoredProfile(),
+        { allowEmptyOverwrite: true }
       );
       if (res.success) {
-        setSyncNotice('Tüm verileriniz Firestore bulutuna başarıyla yedeklendi! ☁️');
+        setSyncNotice(`${res.sessionsUploaded} seans ve ${res.tasksUploaded} görev buluta yedeklendi! ☁️`);
         soundEngine.playCompletionBell();
       } else {
-        setSyncNotice('Yedekleme tamamlandı.');
+        setSyncNotice(res.message || 'Yedekleme tamamlandı.');
       }
       if (onSyncComplete) onSyncComplete();
     } catch {
       setSyncNotice('Bulut eşitlemesi tamamlandı.');
     } finally {
       setSyncingCloud(false);
+    }
+  };
+
+  const handleManualRestoreNow = async () => {
+    try {
+      setRestoringCloud(true);
+      setSyncNotice(null);
+      soundEngine.playClick();
+      const res = await restoreAllFromFirestore(currentUser || auth.currentUser, email.trim() || undefined);
+      if (res.success) {
+        if (res.profile && onProfileUpdate) {
+          onProfileUpdate(res.profile);
+        }
+        setSyncNotice(`${res.sessions.length} seans ve ${res.tasks.length} görev buluttan geri yüklendi! ☁️`);
+        soundEngine.playCompletionBell();
+      } else {
+        setSyncNotice(res.message || 'Geri yükleme tamamlandı.');
+      }
+      if (onSyncComplete) onSyncComplete();
+    } catch {
+      setSyncNotice('Buluttan geri yükleme tamamlandı.');
+    } finally {
+      setRestoringCloud(false);
     }
   };
 
@@ -680,15 +711,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={handleManualSyncNow}
-                disabled={syncingCloud}
-                className="w-full py-2.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncingCloud ? 'animate-spin' : ''}`} />
-                <span>{syncingCloud ? 'Eşitleniyor...' : 'Şimdi Bulutla Eşitle'}</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleManualSyncNow}
+                  disabled={syncingCloud || restoringCloud}
+                  className="py-2.5 px-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/40 text-sky-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${syncingCloud ? 'animate-spin' : ''}`} />
+                  <span>{syncingCloud ? 'Yedekleniyor...' : 'Buluta Yedekle'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleManualRestoreNow}
+                  disabled={restoringCloud || syncingCloud}
+                  className="py-2.5 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Cloud className={`w-3.5 h-3.5 text-emerald-400 ${restoringCloud ? 'animate-bounce' : ''}`} />
+                  <span>{restoringCloud ? 'Yükleniyor...' : 'Buluttan Geri Yükle'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Offline JSON Backup / Restore */}

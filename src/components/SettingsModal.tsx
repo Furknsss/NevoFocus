@@ -490,20 +490,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Backup & Cloud sync
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [syncEmailInput, setSyncEmailInput] = useState<string>(() => {
+    return (
+      currentUser?.email ||
+      profile.email ||
+      (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '')
+    );
+  });
   const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleBackupNow = async () => {
-    if (!currentUser) return;
     try {
       setIsSyncing(true);
       setBackupNotice(null);
       soundEngine.playClick();
-      const res = await syncAllToFirestore(currentUser, sessions, tasks, profile);
+
+      const cleanEmail = syncEmailInput.trim();
+      const updatedProf = cleanEmail && cleanEmail !== profile.email
+        ? { ...profile, email: cleanEmail }
+        : profile;
+      if (cleanEmail) {
+        try {
+          localStorage.setItem('fokus_user_email', cleanEmail);
+        } catch {}
+        onUpdateProfile({ email: cleanEmail });
+      }
+
+      const res = await syncAllToFirestore(currentUser || auth.currentUser, sessions, tasks, updatedProf, {
+        allowEmptyOverwrite: true,
+      });
       if (res.success) {
         soundEngine.playCompletionBell();
         setBackupNotice({
           type: 'success',
-          text: `Başarılı! ${res.sessionsUploaded} çalışma seansı ve ${res.tasksUploaded} görev Firestore bulutuna yedeklendi.`,
+          text: `Başarılı! ${res.sessionsUploaded} çalışma seansı ve ${res.tasksUploaded} görev Firestore bulutuna yedeklendi. Tabletten veya başka cihazdan anında geri yükleyebilirsiniz.`,
         });
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
@@ -516,20 +536,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleRestoreNow = async () => {
-    if (!currentUser) return;
     try {
       setIsRestoring(true);
       setBackupNotice(null);
       soundEngine.playClick();
-      const res = await restoreAllFromFirestore(currentUser);
+
+      const cleanEmail = syncEmailInput.trim();
+      if (cleanEmail) {
+        try {
+          localStorage.setItem('fokus_user_email', cleanEmail);
+        } catch {}
+      }
+
+      const res = await restoreAllFromFirestore(currentUser || auth.currentUser, cleanEmail || undefined);
       if (res.success) {
         soundEngine.playCompletionBell();
         if (onSyncComplete) {
           onSyncComplete(res.sessions, res.tasks, res.profile as UserProfile);
         }
+        // Also sync merged state back to cloud so all devices share the unified state
+        await syncAllToFirestore(
+          currentUser || auth.currentUser,
+          res.sessions,
+          res.tasks,
+          (res.profile as UserProfile) || profile
+        ).catch(() => {});
+
         setBackupNotice({
           type: 'success',
-          text: `Geri yükleme tamamlandı! ${res.sessions.length} seans ve ${res.tasks.length} görev buluttan aktarıldı.`,
+          text: `Geri yükleme tamamlandı! ${res.sessions.length} çalışma seansı ve ${res.tasks.length} görev buluttan cihazınıza aktarıldı.`,
         });
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Geri yükleme yapılamadı.' });
@@ -1953,13 +1988,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* TAB 4: CLOUD & BACKUP (BULUT & YEDEKLEME) */}
         {activeTab === 'backup' && (
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
             {backupNotice && (
               <div
-                className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                className={`p-3.5 rounded-xl border text-xs font-medium flex items-center gap-2.5 animate-in fade-in ${
                   backupNotice.type === 'success'
-                    ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                    : 'bg-red-950/40 border-red-800/60 text-red-300'
+                    ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200'
+                    : 'bg-red-950/60 border-red-500/50 text-red-200'
                 }`}
               >
                 {backupNotice.type === 'success' ? (
@@ -1971,67 +2006,93 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* Firestore Cloud Status Card */}
-            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
-              <div className="flex items-center justify-between">
+            {/* Firestore Cloud Status & Action Card */}
+            <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-800 space-y-3.5">
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-bold text-white flex items-center gap-2">
                     <Cloud className="w-4 h-4 text-sky-400" />
-                    <span>Firestore Bulut Eşitleme</span>
+                    <span>Firestore Bulut Eşitleme & Cihazlar Arası Senkronizasyon</span>
                   </p>
-                  <p className="text-xs text-neutral-400 mt-0.5">
-                    {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true')
-                      ? `${currentUser?.email || profile.email || (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') : '') || profile.name} hesabınızla bulut yedekleme aktif.`
-                      : 'Oturum açarak çalışma verilerinizi bulutta güvende tutun.'}
+                  <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+                    Bilgisayar, telefon ve tabletiniz arasında tüm odak seanslarınızı, görevlerinizi ve istatistiklerinizi tek dokunuşla yedekleyin veya geri yükleyin.
                   </p>
                 </div>
-                <div className="text-right">
-                  {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true') ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Bulut Aktif
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-800/50 text-[11px] font-mono text-amber-400">
-                      Çevrimdışı / Yerel
-                    </span>
-                  )}
+                <div className="text-right shrink-0">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Bulut Aktif
+                  </span>
                 </div>
               </div>
 
-              {currentUser || profile.userId || (typeof window !== 'undefined' && localStorage.getItem('fokus_user_authenticated') === 'true') ? (
-                <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    disabled={isSyncing}
-                    onClick={handleBackupNow}
-                    className="py-2.5 px-3 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{isSyncing ? 'Buluta Yedekleniyor...' : 'Hemen Buluta Yedekle'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isRestoring}
-                    onClick={handleRestoreNow}
-                    className="py-2.5 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <Cloud className={`w-3.5 h-3.5 ${isRestoring ? 'animate-bounce' : ''}`} />
-                    <span>{isRestoring ? 'Buluttan Alınıyor...' : 'Buluttan Geri Yükle & Eşitle'}</span>
-                  </button>
+              {/* Automatic Backup After Focus Session Badge */}
+              <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-emerald-300 font-semibold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Her Focus Tamamlandığında Otomatik Buluta Yedekleme</span>
                 </div>
-              ) : (
-                <div className="pt-2 border-t border-neutral-800/80">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  AÇIK
+                </span>
+              </div>
+
+              {/* Optional Account Email Sync Key for Instant Cross-Device Restore */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[11px] font-semibold text-neutral-300">
+                  Eşitleme E-postası / Hesap Anahtarı (Tablet & Telefon & PC Ortak Yedek):
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Mail className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      value={syncEmailInput}
+                      onChange={(e) => setSyncEmailInput(e.target.value)}
+                      placeholder="E-posta adresiniz (örn: ogrenci@gmail.com)"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary Action Buttons: ALWAYS ENABLED & TOUCH FRIENDLY */}
+              <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  disabled={isSyncing || isRestoring}
+                  onClick={handleBackupNow}
+                  className="py-3 px-4 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 active:scale-[0.99] border border-sky-500/40 text-sky-200 font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg shadow-sky-950/30"
+                >
+                  <RefreshCw className={`w-4 h-4 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Buluta Yedekleniyor...' : 'Buluta Yedekle'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isRestoring || isSyncing}
+                  onClick={handleRestoreNow}
+                  className="py-3 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-[0.99] border border-emerald-500/50 text-emerald-200 font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-950/30"
+                >
+                  <Cloud className={`w-4 h-4 text-emerald-400 ${isRestoring ? 'animate-bounce' : ''}`} />
+                  <span>{isRestoring ? 'Buluttan Yükleniyor...' : 'Buluttan Geri Yükle'}</span>
+                </button>
+              </div>
+
+              {!currentUser && (
+                <div className="pt-2 border-t border-neutral-800/60 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-neutral-400">
+                    Farklı bir hesapla oturum açmak ister misiniz?
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
                       onClose();
                       if (onOpenAuth) onOpenAuth();
                     }}
-                    className="w-full py-2.5 rounded-xl bg-[#ff5500] hover:bg-[#ff6600] text-white font-bold text-xs shadow-lg shadow-[#ff5500]/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="px-3 py-1.5 rounded-lg bg-[#ff5500]/20 hover:bg-[#ff5500]/30 border border-[#ff5500]/40 text-[#ff5500] font-bold text-xs transition-all cursor-pointer"
                   >
-                    <span>Giriş Yap veya Kayıt Ol</span>
+                    Hesaba Giriş Yap
                   </button>
                 </div>
               )}
@@ -2075,10 +2136,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Stats Overview */}
-            <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between">
+            <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between flex-wrap gap-2">
               <span>Mevcut Cihaz Seansları: <strong className="text-white">{sessions.length}</strong></span>
               <span>Aktif Görevler: <strong className="text-white">{tasks.length}</strong></span>
-              <span>Son Senkronizasyon: <strong className="text-white">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Yerel'}</strong></span>
+              <span>Son Senkronizasyon: <strong className="text-emerald-400">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Hazır'}</strong></span>
             </div>
           </div>
         )}
