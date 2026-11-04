@@ -50,7 +50,8 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
-          target: google_apis
+          # ATD images are smaller/faster; these native tests do not use Google auth.
+          target: aosp_atd
           arch: x86_64
           profile: pixel_7
           # GitHub runner has ~5 GB left after Gradle/Android SDK setup.
