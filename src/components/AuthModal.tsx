@@ -995,6 +995,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
 
+            {isAndroidNativeAuth && errorMsg && (
+              <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 p-3 text-left text-[11px] leading-relaxed text-amber-100/90">
+                <p className="font-semibold text-amber-200">Google Cloud erişimi olmadan aynı hesabınla giriş</p>
+                <p className="mt-1">NevoFocus web sitesinde Google hesabınla oturum açıp
+                  <strong> Ayarlar → Güvenlik → Hesabına Parola Belirle</strong> işlemini yap.
+                  Sonra burada <strong>aynı e-posta ve belirlediğin parolayla</strong> giriş yap.
+                  Yeni hesap açma; mevcut çalışma geçmişin aynı Firebase hesabında kalır.
+                </p>
+              </div>
+            )}
             {/* DIRECT EMAIL & PASSWORD FORM */}
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {isRegisterMode && (
