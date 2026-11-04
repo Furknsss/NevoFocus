@@ -47,6 +47,7 @@ public final class MainActivity extends Activity {
     private boolean webReady;
     private boolean channelRequested;
     private boolean launched;
+    private boolean notificationPermissionResolved;
 
     private final CustomTabsCallback callback = new CustomTabsCallback() {
         @Override
@@ -93,6 +94,13 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         // Prefer the same stable Chrome browser that hosts the user's PWA
         // profile. Other Custom Tabs providers may have a separate login store.
+        // Request POST_NOTIFICATIONS while our native Activity is still in the foreground.
+        // Requesting it only from a backgrounded TWA controller can suppress the dialog.
+        notificationPermissionResolved = hasNotificationPermission();
+        if (!notificationPermissionResolved) {
+            requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS},
+                    NOTIFICATION_PERMISSION_REQUEST);
+        }
         browserPackage = CustomTabsClient.getPackageName(this,
                 java.util.Arrays.asList("com.android.chrome", "com.chrome.beta"), true);
         if (browserPackage == null) {
@@ -133,7 +141,7 @@ public final class MainActivity extends Activity {
     }
 
     private void launchTwa() {
-        if (launched || session == null) return;
+        if (launched || session == null || !notificationPermissionResolved) return;
         launched = true;
         // Explicit marker only gates the JavaScript bridge path; it is not an
         // authentication token or a replacement for Chrome origin validation.
@@ -143,6 +151,21 @@ public final class MainActivity extends Activity {
                 .setToolbarColor(android.graphics.Color.BLACK)
                 .setNavigationBarColor(android.graphics.Color.BLACK)
                 .build(session).launchTrustedWebActivity(this);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+            @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
+            notificationPermissionResolved = true;
+            if (!hasNotificationPermission()) {
+                android.widget.Toast.makeText(this,
+                        "Canlı kronometre bildirimi için Android bildirim iznini açmalısın.",
+                        android.widget.Toast.LENGTH_LONG).show();
+            }
+            launchTwa();
+        }
     }
 
     private void maybeRequestChannel() {
@@ -228,6 +251,11 @@ public final class MainActivity extends Activity {
                 sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null, "invalid elapsed time");
                 return;
             }
+            if (!hasNotificationPermission()) {
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null,
+                        "Android bildirim izni kapalı. Kronometre kapsülünü kullanmak için uygulama bildirimlerini açın.");
+                return;
+            }
             Intent start = new Intent(this, FocusTimerService.class);
             start.setAction(FocusTimerService.ACTION_SYNC);
             start.putExtra("sessionKey", sessionKey);
@@ -237,10 +265,6 @@ public final class MainActivity extends Activity {
             start.putExtra("breakMs", Math.round(rest * 1000));
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(start);
             else startService(start);
-            if (!hasNotificationPermission() && Build.VERSION.SDK_INT >= 33) {
-                requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS},
-                        NOTIFICATION_PERMISSION_REQUEST);
-            }
             sendResponse("NEVOFOCUS_NATIVE_STATE", requestId, readState(), null);
         } catch (Exception error) {
             Log.e(TAG, "native command failed", error);
