@@ -70,8 +70,10 @@ public final class MainActivity extends Activity {
         public void onMessageChannelReady(@Nullable Bundle extras) {
             if (!verified) return;
             channelReady = true;
+            // React's first load can take longer than a few seconds on a
+            // cold phone; retry until the page attaches its MessagePort.
             sendHello();
-            for (int attempt = 1; attempt <= 3; attempt++) {
+            for (int attempt = 1; attempt <= 18; attempt++) {
                 final int delay = attempt * 1100;
                 handler.postDelayed(() -> {
                     if (channelReady && !webReady) sendHello();
