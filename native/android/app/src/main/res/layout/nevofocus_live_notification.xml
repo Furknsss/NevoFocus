@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The OS may wrap this row in its standard notification template on Android 12+. -->
+<!-- A full-width pure-black content capsule inside Android's mandatory notification shell. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="48dp"
@@ -16,20 +16,21 @@
         android:layout_weight="1"
         android:gravity="center_vertical|start"
         android:textColor="#FFFFFF"
-        android:textSize="22sp"
+        android:textSize="24sp"
         android:textStyle="bold"
-        android:fontFamily="sans"
+        android:fontFamily="sans-serif"
         android:singleLine="true"
         android:includeFontPadding="false"
-        android:contentDescription="Geçen süre" />
+        android:contentDescription="Canlı kronometre" />
 
     <TextView
         android:id="@+id/focus_pause"
-        android:layout_width="44dp"
+        android:layout_width="40dp"
         android:layout_height="36dp"
         android:layout_marginEnd="6dp"
         android:gravity="center"
         android:clickable="true"
+        android:focusable="true"
         android:background="@drawable/nevofocus_control_button"
         android:text="Ⅱ"
         android:textColor="#FFFFFF"
@@ -38,14 +39,16 @@
 
     <TextView
         android:id="@+id/focus_break"
-        android:layout_width="62dp"
+        android:layout_width="58dp"
         android:layout_height="36dp"
         android:gravity="center"
         android:clickable="true"
+        android:focusable="true"
         android:background="@drawable/nevofocus_control_button"
-        android:text="Mola"
+        android:text="MOLA"
         android:textColor="#FFFFFF"
         android:textStyle="bold"
-        android:textSize="12sp"
+        android:letterSpacing="0.04"
+        android:textSize="11sp"
         android:contentDescription="Molayı başlat veya bitir" />
 </LinearLayout>
