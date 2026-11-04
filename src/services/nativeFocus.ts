@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { isTwaFocusPage, twaFocus } from './twaFocusBridge';
+import { hasTwaFocusChannel, isTwaFocusPage, twaFocus } from './twaFocusBridge';
 
 // The native service, not a background JavaScript interval, owns notification actions.
 // The wall-clock session is reconciled when the WebView becomes visible again.
@@ -34,7 +34,15 @@ const isCapacitorAndroid =
 
 // TWA runs under the PWA's HTTPS origin and is NOT a Capacitor WebView.
 // The website only activates this bridge when launched as NevoFocus TWA.
-export const isNativeFocusAvailable = isCapacitorAndroid || isTwaFocusPage;
+export let isNativeFocusAvailable = isCapacitorAndroid || hasTwaFocusChannel();
+
+if (isTwaFocusPage && typeof window !== 'undefined') {
+  // A URL query marker by itself cannot start a real Android service.
+  // Keep PWA notification fallback on until the verified Chrome port arrives.
+  window.addEventListener('nevofocus:twa-connected', () => {
+    isNativeFocusAvailable = hasTwaFocusChannel();
+  });
+}
 
 export const nativeFocus = {
   sync: (state: NativeFocusSync) =>
