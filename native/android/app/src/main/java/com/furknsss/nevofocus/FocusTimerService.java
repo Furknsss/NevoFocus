@@ -204,7 +204,7 @@ public final class FocusTimerService extends Service {
                 new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        return new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setColor(android.graphics.Color.BLACK)
                 .setColorized(true)
@@ -218,8 +218,13 @@ public final class FocusTimerService extends Service {
                 .setContentIntent(openApp)
                 .setCustomContentView(compact)
                 .setCustomBigContentView(expanded)
-                .setCustomHeadsUpContentView(expanded)
-                .build();
+                .setCustomHeadsUpContentView(expanded);
+        // Android 12+ may defer foreground notifications for ten seconds.
+        // A user-started stopwatch needs its controls visible immediately.
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        }
+        return builder.build();
     }
 
     private void prepareViews(RemoteViews views, State state) {
