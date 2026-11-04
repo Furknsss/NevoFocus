@@ -7,6 +7,8 @@ on:
       - 'native/android/app/src/main/**'
       - 'scripts/setup-twa-android.mjs'
       - 'scripts/generate-twa-assetlinks.mjs'
+      - 'scripts/verify-twa-assetlinks.mjs'
+      - 'scripts/twaAssetLinksValidation.mjs'
       - 'src/services/nativeFocus.ts'
       - 'src/services/twaFocusBridge.ts'
       - 'src/utils/focusTimerTransitions.ts'
@@ -70,14 +72,26 @@ jobs:
           test -n "$APK_SIGNER"
           "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
-      - name: Release test APK only for a real explicitly configured PWA URL
+      - name: Export Digital Asset Links for site deployment
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: nevofocus-twa-debug-apk-and-assetlinks
+          name: nevofocus-twa-site-association-prep
+          path: |
+            android-twa-apk-signature.txt
+            android-twa-assetlinks.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify live HTTPS domain and signed application association
+        if: github.event_name == 'workflow_dispatch'
+        run: node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+      - name: Publish test APK only after site association is actually live
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-twa-verified-debug-apk
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android-twa-apk-signature.txt
-            android-twa-assetlinks.json
           if-no-files-found: error
           retention-days: 14
