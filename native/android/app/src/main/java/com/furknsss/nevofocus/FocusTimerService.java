@@ -162,12 +162,22 @@ public final class FocusTimerService extends Service {
 
         // Android renders and increments this timer itself, without a JavaScript interval.
         views.setChronometer(R.id.focus_chronometer, base, null, !state.paused);
-        views.setTextViewText(R.id.focus_pause, state.paused ? "▶" : "Ⅱ");
+        // Match the PWA capsule preview: white study dot, red pause dot,
+        // amber break dot, coffee button first, pause/play button last.
+        views.setImageViewResource(R.id.focus_status_dot,
+                state.onBreak ? R.drawable.nevofocus_status_amber
+                    : state.paused ? R.drawable.nevofocus_status_red
+                    : R.drawable.nevofocus_status_white);
+        views.setImageViewResource(R.id.focus_pause,
+                state.paused ? R.drawable.nevofocus_action_play
+                    : R.drawable.nevofocus_action_pause);
+        views.setImageViewResource(R.id.focus_break,
+                state.onBreak ? R.drawable.nevofocus_action_break_active
+                    : R.drawable.nevofocus_action_break);
         views.setContentDescription(R.id.focus_pause, state.paused ? "Devam et" : "Durdur");
-        views.setTextViewText(R.id.focus_break, state.onBreak ? "DEVAM" : "MOLA");
         views.setContentDescription(R.id.focus_break, state.onBreak ? "Molayı bitir" : "Mola ver");
-        views.setOnClickPendingIntent(R.id.focus_pause, serviceAction(ACTION_PAUSE, 1));
         views.setOnClickPendingIntent(R.id.focus_break, serviceAction(ACTION_BREAK, 2));
+        views.setOnClickPendingIntent(R.id.focus_pause, serviceAction(ACTION_PAUSE, 1));
     }
 
     private void ensureChannel() {
