@@ -1,0 +1,66 @@
+name: NevoFocus Android Emulator Integration Tests
+
+on:
+  pull_request:
+    paths:
+      - 'native/android-twa/app/src/androidTest/**'
+      - 'native/android/app/src/main/**'
+      - 'scripts/setup-twa-android.mjs'
+      - '.github/workflows/android-twa-emulator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Build-only origin. Emulator tests exercise native service, not live PWA login.
+      NEVOFOCUS_TWA_URL: https://nevofocus.invalid/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Allow KVM hardware acceleration for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate TWA app with instrumentation runner
+        run: node scripts/setup-twa-android.mjs --ci-smoke
+      - name: Compile Android app and instrumentation tests
+        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon
+      - name: Start Android 14 emulator and run foreground timer integration
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
+            cd android && ./gradlew connectedDebugAndroidTest --no-daemon
+      - name: Save Android instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-android-emulator-results
+          path: |
+            android/app/build/outputs/androidTest-results/**
+            android/app/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 14
