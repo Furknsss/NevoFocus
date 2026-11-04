@@ -83,7 +83,7 @@ if (!gradle.includes(dependency)) {
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
 }
 if (!gradle.includes(junitDependency)) {
-  gradle = gradle.replace('dependencies {', 'dependencies {\\n    ' + junitDependency);
+  gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + junitDependency);
 }
 fs.writeFileSync(appGradlePath, gradle);
 
