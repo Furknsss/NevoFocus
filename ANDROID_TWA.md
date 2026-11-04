@@ -54,7 +54,12 @@ with `pwa_url` set to the **full working HTTPS PWA URL**. The workflow:
 - Builds a debug APK
 - Prints the exact signing certificate
 - Generates `android-twa-assetlinks.json` for upload on the PWA host
-- Uploads APK + certificate + asset-links as an artifact
+- Runs unit regressions for timing, notification UI contract and Digital Asset Links
+- Uploads the **signature and assetlinks.json only** as deployment preparation
+- Verifies the live website responds with **HTTP 200, no redirects**, with both
+  TWA and postMessage relations for the exact APK SHA-256
+- Uploads the installable debug APK **only after this live association passes**.
+  A build with no live website verification cannot be marked production-ready.
 
 On ordinary pull requests the workflow does **compile-only smoke tests** with
 `https://nevofocus.invalid/`; no nonfunctional APK artifact is published.
@@ -96,6 +101,27 @@ variants are supplied. Android, Samsung One UI and other manufacturers control
 the final card/header/background: **on Android 12+, applications are not allowed
 to force a fully custom edge-to-edge notification.** It is not possible to
 promise an exact screenshot match or cover the entire notification drawer.
+
+## Android emulator CI and platform constraints
+
+The separate **NevoFocus Android Emulator Integration Tests** GitHub Action
+compiles Android instrumentation tests and boots an Android 14 emulator.
+It checks native foreground notification creation, live stopwatch arithmetic,
+pause/freeze behavior, break/resume behavior and the one-tap notification
+fallback when Android 12+ background foreground-service restrictions apply.
+It also attempts to capture the actual system notification shade. These
+tests do **not** authenticate to production Firebase or exercise Google login.
+
+Android 12+ may reject starting our app's foreground service while Chrome
+hosts the TWA, even if the user pressed Start in the web page. If rejected,
+the app offers the Android-compliant "Kronometreyi Başlat" notification action,
+which the user can tap once. This is a documented platform limitation, not
+permission to bypass background restrictions.
+
+Live verification and release are separate from green build/test CI. Without
+a known, controllable live HTTPS website with updated web bridge and valid
+`/.well-known/assetlinks.json`, a TWA with trustworthy native timer control
+cannot be verified, regardless of the APK compile status.
 
 ## Real-device QA (blocking)
 
