@@ -131,6 +131,20 @@ if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
 }
 fs.writeFileSync(appGradlePath, gradle);
 
+// GitHub shared runners can receive Maven Central HTTP 429 after repeated
+// Android CI builds. Prefer Google's public Maven Central mirror with the
+// official Maven Central repository retained as a fallback.
+const rootGradleFile = path.join(root, 'android', 'build.gradle');
+const rootGradle = fs.readFileSync(rootGradleFile, 'utf8');
+const googleMavenMirror = 'maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }';
+if (!rootGradle.includes(googleMavenMirror)) {
+  if (!rootGradle.includes('mavenCentral()')) {
+    throw new Error('Generated Android build.gradle has no mavenCentral() repository.');
+  }
+  fs.writeFileSync(rootGradleFile,
+    rootGradle.replaceAll('mavenCentral()', googleMavenMirror + '\n        mavenCentral()'));
+}
+
 console.log('Chrome-backed NevoFocus TWA Android variant prepared.');
 console.log('Verified-origin configured: ' + start.origin);
 if (smoke) {
