@@ -264,9 +264,20 @@ public final class MainActivity extends Activity {
             start.putExtra("onBreak", message.optBoolean("isBreakActive", false));
             start.putExtra("focusMs", Math.round(focus * 1000));
             start.putExtra("breakMs", Math.round(rest * 1000));
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(start);
-            else startService(start);
-            sendResponse("NEVOFOCUS_NATIVE_STATE", requestId, readState(), null);
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(start);
+                else startService(start);
+                sendResponse("NEVOFOCUS_NATIVE_STATE", requestId, readState(), null);
+            } catch (IllegalStateException backgroundStartDenied) {
+                // The user's focus page runs inside Chrome. If Android sees
+                // NevoFocus as background, it can refuse the first FGS start.
+                // Keep exact timer anchors and offer an explicit, one-tap
+                // notification start (Android's documented user action path).
+                FocusTimerService.queueStartAfterBackgroundRestriction(this, start);
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null,
+                        "Android arka plandan başlatmayı engelledi. Bildirimdeki " +
+                        "'Kronometreyi Başlat' düğmesine bir kez dokun.");
+            }
         } catch (Exception error) {
             Log.e(TAG, "native command failed", error);
             sendResponse("NEVOFOCUS_NATIVE_ERROR", "", null, error.getMessage());
