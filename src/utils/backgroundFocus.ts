@@ -3,9 +3,15 @@
 // Native TWA must NEVER produce a second Chrome/site notification. The
 // Android foreground service owns all timer notifications for this launch.
 // The marker is a UI-routing hint only, never proof of an authenticated bridge.
-export const isNevoFocusTwaLaunch = (): boolean =>
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('nevofocus_twa') === '1';
+export const isNevoFocusTwaLaunch = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (new URLSearchParams(window.location.search).get('nevofocus_twa') === '1') return true;
+  try {
+    return window.sessionStorage.getItem('nevofocus_twa_active') === '1';
+  } catch {
+    return false;
+  }
+};
 
 const DEVICE_ID_KEY = 'fokus_device_id_v1';
 const TERMINATED_STARTS_KEY = 'fokus_terminated_session_starts_v1';
