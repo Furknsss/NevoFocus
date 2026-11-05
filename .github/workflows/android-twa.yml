@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # Build the reviewed native capsule code in the original signing-cache scope.
-          ref: 6ee5360725dbd96a29e13206dbc3007d61810d73
+          ref: 4c82c090e215354e81bcc312586fa5f3b9c0407e
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
