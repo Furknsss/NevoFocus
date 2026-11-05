@@ -308,7 +308,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Rest Days (Haftalık Mola & Dinlenme Günleri)
   const [weeklyRestDays, setWeeklyRestDays] = useState<number[]>(
-    Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []
+    profile.restDaySelectionMode === 'weekly' && Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []
   );
   const [customRestDates, setCustomRestDates] = useState<string[]>(
     Array.isArray(profile.customRestDates) ? profile.customRestDates : []
@@ -320,10 +320,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Keep in sync with profile updates
   React.useEffect(() => {
-    setWeeklyRestDays(Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []);
+    setWeeklyRestDays(profile.restDaySelectionMode === 'weekly' && Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []);
     setCustomRestDates(Array.isArray(profile.customRestDates) ? profile.customRestDates : []);
     setExcludedRestDates(Array.isArray(profile.excludedRestDates) ? profile.excludedRestDates : []);
-  }, [profile.weeklyRestDays, profile.customRestDates, profile.excludedRestDates]);
+  }, [profile.restDaySelectionMode, profile.weeklyRestDays, profile.customRestDates, profile.excludedRestDates]);
 
   const handleToggleWeeklyDay = (dayIndex: number) => {
     soundEngine.playClick();
@@ -331,9 +331,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       ? weeklyRestDays.filter((d) => d !== dayIndex)
       : [...weeklyRestDays, dayIndex].sort();
     setWeeklyRestDays(updated);
-    onUpdateProfile({ weeklyRestDays: updated });
+    onUpdateProfile({ restDaySelectionMode: 'weekly', weeklyRestDays: updated });
     if (currentUser) {
-      safeSetDoc(doc(db, 'users', currentUser.uid), { weeklyRestDays: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      safeSetDoc(doc(db, 'users', currentUser.uid), { restDaySelectionMode: 'weekly', weeklyRestDays: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
   };
 
@@ -388,9 +388,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (preset === 'weekend') days = [6, 0];
     if (preset === 'none') days = [];
     setWeeklyRestDays(days);
-    onUpdateProfile({ weeklyRestDays: days });
+    onUpdateProfile({ restDaySelectionMode: 'weekly', weeklyRestDays: days });
     if (currentUser) {
-      safeSetDoc(doc(db, 'users', currentUser.uid), { weeklyRestDays: days, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      safeSetDoc(doc(db, 'users', currentUser.uid), { restDaySelectionMode: 'weekly', weeklyRestDays: days, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
   };
 

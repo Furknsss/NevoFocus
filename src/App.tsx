@@ -427,6 +427,8 @@ export default function App() {
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
               totalFocusHours: parseNumericField(data.totalFocusHours, 0),
               cheersReceived: parseNumericField(data.cheersReceived, 0),
+              restDaySelectionMode: data.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates',
+              excludedRestDates: Array.isArray(data.excludedRestDates) ? data.excludedRestDates : (immediateProfile.excludedRestDates || []),
               weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || []),
               customRestDates: Array.isArray(data.customRestDates) ? data.customRestDates : (immediateProfile.customRestDates || []),
               musicConnections: data.musicConnections || immediateProfile.musicConnections,
