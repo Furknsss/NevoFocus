@@ -58,6 +58,8 @@ public final class FocusTimerService extends Service {
         String sessionKey = "";
         boolean paused;
         boolean onBreak;
+        boolean countdown;
+        long plannedMs;
         long focusMs;
         long breakMs;
         long anchorMs;
@@ -86,6 +88,8 @@ public final class FocusTimerService extends Service {
         s.sessionKey = pref.getString("sessionKey", "");
         s.paused = pref.getBoolean("paused", false);
         s.onBreak = pref.getBoolean("onBreak", false);
+        s.countdown = pref.getBoolean("countdown", false);
+        s.plannedMs = pref.getLong("plannedMs", 0L);
         s.focusMs = pref.getLong("focusMs", 0L);
         s.breakMs = pref.getLong("breakMs", 0L);
         s.anchorMs = pref.getLong("anchorMs", System.currentTimeMillis());
@@ -98,6 +102,8 @@ public final class FocusTimerService extends Service {
                 .putString("sessionKey", s.sessionKey)
                 .putBoolean("paused", s.paused)
                 .putBoolean("onBreak", s.onBreak)
+                .putBoolean("countdown", s.countdown)
+                .putLong("plannedMs", s.plannedMs)
                 .putLong("focusMs", s.focusMs)
                 .putLong("breakMs", s.breakMs)
                 .putLong("anchorMs", s.anchorMs)
@@ -124,6 +130,8 @@ public final class FocusTimerService extends Service {
             state.sessionKey = intent.getStringExtra("sessionKey");
             state.paused = intent.getBooleanExtra("paused", false);
             state.onBreak = intent.getBooleanExtra("onBreak", false);
+            state.countdown = intent.getBooleanExtra("countdown", false);
+            state.plannedMs = Math.max(0L, intent.getLongExtra("plannedMs", 0L));
             state.focusMs = Math.max(0L, intent.getLongExtra("focusMs", 0L));
             state.breakMs = Math.max(0L, intent.getLongExtra("breakMs", 0L));
             state.anchorMs = System.currentTimeMillis();
@@ -178,6 +186,8 @@ public final class FocusTimerService extends Service {
         state.sessionKey = sync.getStringExtra("sessionKey");
         state.paused = sync.getBooleanExtra("paused", false);
         state.onBreak = sync.getBooleanExtra("onBreak", false);
+        state.countdown = sync.getBooleanExtra("countdown", false);
+        state.plannedMs = Math.max(0L, sync.getLongExtra("plannedMs", 0L));
         state.focusMs = Math.max(0, sync.getLongExtra("focusMs", 0L));
         state.breakMs = Math.max(0, sync.getLongExtra("breakMs", 0L));
         state.anchorMs = System.currentTimeMillis();
@@ -255,7 +265,11 @@ public final class FocusTimerService extends Service {
     }
 
     private void prepareViews(RemoteViews views, State state) {
-        long shownMs = state.onBreak ? state.elapsedBreakMs() : state.elapsedFocusMs();
+        long shownMs = state.onBreak
+                ? state.elapsedBreakMs()
+                : (state.countdown
+                    ? Math.max(0L, state.plannedMs - state.elapsedFocusMs())
+                    : state.elapsedFocusMs());
         FocusTimerClockText.Parts time = FocusTimerClockText.format(shownMs);
         // The native foreground service drives text sizes independently.
         views.setTextViewText(R.id.focus_main_time, time.hoursMinutes);
