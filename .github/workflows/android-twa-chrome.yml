@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: b691c6cead44c35b1985900cb67ea2c5a8bb505f
+          ref: 35b3b0d858eb4ad1527b1f92590546b8c4ff6568
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -65,6 +65,7 @@ jobs:
           "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
           node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+          node --input-type=module -e "const r=await fetch(new URL('twa-bootstrap.js',process.env.NEVOFOCUS_TWA_URL)); if(!r.ok || !(await r.text()).includes('android-app://')) throw Error('Live origin must serve the Android-app origin fix before Chrome integration')"
       - name: Prepare one persistent emulator shell with final evidence capture
         shell: bash
         run: |
