@@ -30,9 +30,11 @@ public final class FocusTimerService extends Service {
     private static final String PREFS = "nevofocus_native_focus_v1";
     private static final int NOTIFICATION_ID = 31415;
     private static final int START_NOTIFICATION_ID = 31416;
+    private boolean destroyed;
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private final Runnable updateClock = new Runnable() {
         @Override public void run() {
+            if (destroyed) return;
             State current = read(FocusTimerService.this);
             if (!current.active || current.paused) return;
             try {
@@ -157,6 +159,7 @@ public final class FocusTimerService extends Service {
         NotificationManager manager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
         manager.cancel(START_NOTIFICATION_ID);
+        manager.cancel(NOTIFICATION_ID);
     }
 
     @Override
@@ -365,9 +368,12 @@ public final class FocusTimerService extends Service {
 
     @Override
     public void onDestroy() {
-        clockHandler.removeCallbacks(updateClock);
+        // A queued screen-wake callback must not publish again after this instance is stopped.
+        destroyed = true;
+        clockHandler.removeCallbacksAndMessages(null);
         if (screenReceiverRegistered) unregisterReceiver(screenReceiver);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
         super.onDestroy();
     }
 }

@@ -201,7 +201,8 @@ public class FocusTimerServiceDeviceTest {
     private StatusBarNotification clockNotification() {
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         for (StatusBarNotification item : manager.getActiveNotifications()) {
-            if (item.getNotification().contentView != null) return item;
+            if (item.getNotification().contentView != null &&
+                    item.getNotification().contentView.getLayoutId() == R.layout.nevofocus_live_notification) return item;
         }
         return null;
     }
@@ -212,7 +213,13 @@ public class FocusTimerServiceDeviceTest {
             if ((clockNotification() != null) == exists) return;
             Thread.sleep(80);
         }
-        fail("Native notification existence did not become " + exists);
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        StringBuilder remaining = new StringBuilder();
+        for (StatusBarNotification item : manager.getActiveNotifications()) {
+            remaining.append(" id=").append(item.getId()).append(" layout=")
+                    .append(item.getNotification().contentView == null ? -1 : item.getNotification().contentView.getLayoutId());
+        }
+        fail("Native clock existence did not become " + exists + "; remaining:" + remaining);
     }
 
     private long renderedClockMillis(StatusBarNotification notification) {
@@ -257,6 +264,37 @@ public class FocusTimerServiceDeviceTest {
                 FocusTimerService.read(context).currentBootCount >= 0);
     }
 
+    private void restorePersistedServiceByNotificationTap(
+            androidx.test.uiautomator.UiDevice device) throws Exception {
+        // Recreating a service from a test in the launcher is still subject to Android's
+        // background-start policy. Use a real user-tapped foreground-service PendingIntent,
+        // preserving the stored session and anchors instead of resynchronizing a fresh timer.
+        final int restoreId = 63014;
+        final String title = "NEVO_TEST_RESTORE";
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                "nevofocus_test_restore", "Test restore", NotificationManager.IMPORTANCE_DEFAULT);
+        channel.setSound(null, null);
+        manager.createNotificationChannel(channel);
+        android.app.PendingIntent restore = android.app.PendingIntent.getForegroundService(context, restoreId,
+                new Intent(context, FocusTimerService.class).setAction(FocusTimerService.ACTION_RETRY),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+        manager.notify(restoreId, new android.app.Notification.Builder(context, channel.getId())
+                .setSmallIcon(R.drawable.nevofocus_notification_icon).setContentTitle(title)
+                .setContentIntent(restore).setAutoCancel(true).build());
+        try {
+            device.openNotification();
+            android.os.SystemClock.sleep(900L);
+            androidx.test.uiautomator.UiObject2 button = device.wait(
+                    androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(title)), 10000);
+            assertNotNull("A real SystemUI restore tap must be available", button);
+            button.click();
+            awaitNotification(true);
+        } finally {
+            manager.cancel(restoreId);
+        }
+    }
+
     private void assertTiming(String mode, long baselineElapsed, long baselineFocus) {
         long reference = SystemClock.elapsedRealtime() - baselineElapsed;
         long measured = FocusTimerService.read(context).elapsedFocusMs() - baselineFocus;
@@ -282,12 +320,10 @@ public class FocusTimerServiceDeviceTest {
         awaitFreshClock(false);
 
         // Recreate the actual Service instance without replacing its persisted session/anchor.
-        context.stopService(new Intent(context, FocusTimerService.class));
+        assertTrue("The running service must accept stop", context.stopService(new Intent(context, FocusTimerService.class)));
         awaitNotification(false);
         Thread.sleep(2000L);
-        context.startForegroundService(new Intent(context, FocusTimerService.class)
-                .setAction(FocusTimerService.ACTION_RETRY));
-        awaitNotification(true);
+        restorePersistedServiceByNotificationTap(device);
         assertTiming("stopwatch-service-recreation", baselineElapsed, baselineFocus);
         awaitFreshClock(false);
 
