@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 842134bc34c61aff7873a0e99096326b6c885dae
+          ref: b691c6cead44c35b1985900cb67ea2c5a8bb505f
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -76,7 +76,7 @@ jobs:
             const evaluation = await new Promise(resolve => {
               const timeout = setTimeout(() => { ws.close(); resolve({timeout:true}); }, 5000);
               ws.onopen = () => ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{
-                expression: 'JSON.stringify({href:location.href,title:document.title,text:document.body?.innerText?.slice(0,1800),bootstrap:!!window.__nevoTwaBootstrap,queued:window.__nevoTwaBootstrap?.channels?.map(c=>c.messages),resources:performance.getEntriesByType("resource").map(r=>r.name.split("?")[0])})',
+                expression: 'JSON.stringify({href:location.href,title:document.title,text:document.body?.innerText?.slice(0,1800),bootstrap:window.__nevoTwaBootstrap && {status:window.__nevoTwaBootstrap.status,received:window.__nevoTwaBootstrap.received,nativeMessage:window.__nevoTwaBootstrap.nativeMessage},queued:window.__nevoTwaBootstrap?.channels?.map(c=>c.messages),resources:performance.getEntriesByType("resource").map(r=>r.name.split("?")[0])})',
                 returnByValue:true
               }}));
               ws.onmessage = event => { const value = JSON.parse(event.data); if(value.id===1) { clearTimeout(timeout); ws.close(); resolve(value); } };
