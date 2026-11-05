@@ -44,6 +44,11 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
 }) => {
   const [testSent, setTestSent] = useState(false);
   const [pipActive, setPipActive] = useState(false);
+  const timeParts = currentRemainingFormatted.split(':');
+  const largeHoursMinutes = timeParts.length > 2
+    ? `${timeParts[0]}:${timeParts[1]}`
+    : `00:${timeParts[0] || '00'}`;
+  const smallSeconds = `:${timeParts[timeParts.length - 1] || '00'}`;
 
   if (!isOpen) return null;
 
@@ -86,7 +91,7 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
             <div>
               <h3 className="text-base font-extrabold text-white">Siyah Kapsül & Canlı Bildirim</h3>
               <p className="text-[11px] text-neutral-400">
-                Genişletmesiz saf siyah kapsül ve beyaz premium saat senkronizasyonu
+                Android'de yerel kontrol kapsülü · sistem çerçevesi cihaza bağlıdır
               </p>
             </div>
           </div>
@@ -98,44 +103,20 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
           </button>
         </div>
 
-        {/* Pure Black Non-Expanding Capsule Preview */}
+        {/* Single-row native capsule preview. The outer Android system card can still expand. */}
         <div className="py-6 flex flex-col items-center gap-5">
-          <div className="w-full flex items-center justify-center py-6 px-4 rounded-3xl bg-neutral-950 border border-neutral-800/80">
-            {/* Genişletmesiz Saf Siyah Kapsül + Beyaz Premium Saat */}
-            <div className="bg-black border border-white/15 rounded-full px-6 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.96)] flex items-center gap-4 select-none">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    isCampActive
-                      ? 'bg-amber-400'
-                      : isPaused
-                      ? 'bg-red-500'
-                      : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]'
-                  }`}
-                />
-                <span className="font-mono text-3xl font-black text-white tracking-tight tabular-nums leading-none">
-                  {currentRemainingFormatted}
+          <div className="w-full flex items-center justify-center py-6 px-3 rounded-3xl bg-neutral-950 border border-neutral-800/80">
+            <div className="bg-black border border-white/15 rounded-full px-3.5 py-2.5 w-full shadow-[0_18px_50px_rgba(0,0,0,0.96)] flex items-center select-none">
+              <div className="flex items-baseline min-w-0 shrink-0">
+                <span className="font-mono text-[25px] font-black text-white tracking-tight tabular-nums leading-none">
+                  {largeHoursMinutes}
+                </span>
+                <span className="font-mono text-[16px] text-neutral-200 font-semibold tabular-nums leading-none">
+                  {smallSeconds}
                 </span>
               </div>
-
-              <div className="flex items-center gap-2 shrink-0 pl-2 border-l border-white/10">
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundEngine.playClick();
-                    onToggleBreak?.();
-                  }}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
-                    isCampActive
-                      ? 'bg-amber-400 text-black'
-                      : 'bg-white/10 hover:bg-white/20 text-white'
-                  }`}
-                  title={isCampActive ? 'Molayı Bitir' : 'Mola Ver'}
-                  aria-label="Mola"
-                >
-                  <Coffee className="w-4 h-4 stroke-[2.3]" />
-                </button>
-
+              <div className="flex-1 min-w-1" />
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -143,18 +124,26 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
                     onTogglePause?.();
                   }}
                   className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
-                    isPaused
-                      ? 'bg-white text-black'
-                      : 'bg-white/10 hover:bg-white/20 text-white'
+                    isPaused ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20 text-white'
                   }`}
-                  title={isPaused ? 'Başlat' : 'Duraklat'}
-                  aria-label={isPaused ? 'Başlat' : 'Duraklat'}
+                  title={isPaused ? 'Başlat' : 'Durdur'}
+                  aria-label={isPaused ? 'Başlat' : 'Durdur'}
                 >
-                  {isPaused ? (
-                    <Play className="w-4 h-4 fill-current ml-0.5" />
-                  ) : (
-                    <Pause className="w-4 h-4 fill-current" />
-                  )}
+                  {isPaused ? <Play className="w-4 h-4 fill-current ml-0.5" /> : <Pause className="w-4 h-4 fill-current" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    onToggleBreak?.();
+                  }}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
+                    isCampActive ? 'bg-amber-400 text-black' : 'bg-white/10 hover:bg-white/20 text-white'
+                  }`}
+                  title={isCampActive ? 'Molayı Bitir' : 'Mola Ver'}
+                  aria-label={isCampActive ? 'Molayı Bitir' : 'Mola Ver'}
+                >
+                  <Coffee className="w-4 h-4 stroke-[2.3]" />
                 </button>
               </div>
             </div>
