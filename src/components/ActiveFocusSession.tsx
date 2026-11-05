@@ -478,6 +478,29 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, currentTimerType]);
 
+  useEffect(() => {
+    if (!isTwaFocusPage) return;
+    // Close old Chrome/PWA notifications even before Android MessagePort arrives.
+    void backgroundFocus.stopWebTimerNotification();
+    if (isNativeFocusAvailable) return;
+    const timeout = window.setTimeout(() => {
+      if (!isNativeFocusAvailable && !isSessionEndedRef.current) {
+        setNativeBridgeWarning(
+          'Android bildirim bağlantısı kurulamadı. Chrome güncel olmalı ve NevoFocus uygulamasını yeniden açmalısın.'
+        );
+      }
+    }, 13000);
+    const connected = () => {
+      window.clearTimeout(timeout);
+      setNativeBridgeWarning(null);
+    };
+    window.addEventListener('nevofocus:twa-connected', connected);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('nevofocus:twa-connected', connected);
+    };
+  }, []);
+
   // Pause / Resume with exact Wall-Clock Anchor updates
   const handleTogglePause = useCallback(() => {
     soundEngine.playClick();
@@ -707,7 +730,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
       } else {
         // User returned to the app: keep audio keep-alive active and resync immediately
-        backgroundFocus.startKeepAlive();
+        if (!isTwaFocusPage) backgroundFocus.startKeepAlive();
         if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
       }
     };
@@ -1369,7 +1392,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         }}
         onOpenPipCapsule={() => backgroundFocus.openPipCapsule(buildNotificationPayload(true))}
         onSendTestNotification={() => {
-          backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+          if (isTwaFocusPage) {
+            if (isNativeFocusAvailable) syncNativeState();
+            else setNativeBridgeWarning('Android bildirim servisi bağlı değil. NevoFocus uygulamasını yeniden aç.');
+          } else {
+            backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+          }
         }}
       />
     </div>
