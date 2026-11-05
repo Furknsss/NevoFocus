@@ -11,6 +11,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
 
@@ -25,12 +27,39 @@ public final class FocusTimerService extends Service {
     private static final String PREFS = "nevofocus_native_focus_v1";
     private static final int NOTIFICATION_ID = 31415;
     private static final int START_NOTIFICATION_ID = 31416;
+    private final Handler clockHandler = new Handler(Looper.getMainLooper());
+    private final Runnable updateClock = new Runnable() {
+        @Override public void run() {
+            State current = read(FocusTimerService.this);
+            if (!current.active || current.paused) return;
+            try {
+                NotificationManager manager = (NotificationManager)
+                        getSystemService(Context.NOTIFICATION_SERVICE);
+                manager.notify(NOTIFICATION_ID, buildNotification(current));
+            } catch (SecurityException ignored) {
+                // Notification permission might have been revoked after the session started.
+            }
+            // Anchor updates to system uptime so the text advances once a second.
+            long delay = 1000L - (SystemClock.uptimeMillis() % 1000L);
+            clockHandler.postDelayed(this, delay);
+        }
+    };
+
+    private void refreshClockUpdates(State state) {
+        clockHandler.removeCallbacks(updateClock);
+        if (state.active && !state.paused) {
+            long delay = 1000L - (SystemClock.uptimeMillis() % 1000L);
+            clockHandler.postDelayed(updateClock, delay);
+        }
+    }
 
     static final class State {
         boolean active;
         String sessionKey = "";
         boolean paused;
         boolean onBreak;
+        boolean countdown;
+        long plannedMs;
         long focusMs;
         long breakMs;
         long anchorMs;
@@ -59,6 +88,8 @@ public final class FocusTimerService extends Service {
         s.sessionKey = pref.getString("sessionKey", "");
         s.paused = pref.getBoolean("paused", false);
         s.onBreak = pref.getBoolean("onBreak", false);
+        s.countdown = pref.getBoolean("countdown", false);
+        s.plannedMs = pref.getLong("plannedMs", 0L);
         s.focusMs = pref.getLong("focusMs", 0L);
         s.breakMs = pref.getLong("breakMs", 0L);
         s.anchorMs = pref.getLong("anchorMs", System.currentTimeMillis());
@@ -71,6 +102,8 @@ public final class FocusTimerService extends Service {
                 .putString("sessionKey", s.sessionKey)
                 .putBoolean("paused", s.paused)
                 .putBoolean("onBreak", s.onBreak)
+                .putBoolean("countdown", s.countdown)
+                .putLong("plannedMs", s.plannedMs)
                 .putLong("focusMs", s.focusMs)
                 .putLong("breakMs", s.breakMs)
                 .putLong("anchorMs", s.anchorMs)
@@ -97,6 +130,8 @@ public final class FocusTimerService extends Service {
             state.sessionKey = intent.getStringExtra("sessionKey");
             state.paused = intent.getBooleanExtra("paused", false);
             state.onBreak = intent.getBooleanExtra("onBreak", false);
+            state.countdown = intent.getBooleanExtra("countdown", false);
+            state.plannedMs = Math.max(0L, intent.getLongExtra("plannedMs", 0L));
             state.focusMs = Math.max(0L, intent.getLongExtra("focusMs", 0L));
             state.breakMs = Math.max(0L, intent.getLongExtra("breakMs", 0L));
             state.anchorMs = System.currentTimeMillis();
@@ -127,6 +162,7 @@ public final class FocusTimerService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(START_NOTIFICATION_ID);
+            refreshClockUpdates(state);
             return START_STICKY;
         } catch (RuntimeException error) {
             // TWA runs inside Chrome: Android can regard our app as background.
@@ -150,6 +186,8 @@ public final class FocusTimerService extends Service {
         state.sessionKey = sync.getStringExtra("sessionKey");
         state.paused = sync.getBooleanExtra("paused", false);
         state.onBreak = sync.getBooleanExtra("onBreak", false);
+        state.countdown = sync.getBooleanExtra("countdown", false);
+        state.plannedMs = Math.max(0L, sync.getLongExtra("plannedMs", 0L));
         state.focusMs = Math.max(0, sync.getLongExtra("focusMs", 0L));
         state.breakMs = Math.max(0, sync.getLongExtra("breakMs", 0L));
         state.anchorMs = System.currentTimeMillis();
@@ -196,9 +234,7 @@ public final class FocusTimerService extends Service {
 
     private Notification buildNotification(State state) {
         RemoteViews compact = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification);
-        RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification_expanded);
         prepareViews(compact, state);
-        prepareViews(expanded, state);
 
         PendingIntent openApp = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -216,9 +252,10 @@ public final class FocusTimerService extends Service {
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openApp)
+                // No separate expanded layout. Android 12+ can still add its
+                // own system expansion affordance; apps cannot remove it.
                 .setCustomContentView(compact)
-                .setCustomBigContentView(expanded)
-                .setCustomHeadsUpContentView(expanded);
+                .setCustomHeadsUpContentView(compact);
         // Android 12+ may defer foreground notifications for ten seconds.
         // A user-started stopwatch needs its controls visible immediately.
         if (Build.VERSION.SDK_INT >= 31) {
@@ -228,17 +265,15 @@ public final class FocusTimerService extends Service {
     }
 
     private void prepareViews(RemoteViews views, State state) {
-        long shownMs = state.onBreak ? state.elapsedBreakMs() : state.elapsedFocusMs();
-        long base = SystemClock.elapsedRealtime() - shownMs;
-
-        // Android renders and increments this timer itself, without a JavaScript interval.
-        views.setChronometer(R.id.focus_chronometer, base, null, !state.paused);
-        // Match the PWA capsule preview: white study dot, red pause dot,
-        // amber break dot, coffee button first, pause/play button last.
-        views.setImageViewResource(R.id.focus_status_dot,
-                state.onBreak ? R.drawable.nevofocus_status_amber
-                    : state.paused ? R.drawable.nevofocus_status_red
-                    : R.drawable.nevofocus_status_white);
+        long shownMs = state.onBreak
+                ? state.elapsedBreakMs()
+                : (state.countdown
+                    ? Math.max(0L, state.plannedMs - state.elapsedFocusMs())
+                    : state.elapsedFocusMs());
+        FocusTimerClockText.Parts time = FocusTimerClockText.format(shownMs);
+        // The native foreground service drives text sizes independently.
+        views.setTextViewText(R.id.focus_main_time, time.hoursMinutes);
+        views.setTextViewText(R.id.focus_seconds, time.seconds);
         views.setImageViewResource(R.id.focus_pause,
                 state.paused ? R.drawable.nevofocus_action_play
                     : R.drawable.nevofocus_action_pause);
@@ -247,8 +282,8 @@ public final class FocusTimerService extends Service {
                     : R.drawable.nevofocus_action_break);
         views.setContentDescription(R.id.focus_pause, state.paused ? "Devam et" : "Durdur");
         views.setContentDescription(R.id.focus_break, state.onBreak ? "Molayı bitir" : "Mola ver");
-        views.setOnClickPendingIntent(R.id.focus_break, serviceAction(ACTION_BREAK, 2));
         views.setOnClickPendingIntent(R.id.focus_pause, serviceAction(ACTION_PAUSE, 1));
+        views.setOnClickPendingIntent(R.id.focus_break, serviceAction(ACTION_BREAK, 2));
     }
 
     private void ensureChannel() {
@@ -271,6 +306,7 @@ public final class FocusTimerService extends Service {
 
     @Override
     public void onDestroy() {
+        clockHandler.removeCallbacks(updateClock);
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }

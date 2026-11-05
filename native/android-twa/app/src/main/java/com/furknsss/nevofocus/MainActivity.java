@@ -257,8 +257,21 @@ public final class MainActivity extends Activity {
                         "Android bildirim izni kapalı. Kronometre kapsülünü kullanmak için uygulama bildirimlerini açın.");
                 return;
             }
+            String timerType = message.optString("timerType", "stopwatch");
+            double plannedMinutes = message.optDouble("plannedMinutes", 0);
+            if (!"stopwatch".equals(timerType) && !"countdown".equals(timerType)) {
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null, "invalid timer type");
+                return;
+            }
+            if (!Double.isFinite(plannedMinutes) || plannedMinutes < 0 ||
+                    plannedMinutes > 30 * 1440) {
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null, "invalid planned time");
+                return;
+            }
             Intent start = new Intent(this, FocusTimerService.class);
             start.setAction(FocusTimerService.ACTION_SYNC);
+            start.putExtra("countdown", "countdown".equals(timerType));
+            start.putExtra("plannedMs", Math.round(plannedMinutes * 60_000));
             start.putExtra("sessionKey", sessionKey);
             start.putExtra("paused", message.optBoolean("isPaused", false));
             start.putExtra("onBreak", message.optBoolean("isBreakActive", false));

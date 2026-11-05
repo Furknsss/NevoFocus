@@ -94,13 +94,29 @@ stay unchanged and use the site's own current behavior.
 
 ## Notification appearance
 
-Inside Android's available notification content region, the capsule is **full
-width, black (#000), rounded and minimal**, with a white Android Chronometer
-on the left and Pause/Resume + Mola controls on the right. Compact and expanded
-variants are supplied. Android, Samsung One UI and other manufacturers control
-the final card/header/background: **on Android 12+, applications are not allowed
-to force a fully custom edge-to-edge notification.** It is not possible to
-promise an exact screenshot match or cover the entire notification drawer.
+The Android **foreground service**, not Chrome, owns the focus notification.
+Within the system-allowed content region it renders a single black rounded
+capsule: **large white HH:MM**, immediately followed by **smaller :SS**, then
+**Pause / Resume** and **Mola** on the far right. The app does not provide an
+extra expanded RemoteViews layout. The service refreshes the separate time
+labels each second when running, freezes the time on pause, shows break time
+while resting and shows remaining time for countdown sessions. Android can
+throttle background notification refreshes depending on device policy.
+
+For TWA launches the web code must never call `Notification` or
+`ServiceWorkerRegistration.showNotification`: it requests native service
+synchronization through Chrome's DAL-verified MessagePort, cancels existing
+`fokus-active-timer` Chrome notifications and displays a visible diagnostic
+if the native bridge never connects. The ordinary website/PWA still has its
+web-notification fallback.
+
+**Important Android limitation:** Android 12 and later reserve the outer
+notification template, app name, header and expansion affordance for SystemUI.
+Samsung One UI may still draw a chevron even when the application supplies
+only one compact view. There is no supported API that removes the OS chevron
+or guarantees a single all-black edge-to-edge system notification card.
+The mockup is therefore a design target for the *content area*, not a claim
+of an unrestricted full-card custom view.
 
 ## Android emulator CI and platform constraints
 

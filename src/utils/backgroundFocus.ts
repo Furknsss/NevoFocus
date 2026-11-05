@@ -1,5 +1,18 @@
 // Background Focus Persistence, Non-Expanding Pure Black PiP Capsule & Live Synchronized Notification Engine
 
+// Native TWA must NEVER produce a second Chrome/site notification. The
+// Android foreground service owns all timer notifications for this launch.
+// The marker is a UI-routing hint only, never proof of an authenticated bridge.
+export const isNevoFocusTwaLaunch = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (new URLSearchParams(window.location.search).get('nevofocus_twa') === '1') return true;
+  try {
+    return window.sessionStorage.getItem('nevofocus_twa_active') === '1';
+  } catch {
+    return false;
+  }
+};
+
 const DEVICE_ID_KEY = 'fokus_device_id_v1';
 const TERMINATED_STARTS_KEY = 'fokus_terminated_session_starts_v1';
 const LAST_TERMINATED_AT_KEY = 'fokus_last_completed_at';
@@ -257,8 +270,33 @@ class BackgroundFocusManager {
   private pipVideo: HTMLVideoElement | null = null;
   private lastPayload: LiveNotificationPayload | null = null;
   private lastNotifiedSecond: string = '';
+  private siteNotificationStoppedForTwa = false;
+
+  public async stopWebTimerNotification(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (isNevoFocusTwaLaunch()) this.clearMediaSession();
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg?.active) reg.active.postMessage({ type: 'STOP_FOCUS_TIMER' });
+      const old = await reg.getNotifications({ tag: 'fokus-active-timer' });
+      old.forEach((item) => item.close());
+    } catch (error) {
+      console.warn('[NevoFocus] Could not remove legacy Chrome timer notification:', error);
+    }
+  }
+
+  private suppressSiteNotificationInTwa(): boolean {
+    if (!isNevoFocusTwaLaunch()) return false;
+    if (!this.siteNotificationStoppedForTwa) {
+      this.siteNotificationStoppedForTwa = true;
+      void this.stopWebTimerNotification();
+    }
+    return true;
+  }
 
   constructor() {
+    this.suppressSiteNotificationInTwa();
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data && event.data.type === 'FOKUS_NOTIFICATION_ACTION') {
@@ -287,7 +325,7 @@ class BackgroundFocusManager {
   }
 
   public startKeepAlive() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.suppressSiteNotificationInTwa()) return;
     this.clearMediaSession();
 
     try {
@@ -614,7 +652,7 @@ class BackgroundFocusManager {
   }
 
   public async syncLiveNotification(payload: LiveNotificationPayload) {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.suppressSiteNotificationInTwa()) return;
     this.lastPayload = payload;
 
     this.clearMediaSession();
@@ -656,6 +694,7 @@ class BackgroundFocusManager {
   }
 
   public async showStickyNotificationNow(payload: LiveNotificationPayload) {
+    if (this.suppressSiteNotificationInTwa()) return;
     if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
       return;
     }
@@ -705,18 +744,7 @@ class BackgroundFocusManager {
     this.closePipCapsule();
     this.lastNotifiedSecond = '';
 
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.ready;
-        if (reg && reg.active) {
-          reg.active.postMessage({ type: 'STOP_FOCUS_TIMER' });
-        }
-        const notifications = await reg.getNotifications({ tag: 'fokus-active-timer' });
-        notifications.forEach((n) => n.close());
-      } catch {
-        // ignore
-      }
-    }
+    await this.stopWebTimerNotification();
   }
 }
 

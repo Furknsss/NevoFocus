@@ -1,5 +1,5 @@
 // Fokus PWA Service Worker with Smooth Synchronized Non-Expanding Black Capsule Notification Engine
-const CACHE_NAME = 'fokus-pwa-v8';
+const CACHE_NAME = 'fokus-pwa-v9';
 const PRECACHE_URLS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png',
@@ -144,6 +144,13 @@ self.addEventListener('message', (event) => {
   if (!event.data) return;
 
   if (event.data.type === 'SYNC_FOCUS_TIMER') {
+    // Trusted Web Activity sessions belong to our Android foreground service.
+    // Never allow an old Chrome/PWA service-worker notification to race it.
+    const senderUrl = event.source && 'url' in event.source ? event.source.url : '';
+    if (senderUrl && new URL(senderUrl).searchParams.get('nevofocus_twa') === '1') {
+      stopBackgroundLoop();
+      return;
+    }
     activeSessionState = event.data.payload;
     if (activeSessionState && activeSessionState.isHidden) {
       renderActiveNotification();
