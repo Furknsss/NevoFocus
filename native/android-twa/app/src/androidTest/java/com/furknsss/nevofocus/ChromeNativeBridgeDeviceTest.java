@@ -145,6 +145,36 @@ public class ChromeNativeBridgeDeviceTest {
         android.util.Log.i("NevoFocusChromeTest", "Explicit FGS notification tap required: " + tappedStart);
         openShade();
         assertTrue(device.wait(Until.hasObject(By.desc("Durdur")), 10000));
+        if (context.getApplicationInfo().targetSdkVersion < 31) {
+            UiObject2 capsule = device.findObject(By.res(context.getPackageName(), "focus_capsule"));
+            UiObject2 clock = device.findObject(By.res(context.getPackageName(), "focus_main_time"));
+            UiObject2 pause = device.findObject(By.res(context.getPackageName(), "focus_pause"));
+            UiObject2 rest = device.findObject(By.res(context.getPackageName(), "focus_break"));
+            assertNotNull("Actual capsule must be present in SystemUI", capsule);
+            assertNotNull(clock);
+            assertNotNull(pause);
+            assertNotNull(rest);
+            float density = context.getResources().getDisplayMetrics().density;
+            android.graphics.Rect bounds = capsule.getVisibleBounds();
+            assertTrue("Capsule must use the full compact height", bounds.height() / density >= 63f);
+            assertTrue("Clock needs breathing room at the leading edge",
+                    (clock.getVisibleBounds().left - bounds.left) / density >= 19f);
+            assertTrue("Pause touch target must be large", pause.getVisibleBounds().height() / density >= 43f);
+            assertTrue("Break touch target must be large", rest.getVisibleBounds().height() / density >= 43f);
+            assertTrue("Both controls must fit inside the capsule",
+                    rest.getVisibleBounds().right <= bounds.right &&
+                    pause.getVisibleBounds().left > clock.getVisibleBounds().right);
+            UiObject2 row = capsule;
+            while (row.getParent() != null &&
+                    !"com.android.systemui:id/expandableNotificationRow".equals(row.getResourceName())) {
+                row = row.getParent();
+            }
+            assertNull("No app logo may return to the capsule", row.findObject(By.res("android", "icon")));
+            assertNull("No expand arrow may return to the capsule", row.findObject(By.res("android", "expand_button")));
+            android.util.Log.i("NevoFocusChromeTest", "NEVO_CAPSULE heightDp=" + bounds.height() / density
+                    + " clockInsetDp=" + (clock.getVisibleBounds().left - bounds.left) / density
+                    + " buttonDp=" + pause.getVisibleBounds().height() / density);
+        }
         device.dumpWindowHierarchy(new File(context.getFilesDir(), "nevofocus-compat-ui.xml"));
         capture("nevofocus-chrome-notification.png");
         clickDescription("Durdur");

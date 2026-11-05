@@ -137,10 +137,21 @@ if (!targetPattern.test(gradle)) throw new Error('Generated Android targetSdk de
 gradle = gradle.replace(targetPattern, legacyCapsule
   ? 'targetSdkVersion 30'
   : 'targetSdkVersion rootProject.ext.targetSdkVersion');
-gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 6')
+gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 7')
   .replace(/\bversionName\s+"[^"]+"/, 'versionName "' +
-    (legacyCapsule ? '1.2.1-capsule-compat' : '1.2.1-timer-accuracy') + '"');
+    (legacyCapsule ? '1.2.2-premium-capsule' : '1.2.2-timer-accuracy') + '"');
 fs.writeFileSync(appGradlePath, gradle);
+
+// Legacy compact RemoteViews can use 64dp without restoring SystemUI decoration.
+// Keep modern builds inside Android 12+'s 48dp custom-content limit.
+if (legacyCapsule) {
+  fs.writeFileSync(path.join(androidMain, 'res', 'values', 'nevofocus_notification_dimensions.xml'),
+    '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n' +
+    '    <dimen name="nevofocus_notification_height">64dp</dimen>\n' +
+    '    <dimen name="nevofocus_notification_action_size">44dp</dimen>\n' +
+    '</resources>\n');
+}
+
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated
 // Android CI builds. Prefer Google's public Maven Central mirror with the
