@@ -1,5 +1,5 @@
 // Fokus PWA Service Worker with Smooth Synchronized Non-Expanding Black Capsule Notification Engine
-const CACHE_NAME = 'fokus-pwa-v9';
+const CACHE_NAME = 'fokus-pwa-v10';
 const PRECACHE_URLS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png',
@@ -258,3 +258,4 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+

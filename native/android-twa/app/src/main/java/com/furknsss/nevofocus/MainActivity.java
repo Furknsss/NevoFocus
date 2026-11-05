@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
     private boolean launched;
     private boolean browserWasInFront;
     private boolean notificationPermissionResolved;
+    private int channelGeneration;
 
     private final CustomTabsCallback callback = new CustomTabsCallback() {
         @Override
@@ -62,6 +63,13 @@ public final class MainActivity extends Activity {
 
         @Override
         public void onNavigationEvent(int navigationEvent, @Nullable Bundle extras) {
+            if (navigationEvent == NAVIGATION_STARTED) {
+                navigated = false;
+                channelRequested = false;
+                channelReady = false;
+                webReady = false;
+                channelGeneration++;
+            }
             if (navigationEvent == NAVIGATION_FINISHED) {
                 navigated = true;
                 maybeRequestChannel();
@@ -72,13 +80,14 @@ public final class MainActivity extends Activity {
         public void onMessageChannelReady(@Nullable Bundle extras) {
             if (!verified) return;
             channelReady = true;
+            final int generation = channelGeneration;
             // React's first load can take longer than a few seconds on a
             // cold phone; retry until the page attaches its MessagePort.
             sendHello();
             for (int attempt = 1; attempt <= 18; attempt++) {
                 final int delay = attempt * 1100;
                 handler.postDelayed(() -> {
-                    if (channelReady && !webReady) sendHello();
+                    if (generation == channelGeneration && channelReady && !webReady) sendHello();
                 }, delay);
             }
         }
@@ -146,7 +155,13 @@ public final class MainActivity extends Activity {
         launched = true;
         // Explicit marker only gates the JavaScript bridge path; it is not an
         // authentication token or a replacement for Chrome origin validation.
-        Uri url = Uri.parse(TwaWebConfig.START_URL).buildUpon()
+        Uri start = Uri.parse(TwaWebConfig.START_URL);
+        // Debug-only, same-origin diagnostic. Never changes Firebase or account data.
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+                getIntent().getBooleanExtra("nevofocus.bridgeCheck", false)) {
+            start = siteOrigin.buildUpon().path("/native-check.html").build();
+        }
+        Uri url = start.buildUpon()
                 .appendQueryParameter("nevofocus_twa", "1").build();
         new TrustedWebActivityIntentBuilder(url)
                 .setToolbarColor(android.graphics.Color.BLACK)
@@ -181,7 +196,8 @@ public final class MainActivity extends Activity {
 
     private void sendHello() {
         if (session == null || !channelReady || !verified) return;
-        session.postMessage("{\"type\":\"NEVOFOCUS_TWA_HELLO\",\"version\":1}", null);
+        int result = session.postMessage("{\"type\":\"NEVOFOCUS_TWA_HELLO\",\"version\":1}", null);
+        Log.i(TAG, "Native HELLO sent through transferred MessagePort: " + result);
     }
 
     private void sendResponse(String type, String requestId, JSONObject state, String error) {
@@ -328,3 +344,4 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 }
+

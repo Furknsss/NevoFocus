@@ -40,9 +40,11 @@ export let isNativeFocusAvailable = isCapacitorAndroid || hasTwaFocusChannel();
 
 if (isTwaFocusPage && typeof window !== 'undefined') {
   // A URL query marker by itself cannot start a real Android service.
-  // Keep PWA notification fallback on until the verified Chrome port arrives.
   window.addEventListener('nevofocus:twa-connected', () => {
     isNativeFocusAvailable = hasTwaFocusChannel();
+  });
+  window.addEventListener('nevofocus:twa-disconnected', () => {
+    isNativeFocusAvailable = false;
   });
 }
 
@@ -54,3 +56,4 @@ export const nativeFocus = {
   stop: () =>
     isTwaFocusPage ? twaFocus.stop() : plugin.stop(),
 };
+

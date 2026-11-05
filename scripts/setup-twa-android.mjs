@@ -89,6 +89,7 @@ const dependency = 'implementation "androidx.browser:browser:1.10.0"';
 const junitDependency = 'testImplementation "junit:junit:4.13.2"';
 const instrumentationDependency = 'androidTestImplementation "androidx.test:runner:1.6.2"';
 const instrumentationJunitDependency = 'androidTestImplementation "androidx.test.ext:junit:1.2.1"';
+const uiAutomatorDependency = 'androidTestImplementation "androidx.test.uiautomator:uiautomator:2.3.0"';
 if (!gradle.includes(dependency)) {
   if (!gradle.includes('dependencies {')) throw new Error('Android Gradle dependencies block not found.');
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
@@ -96,7 +97,7 @@ if (!gradle.includes(dependency)) {
 if (!gradle.includes(junitDependency)) {
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + junitDependency);
 }
-for (const required of [instrumentationDependency, instrumentationJunitDependency]) {
+for (const required of [instrumentationDependency, instrumentationJunitDependency, uiAutomatorDependency]) {
   if (!gradle.includes(required)) {
     gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + required);
   }
@@ -129,6 +130,8 @@ if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
         }
     }`);
 }
+gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 3')
+  .replace(/\bversionName\s+"[^"]+"/, 'versionName "1.1.0-native-bridge"');
 fs.writeFileSync(appGradlePath, gradle);
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated
@@ -152,3 +155,4 @@ if (smoke) {
 } else {
   console.log('Publish .well-known/assetlinks.json at this HTTPS origin before device testing.');
 }
+

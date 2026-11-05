@@ -417,7 +417,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       plannedMinutes,
     }).catch(error => {
       console.warn('[NevoFocus] native sync:', error);
-      if (isTwaFocusPage) setNativeBridgeWarning('Android bildirimi başlatılamadı. Uygulama bildirim iznini kontrol et.');
+      if (isTwaFocusPage) setNativeBridgeWarning(error instanceof Error ? error.message : 'Android bildirimi başlatılamadı.');
     });
   }, [currentTimerType, plannedMinutes, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
 
@@ -425,7 +425,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Recover authoritative Android time and button states whenever the app returns.
   useEffect(() => {
     // Attach the TWA arrival listener even before Chrome finishes DAL validation.
-    // Until then the native bridge is unavailable and the PWA fallback still runs.
+    // TWA never falls back to a Chrome/site timer notification.
     if (!isNativeFocusAvailable && !isTwaFocusPage) return;
     let mounted = true;
     let busy = false;
@@ -460,6 +460,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       }
     };
     const onVisible = () => {
+      if (isTwaFocusPage) void backgroundFocus.stopWebTimerNotification();
       if (!document.hidden) void reconcile();
     };
     void reconcile();
@@ -489,10 +490,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           'Android bildirim bağlantısı kurulamadı. Chrome güncel olmalı ve NevoFocus uygulamasını yeniden açmalısın.'
         );
       }
-    }, 13000);
+    }, 25000);
     const connected = () => {
       window.clearTimeout(timeout);
       setNativeBridgeWarning(null);
+      void backgroundFocus.stopWebTimerNotification();
     };
     window.addEventListener('nevofocus:twa-connected', connected);
     return () => {
@@ -1403,3 +1405,4 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     </div>
   );
 };
+
