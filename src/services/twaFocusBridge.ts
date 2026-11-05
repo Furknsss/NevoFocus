@@ -5,9 +5,18 @@ import type { NativeFocusState, NativeFocusSync } from './nativeFocus';
  * origin-verified MessagePort. This never copies any Firebase auth credentials
  * into Android; authentication remains inside Chrome on the existing PWA origin.
  */
-export const isTwaFocusPage =
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('nevofocus_twa') === '1';
+export const isTwaFocusPage = (() => {
+  if (typeof window === 'undefined') return false;
+  const marked = new URLSearchParams(window.location.search).get('nevofocus_twa') === '1';
+  // Some PWA in-app navigation replaces query parameters. Keep the mode only
+  // in this browser tab rather than silently returning to Chrome notifications.
+  try {
+    if (marked) window.sessionStorage.setItem('nevofocus_twa_active', '1');
+    return marked || window.sessionStorage.getItem('nevofocus_twa_active') === '1';
+  } catch {
+    return marked;
+  }
+})();
 
 type RequestType = 'NEVOFOCUS_NATIVE_SYNC' | 'NEVOFOCUS_NATIVE_QUERY' | 'NEVOFOCUS_NATIVE_STOP';
 
@@ -19,8 +28,9 @@ interface NativeReply {
 }
 
 let port: MessagePort | null = null;
-// A ?nevofocus_twa=1 URL parameter is NOT proof of an actual Android bridge.
-// Preserve normal PWA notifications until Chrome validates origin and delivers the port.
+// A ?nevofocus_twa=1 URL marker is NOT proof of a native bridge.
+// Native commands are enabled ONLY after Chrome's verified MessagePort exists.
+// The Chrome/PWA notification fallback is independently disabled for TWA UI.
 export const hasTwaFocusChannel = (): boolean => Boolean(port);
 let nextRequestId = 0;
 const pending = new Map<string, {
