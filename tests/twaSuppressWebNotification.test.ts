@@ -22,12 +22,15 @@ const registration = {
     setItem: () => {},
   },
 };
-(globalThis as any).navigator = {
-  serviceWorker: {
-    ready: Promise.resolve(registration),
-    addEventListener() {},
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    serviceWorker: {
+      ready: Promise.resolve(registration),
+      addEventListener() {},
+    },
   },
-};
+});
 (globalThis as any).Notification = Object.assign(function FakeNotification() {
   showCount++;
 }, { permission: 'granted' });
