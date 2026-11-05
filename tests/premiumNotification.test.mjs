@@ -26,7 +26,7 @@ test('one black row fills available content space: large hours/minutes, small se
   assert.ok(!xml.includes('focus_status_dot'), 'No leading decoration before the large white time');
 });
 
-test('native foreground service owns each second and never requests an expanded custom panel', () => {
+test('native foreground service owns each second and reuses the capsule in both system states', () => {
   const service = read('java/com/furknsss/nevofocus/FocusTimerService.java');
   for (const token of [
     'new Handler(Looper.getMainLooper())',
@@ -41,7 +41,7 @@ test('native foreground service owns each second and never requests an expanded 
     '.setCustomContentView(compact)',
     '.setOnlyAlertOnce(true)',
   ]) assert.ok(service.includes(token), 'Native notification must include ' + token);
-  assert.ok(!service.includes('.setCustomBigContentView('), 'Do not declare a second expandable capsule');
+  assert.ok(service.includes('.setCustomBigContentView(compact)'), 'SystemUI expansion must preserve the same clock and controls');
   assert.ok(service.indexOf('setOnClickPendingIntent(R.id.focus_pause') <
             service.indexOf('setOnClickPendingIntent(R.id.focus_break'));
 });
@@ -56,3 +56,4 @@ test('Android 12+ system affordances are not misrepresented as removable', () =>
   const service = read('java/com/furknsss/nevofocus/FocusTimerService.java');
   assert.ok(service.includes('system expansion affordance'));
 });
+

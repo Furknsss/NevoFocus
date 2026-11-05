@@ -252,9 +252,10 @@ public final class FocusTimerService extends Service {
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openApp)
-                // No separate expanded layout. Android 12+ can still add its
-                // own system expansion affordance; apps cannot remove it.
+                // Reuse the exact capsule when SystemUI auto-expands the row.
+                // Android owns the system expansion affordance in both states.
                 .setCustomContentView(compact)
+                .setCustomBigContentView(compact)
                 .setCustomHeadsUpContentView(compact);
         // Android 12+ may defer foreground notifications for ten seconds.
         // A user-started stopwatch needs its controls visible immediately.
@@ -311,3 +312,4 @@ public final class FocusTimerService extends Service {
         super.onDestroy();
     }
 }
+

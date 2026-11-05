@@ -152,8 +152,10 @@ public class FocusTimerServiceDeviceTest {
         while (SystemClock.uptimeMillis() < notificationDeadline && !visible) {
             for (StatusBarNotification item : manager.getActiveNotifications()) {
                 if (item.getNotification().contentView != null) {
-                    // Single black strip; no app-supplied expanded notification layout.
-                    assertNull("No separate expanded capsule", item.getNotification().bigContentView);
+                    // SystemUI may auto-expand the row. Keep the same clock and controls.
+                    assertNotNull(item.getNotification().bigContentView);
+                    assertEquals(item.getNotification().contentView.getLayoutId(),
+                            item.getNotification().bigContentView.getLayoutId());
                     visible = true;
                     assertEquals("Focus notification must be ongoing",
                             (item.getNotification().flags & android.app.Notification.FLAG_ONGOING_EVENT) != 0,
@@ -194,3 +196,4 @@ public class FocusTimerServiceDeviceTest {
         awaitState(false, false, false);
     }
 }
+
