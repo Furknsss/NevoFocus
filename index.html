@@ -3,6 +3,14 @@
   <head>
     <script src="/twa-bootstrap.js"></script>
     <script>
+      try {
+        if (new URLSearchParams(location.search).get('nevofocus_twa') === '1' || sessionStorage.getItem('nevofocus_twa_active') === '1') {
+          document.documentElement.classList.add('nevo-native');
+        }
+      } catch (_) {}
+    </script>
+    <link rel="icon" type="image/png" href="/icons/nevofocus-premium-192.png" />
+    <script>
       (function () {
         if (typeof window === 'undefined') return;
 
@@ -137,26 +145,26 @@
       })();
     </script>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>FOKUS - Premium Focus & YPT Öğrenci Takip Sistemi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>NevoFocus</title>
     <meta name="description" content="Forest, Climb, Focus Flight ve Deep Dive modlarıyla zenginleştirilmiş, YPT tarzı 24 saatlik zaman çizelgeli ve istatistikli premium odaklanma platformu." />
     <meta property="og:title" content="FOKUS - Premium Focus & YPT Öğrenci Takip Sistemi" />
     <meta property="og:description" content="Forest, Climb, Focus Flight ve Deep Dive modlarıyla zenginleştirilmiş, YPT tarzı 24 saatlik zaman çizelgeli ve istatistikli premium odaklanma platformu." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta name="theme-color" content="#ff5500" />
+    <link rel="apple-touch-icon" href="/icons/nevofocus-premium-180.png" />
+    <meta name="theme-color" content="#000000" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Fokus" />
+    <meta name="apple-mobile-web-app-title" content="NevoFocus" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
   <body class="bg-[#0b0c10] text-[#f1f5f9] antialiased selection:bg-[#ff5500]/30 selection:text-white min-h-screen overflow-x-hidden">
-    <div id="root"></div>
+    <div id="root"><div style="min-height:100dvh;background:#07090e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px"><img src="/icons/nevofocus-premium-192.png" width="76" height="76" alt="" style="border-radius:22px;background:white" /><span style="font-family:system-ui,sans-serif;font-size:22px;font-weight:600;letter-spacing:-.5px;color:white">NevoFocus</span></div></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {

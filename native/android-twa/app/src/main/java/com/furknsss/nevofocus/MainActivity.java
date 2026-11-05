@@ -102,6 +102,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        showLaunchBrand();
         // Prefer the same stable Chrome browser that hosts the user's PWA
         // profile. Other Custom Tabs providers may have a separate login store.
         // Request POST_NOTIFICATIONS while our native Activity is still in the foreground.
@@ -148,6 +149,33 @@ public final class MainActivity extends Activity {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TwaWebConfig.START_URL)));
             finish();
         }
+    }
+
+    private void showLaunchBrand() {
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setGravity(android.view.Gravity.CENTER);
+        panel.setBackgroundColor(android.graphics.Color.WHITE);
+        float density = getResources().getDisplayMetrics().density;
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        logo.setImageResource(R.drawable.nevofocus_brand_logo);
+        logo.setContentDescription("NevoFocus");
+        int size = Math.round(108 * density);
+        panel.addView(logo, new android.widget.LinearLayout.LayoutParams(size, size));
+        android.widget.TextView name = new android.widget.TextView(this);
+        name.setText("NevoFocus");
+        name.setTextColor(android.graphics.Color.BLACK);
+        name.setTextSize(24);
+        name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        android.widget.LinearLayout.LayoutParams label = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        label.topMargin = Math.round(18 * density);
+        panel.addView(name, label);
+        setContentView(panel);
+        getWindow().setStatusBarColor(android.graphics.Color.WHITE);
+        getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
+        getWindow().getDecorView().setSystemUiVisibility(
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     }
 
     private void launchTwa() {

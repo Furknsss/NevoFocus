@@ -130,8 +130,8 @@ if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
         }
     }`);
 }
-gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 4')
-  .replace(/\bversionName\s+"[^"]+"/, 'versionName "1.1.1-native-capsule"');
+gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 5')
+  .replace(/\bversionName\s+"[^"]+"/, 'versionName "1.2.0-premium"');
 fs.writeFileSync(appGradlePath, gradle);
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated

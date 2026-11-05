@@ -66,6 +66,17 @@ if (!manifest.includes('android:name=".FocusTimerService"')) {
   }
   manifest = manifest.replace('</application>', service + '    </application>');
 }
+// Use the same clock identity in the launcher, recents, splash and notification.
+const brandIcon = path.join(root, 'public', 'icons', 'nevofocus-premium-512.png');
+const drawableDir = path.join(destinationMain, 'res', 'drawable-nodpi');
+const legacyIconDir = path.join(destinationMain, 'res', 'mipmap-mdpi');
+fs.mkdirSync(drawableDir, { recursive: true });
+fs.mkdirSync(legacyIconDir, { recursive: true });
+fs.copyFileSync(brandIcon, path.join(drawableDir, 'nevofocus_brand_logo.png'));
+fs.copyFileSync(brandIcon, path.join(legacyIconDir, 'nevofocus_launcher.png'));
+manifest = manifest.replace(/android:icon="[^"]+"/, 'android:icon="@mipmap/nevofocus_launcher"')
+  .replace(/android:roundIcon="[^"]+"/, 'android:roundIcon="@mipmap/nevofocus_launcher"')
+  .replaceAll('@style/AppTheme.NoActionBarLaunch', '@style/NevoFocusLaunchTheme');
 fs.writeFileSync(manifestPath, manifest);
 
 if (!overlayOnly) {
@@ -74,3 +85,4 @@ if (!overlayOnly) {
 
 console.log('NevoFocus Android native live timer sources installed.');
 console.log('Open Android Studio: npm run android:open');
+

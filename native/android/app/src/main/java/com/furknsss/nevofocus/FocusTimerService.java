@@ -213,7 +213,7 @@ public final class FocusTimerService extends Service {
                 : PendingIntent.getService(context, START_NOTIFICATION_ID, intent,
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification = new Notification.Builder(context, START_CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setSmallIcon(R.drawable.nevofocus_notification_icon)
                 .setContentTitle("NevoFocus kronometreyi başlat")
                 .setContentText("Android arka plan kısıtlaması için bir kez dokun")
                 .setCategory(Notification.CATEGORY_REMINDER)
@@ -241,7 +241,7 @@ public final class FocusTimerService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setSmallIcon(R.drawable.nevofocus_notification_icon)
                 .setColor(android.graphics.Color.BLACK)
                 .setColorized(true)
                 .setContentTitle("NevoFocus")
