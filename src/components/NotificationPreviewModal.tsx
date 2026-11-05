@@ -10,6 +10,7 @@ import {
   PictureInPicture2,
 } from 'lucide-react';
 import { soundEngine } from '../utils/audio';
+import { hasTwaFocusChannel, isTwaFocusPage } from '../services/twaFocusBridge';
 
 interface NotificationPreviewModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
 }) => {
   const [testSent, setTestSent] = useState(false);
   const [pipActive, setPipActive] = useState(false);
+  const notificationReady = isTwaFocusPage ? hasTwaFocusChannel() : permissionState === 'granted';
   const timeParts = currentRemainingFormatted.split(':');
   const largeHoursMinutes = timeParts.length > 2
     ? `${timeParts[0]}:${timeParts[1]}`
@@ -54,7 +56,7 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
 
   const handleActivateAll = async () => {
     soundEngine.playClick();
-    if (permissionState !== 'granted') {
+    if (!isTwaFocusPage && permissionState !== 'granted') {
       await onRequestPermission();
     }
     if (onSendTestNotification) {
@@ -62,7 +64,7 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
       setTestSent(true);
       setTimeout(() => setTestSent(false), 3000);
     }
-    if (onOpenPipCapsule) {
+    if (!isTwaFocusPage && onOpenPipCapsule) {
       const opened = await onOpenPipCapsule();
       if (opened) setPipActive(true);
     }
@@ -156,19 +158,21 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-neutral-300">
                   Canlı Senkron Bildirim:{' '}
-                  <strong className={permissionState === 'granted' ? 'text-emerald-400' : 'text-amber-400'}>
-                    {permissionState === 'granted' ? 'Aktif & Senkronize' : 'İzin Bekleniyor'}
+                  <strong className={notificationReady ? 'text-emerald-400' : 'text-amber-400'}>
+                    {notificationReady
+                      ? isTwaFocusPage ? 'Android Köprüsü Bağlı' : 'Aktif & Senkronize'
+                      : isTwaFocusPage ? 'Android Bağlantısı Bekleniyor' : 'İzin Bekleniyor'}
                   </strong>
                 </span>
               </div>
 
-              {permissionState !== 'granted' ? (
+              {!notificationReady ? (
                 <button
                   type="button"
                   onClick={handleActivateAll}
                   className="px-3.5 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-md"
                 >
-                  İzin Ver & Başlat
+                  {isTwaFocusPage ? 'Bağlantıyı Kontrol Et' : 'İzin Ver & Başlat'}
                 </button>
               ) : (
                 <button
@@ -177,20 +181,20 @@ export const NotificationPreviewModal: React.FC<NotificationPreviewModalProps> =
                   className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{testSent ? 'Senkronize!' : 'Şimdi Senkronla'}</span>
+                  <span>{testSent ? 'İstek Gönderildi' : 'Şimdi Senkronla'}</span>
                 </button>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
+            <div className={`grid ${isTwaFocusPage ? 'grid-cols-1' : 'grid-cols-2'} gap-2.5`}>
+              {!isTwaFocusPage && <button
                 type="button"
                 onClick={handleLaunchPip}
                 className="py-3 px-3.5 rounded-2xl bg-black hover:bg-neutral-900 border border-white/15 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95 shadow-lg"
               >
                 <PictureInPicture2 className="w-4 h-4 text-white" />
                 <span>{pipActive ? 'Siyah Kapsül Açık' : 'Ekran Üstü Siyah Kapsül'}</span>
-              </button>
+              </button>}
 
               <button
                 type="button"
