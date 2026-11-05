@@ -6,6 +6,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
@@ -39,17 +42,15 @@ public final class FocusTimerService extends Service {
             } catch (SecurityException ignored) {
                 // Notification permission might have been revoked after the session started.
             }
-            // Anchor updates to system uptime so the text advances once a second.
-            long delay = 1000L - (SystemClock.uptimeMillis() % 1000L);
-            clockHandler.postDelayed(this, delay);
+            // Repaint at the timer's next second boundary, rather than at an unrelated uptime phase.
+            clockHandler.postDelayed(this, current.nextDisplayDelayMs());
         }
     };
 
     private void refreshClockUpdates(State state) {
         clockHandler.removeCallbacks(updateClock);
         if (state.active && !state.paused) {
-            long delay = 1000L - (SystemClock.uptimeMillis() % 1000L);
-            clockHandler.postDelayed(updateClock, delay);
+            clockHandler.postDelayed(updateClock, state.nextDisplayDelayMs());
         }
     }
 
@@ -63,21 +64,54 @@ public final class FocusTimerService extends Service {
         long focusMs;
         long breakMs;
         long anchorMs;
+        long anchorElapsedMs = -1L;
+        int anchorBootCount = -1;
+        int currentBootCount = -1;
 
         long elapsedFocusMs() {
-            return FocusTimerMath.elapsedMillis(
-                    focusMs, anchorMs, System.currentTimeMillis(), active && !paused && !onBreak);
+            return FocusTimerMath.elapsedFromClocks(focusMs, anchorMs, anchorElapsedMs, anchorBootCount,
+                    System.currentTimeMillis(), SystemClock.elapsedRealtime(), currentBootCount,
+                    active && !paused && !onBreak);
         }
 
         long elapsedBreakMs() {
-            return FocusTimerMath.elapsedMillis(
-                    breakMs, anchorMs, System.currentTimeMillis(), active && !paused && onBreak);
+            return FocusTimerMath.elapsedFromClocks(breakMs, anchorMs, anchorElapsedMs, anchorBootCount,
+                    System.currentTimeMillis(), SystemClock.elapsedRealtime(), currentBootCount,
+                    active && !paused && onBreak);
         }
 
         void freeze() {
             focusMs = elapsedFocusMs();
             breakMs = elapsedBreakMs();
+            resetAnchor();
+        }
+
+        void resetAnchor() {
             anchorMs = System.currentTimeMillis();
+            anchorElapsedMs = SystemClock.elapsedRealtime();
+            anchorBootCount = currentBootCount;
+        }
+
+        long displayedMs() {
+            return onBreak ? elapsedBreakMs() : (countdown
+                    ? FocusTimerMath.countdownDisplayMillis(plannedMs, elapsedFocusMs())
+                    : elapsedFocusMs());
+        }
+
+        long nextDisplayDelayMs() {
+            long focus = elapsedFocusMs();
+            long remaining = Math.max(0L, plannedMs - focus);
+            if (countdown && !onBreak && remaining > 0L) return 1L + (remaining - 1L) % 1000L;
+            long running = onBreak ? elapsedBreakMs() : focus;
+            return 1000L - running % 1000L;
+        }
+    }
+
+    private static int readBootCount(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT);
+        } catch (Settings.SettingNotFoundException | SecurityException unavailable) {
+            return -1;
         }
     }
 
@@ -93,6 +127,9 @@ public final class FocusTimerService extends Service {
         s.focusMs = pref.getLong("focusMs", 0L);
         s.breakMs = pref.getLong("breakMs", 0L);
         s.anchorMs = pref.getLong("anchorMs", System.currentTimeMillis());
+        s.anchorElapsedMs = pref.getLong("anchorElapsedMs", -1L);
+        s.anchorBootCount = pref.getInt("anchorBootCount", -1);
+        s.currentBootCount = readBootCount(context);
         return s;
     }
 
@@ -107,6 +144,8 @@ public final class FocusTimerService extends Service {
                 .putLong("focusMs", s.focusMs)
                 .putLong("breakMs", s.breakMs)
                 .putLong("anchorMs", s.anchorMs)
+                .putLong("anchorElapsedMs", s.anchorElapsedMs)
+                .putInt("anchorBootCount", s.anchorBootCount)
                 .apply();
     }
 
@@ -134,7 +173,7 @@ public final class FocusTimerService extends Service {
             state.plannedMs = Math.max(0L, intent.getLongExtra("plannedMs", 0L));
             state.focusMs = Math.max(0L, intent.getLongExtra("focusMs", 0L));
             state.breakMs = Math.max(0L, intent.getLongExtra("breakMs", 0L));
-            state.anchorMs = System.currentTimeMillis();
+            state.resetAnchor();
             store(this, state);
         } else if (ACTION_PAUSE.equals(action) && state.active) {
             state.freeze();
@@ -148,6 +187,10 @@ public final class FocusTimerService extends Service {
             store(this, state);
         }
 
+        if (state.active && state.anchorElapsedMs < 0L) {
+            state.freeze();
+            store(this, state);
+        }
         if (!state.active) {
             stopSelf();
             return START_NOT_STICKY;
@@ -190,7 +233,7 @@ public final class FocusTimerService extends Service {
         state.plannedMs = Math.max(0L, sync.getLongExtra("plannedMs", 0L));
         state.focusMs = Math.max(0, sync.getLongExtra("focusMs", 0L));
         state.breakMs = Math.max(0, sync.getLongExtra("breakMs", 0L));
-        state.anchorMs = System.currentTimeMillis();
+        state.resetAnchor();
         store(context, state);
         showStartActionNotification(context);
     }
@@ -266,11 +309,7 @@ public final class FocusTimerService extends Service {
     }
 
     private void prepareViews(RemoteViews views, State state) {
-        long shownMs = state.onBreak
-                ? state.elapsedBreakMs()
-                : (state.countdown
-                    ? Math.max(0L, state.plannedMs - state.elapsedFocusMs())
-                    : state.elapsedFocusMs());
+        long shownMs = state.displayedMs();
         FocusTimerClockText.Parts time = FocusTimerClockText.format(shownMs);
         // The native foreground service drives text sizes independently.
         views.setTextViewText(R.id.focus_main_time, time.hoursMinutes);
@@ -300,6 +339,25 @@ public final class FocusTimerService extends Service {
         }
     }
 
+    private boolean screenReceiverRegistered;
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            // Handler callbacks pause during deep sleep. Show the actual elapsed time as soon as
+            // the screen wakes, without keeping a wake lock or depending on Chrome's JS timers.
+            clockHandler.removeCallbacks(updateClock);
+            updateClock.run();
+        }
+    };
+
+    @Override public void onCreate() {
+        super.onCreate();
+        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+        filter.addAction(Intent.ACTION_USER_PRESENT);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(screenReceiver, filter);
+        screenReceiverRegistered = true;
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -308,6 +366,7 @@ public final class FocusTimerService extends Service {
     @Override
     public void onDestroy() {
         clockHandler.removeCallbacks(updateClock);
+        if (screenReceiverRegistered) unregisterReceiver(screenReceiver);
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }

@@ -39,8 +39,11 @@ public class FocusTimerServiceDeviceTest {
     }
 
     @After
-    public void after() {
+    public void after() throws Exception {
         FocusTimerService.stop(context);
+        androidx.test.uiautomator.UiDevice device = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+        device.wakeUp();
+        device.executeShellCommand("wm dismiss-keyguard");
     }
 
     private void awaitState(boolean active, boolean paused, boolean onBreak) throws Exception {
@@ -195,5 +198,127 @@ public class FocusTimerServiceDeviceTest {
         FocusTimerService.stop(context);
         awaitState(false, false, false);
     }
+    private StatusBarNotification clockNotification() {
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        for (StatusBarNotification item : manager.getActiveNotifications()) {
+            if (item.getNotification().contentView != null) return item;
+        }
+        return null;
+    }
+
+    private void awaitNotification(boolean exists) throws Exception {
+        long until = SystemClock.uptimeMillis() + 10000;
+        while (SystemClock.uptimeMillis() < until) {
+            if ((clockNotification() != null) == exists) return;
+            Thread.sleep(80);
+        }
+        fail("Native notification existence did not become " + exists);
+    }
+
+    private long renderedClockMillis(StatusBarNotification notification) {
+        java.util.concurrent.atomic.AtomicLong rendered = new java.util.concurrent.atomic.AtomicLong();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            android.view.View view = notification.getNotification().contentView.apply(
+                    context, new android.widget.FrameLayout(context));
+            String main = ((android.widget.TextView) view.findViewById(R.id.focus_main_time)).getText().toString();
+            String seconds = ((android.widget.TextView) view.findViewById(R.id.focus_seconds)).getText().toString();
+            String[] hm = main.split(":");
+            rendered.set((Long.parseLong(hm[0]) * 3600L + Long.parseLong(hm[1]) * 60L
+                    + Long.parseLong(seconds.substring(1))) * 1000L);
+        });
+        return rendered.get();
+    }
+
+    private void awaitFreshClock(boolean requireZero) throws Exception {
+        long until = SystemClock.uptimeMillis() + 10000;
+        long actual = -1, expected = -1;
+        while (SystemClock.uptimeMillis() < until) {
+            StatusBarNotification notification = clockNotification();
+            if (notification != null) {
+                actual = renderedClockMillis(notification);
+                expected = FocusTimerService.read(context).displayedMs() / 1000L * 1000L;
+                if (requireZero ? actual == 0 && expected == 0 : Math.abs(actual - expected) <= 1000L) return;
+            }
+            Thread.sleep(100);
+        }
+        fail("Posted clock was stale: expected=" + expected + " actual=" + actual);
+    }
+
+    private void startTimingSession(boolean countdown, long focus, long planned) throws Exception {
+        Intent intent = new Intent(context, FocusTimerService.class).setAction(FocusTimerService.ACTION_SYNC)
+                .putExtra("sessionKey", countdown ? "timing-countdown" : "timing-stopwatch")
+                .putExtra("focusMs", focus).putExtra("breakMs", 0L)
+                .putExtra("countdown", countdown).putExtra("plannedMs", planned)
+                .putExtra("paused", false).putExtra("onBreak", false);
+        context.startForegroundService(intent);
+        awaitState(true, false, false);
+        awaitNotification(true);
+        assertTrue("Android boot counter must be available for monotonic recovery",
+                FocusTimerService.read(context).currentBootCount >= 0);
+    }
+
+    private void assertTiming(String mode, long baselineElapsed, long baselineFocus) {
+        long reference = SystemClock.elapsedRealtime() - baselineElapsed;
+        long measured = FocusTimerService.read(context).elapsedFocusMs() - baselineFocus;
+        long error = Math.abs(reference - measured);
+        android.util.Log.i("NevoFocusTimingTest", "NEVO_TIMING mode=" + mode
+                + " referenceMs=" + reference + " timerMs=" + measured + " errorMs=" + error);
+        assertTrue("Clock drift over background/screen-off/recreation: " + error + "ms", error <= 500L);
+    }
+
+    @Test public void stopwatchRemainsAccurateInBackgroundScreenOffAndServiceRecreation() throws Exception {
+        startTimingSession(false, 92000L, 0L);
+        androidx.test.uiautomator.UiDevice device = androidx.test.uiautomator.UiDevice.getInstance(
+                InstrumentationRegistry.getInstrumentation());
+        long baselineElapsed = SystemClock.elapsedRealtime();
+        long baselineFocus = FocusTimerService.read(context).elapsedFocusMs();
+        device.pressHome();
+        Thread.sleep(15000L);
+        device.sleep();
+        Thread.sleep(30000L);
+        device.wakeUp();
+        device.executeShellCommand("wm dismiss-keyguard");
+        assertTiming("stopwatch-screen-off", baselineElapsed, baselineFocus);
+        awaitFreshClock(false);
+
+        // Recreate the actual Service instance without replacing its persisted session/anchor.
+        context.stopService(new Intent(context, FocusTimerService.class));
+        awaitNotification(false);
+        Thread.sleep(2000L);
+        context.startForegroundService(new Intent(context, FocusTimerService.class)
+                .setAction(FocusTimerService.ACTION_RETRY));
+        awaitNotification(true);
+        assertTiming("stopwatch-service-recreation", baselineElapsed, baselineFocus);
+        awaitFreshClock(false);
+
+        send(FocusTimerService.ACTION_PAUSE);
+        awaitState(true, true, false);
+        long frozen = FocusTimerService.read(context).elapsedFocusMs();
+        Thread.sleep(1200L);
+        assertEquals("Paused time must remain frozen after recreation", frozen,
+                FocusTimerService.read(context).elapsedFocusMs());
+    }
+
+    @Test public void countdownRemainsAccurateWithScreenOffAndStopsDisplayingAtZero() throws Exception {
+        startTimingSession(true, 10000L, 60000L);
+        androidx.test.uiautomator.UiDevice device = androidx.test.uiautomator.UiDevice.getInstance(
+                InstrumentationRegistry.getInstrumentation());
+        long baselineElapsed = SystemClock.elapsedRealtime();
+        long baselineFocus = FocusTimerService.read(context).elapsedFocusMs();
+        device.pressHome();
+        device.sleep();
+        Thread.sleep(15000L);
+        device.wakeUp();
+        device.executeShellCommand("wm dismiss-keyguard");
+        assertTiming("countdown-screen-off", baselineElapsed, baselineFocus);
+        assertTrue(FocusTimerService.read(context).countdown);
+        awaitFreshClock(false);
+
+        startTimingSession(true, 59500L, 60000L);
+        Thread.sleep(1500L);
+        assertEquals("Countdown must clamp to zero", 0L, FocusTimerService.read(context).displayedMs());
+        awaitFreshClock(true);
+    }
+
 }
 
