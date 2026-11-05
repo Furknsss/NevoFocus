@@ -94,7 +94,7 @@ jobs:
             adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt" || true
             adb forward tcp:9222 localabstract:chrome_devtools_remote || true
             node "$RUNNER_TEMP/chrome-snapshot.mjs" > "$GITHUB_WORKSPACE/chrome-devtools.json" 2>&1 || true
-            for evidence in nevofocus-chrome-notification.png chrome-failure.png chrome-ui.xml; do
+            for evidence in nevofocus-chrome-notification.png nevofocus-emulator-notification.png chrome-failure.png chrome-ui.xml; do
               adb exec-out run-as com.furknsss.nevofocus cat "files/$evidence" > "$GITHUB_WORKSPACE/$evidence" 2>/dev/null || true
             done
           }
@@ -105,7 +105,7 @@ jobs:
           chrome_major=$(echo "$chrome_version" | cut -d. -f1)
           test "$chrome_major" -ge 115
           adb shell am set-debug-app --persistent com.android.chrome
-          adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check --disable-background-networking --disable-component-update" > /data/local/tmp/chrome-command-line'
+          adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check --disable-background-networking --disable-component-update --force-renderer-accessibility" > /data/local/tmp/chrome-command-line'
           adb install -r android/app/build/outputs/apk/debug/app-debug.apk
           adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
           adb shell am start -a android.intent.action.VIEW -d about:blank -p com.android.chrome
@@ -136,6 +136,7 @@ jobs:
             chrome-ui.xml
             chrome-failure.png
             nevofocus-chrome-notification.png
+            nevofocus-emulator-notification.png
           if-no-files-found: error
           retention-days: 14
       - name: Publish installable APK only after Chrome integration succeeds
