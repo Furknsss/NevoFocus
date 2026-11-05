@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const smoke = process.argv.includes('--ci-smoke');
+// Explicit opt-in private APK variant; the default build keeps the current Android target.
+const legacyCapsule = process.env.NEVOFOCUS_LEGACY_CAPSULE === '1';
 const raw = process.env.NEVOFOCUS_TWA_URL || (smoke ? 'https://nevofocus.invalid/' : '');
 
 if (!raw) {
@@ -130,8 +132,14 @@ if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
         }
     }`);
 }
+const targetPattern = /\btargetSdk(?:Version)?\s*(?:=\s*)?(?:rootProject\.ext\.targetSdkVersion|\d+)/;
+if (!targetPattern.test(gradle)) throw new Error('Generated Android targetSdk declaration missing.');
+gradle = gradle.replace(targetPattern, legacyCapsule
+  ? 'targetSdkVersion 30'
+  : 'targetSdkVersion rootProject.ext.targetSdkVersion');
 gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 6')
-  .replace(/\bversionName\s+"[^"]+"/, 'versionName "1.2.1-timer-accuracy"');
+  .replace(/\bversionName\s+"[^"]+"/, 'versionName "' +
+    (legacyCapsule ? '1.2.1-capsule-compat' : '1.2.1-timer-accuracy') + '"');
 fs.writeFileSync(appGradlePath, gradle);
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated

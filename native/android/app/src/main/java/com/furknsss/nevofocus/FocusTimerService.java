@@ -300,9 +300,12 @@ public final class FocusTimerService extends Service {
                 .setContentIntent(openApp)
                 // Reuse the exact capsule when SystemUI auto-expands the row.
                 // Android owns the system expansion affordance in both states.
-                .setCustomContentView(compact)
-                .setCustomBigContentView(compact)
-                .setCustomHeadsUpContentView(compact);
+                .setCustomContentView(compact);
+        if (getApplicationInfo().targetSdkVersion >= 31) {
+            builder.setCustomBigContentView(compact).setCustomHeadsUpContentView(compact);
+        }
+        // The separately built API-30 compatibility APK uses the legacy undecorated
+        // content surface and deliberately has no expanded view or platform action row.
         // Android 12+ may defer foreground notifications for ten seconds.
         // A user-started stopwatch needs its controls visible immediately.
         if (Build.VERSION.SDK_INT >= 31) {

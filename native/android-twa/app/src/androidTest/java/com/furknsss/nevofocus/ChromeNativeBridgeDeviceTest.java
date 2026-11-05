@@ -91,9 +91,14 @@ public class ChromeNativeBridgeDeviceTest {
         for (StatusBarNotification item : manager.getActiveNotifications()) {
             if (item.getNotification().contentView != null) {
                 assertEquals(context.getPackageName(), item.getPackageName());
-                assertNotNull(item.getNotification().bigContentView);
-                assertEquals(item.getNotification().contentView.getLayoutId(),
-                        item.getNotification().bigContentView.getLayoutId());
+                if (context.getApplicationInfo().targetSdkVersion >= 31) {
+                    assertNotNull(item.getNotification().bigContentView);
+                    assertEquals(item.getNotification().contentView.getLayoutId(),
+                            item.getNotification().bigContentView.getLayoutId());
+                } else {
+                    assertNull("Compatibility capsule must not provide an expanded view",
+                            item.getNotification().bigContentView);
+                }
                 return true;
             }
         }
@@ -140,6 +145,7 @@ public class ChromeNativeBridgeDeviceTest {
         android.util.Log.i("NevoFocusChromeTest", "Explicit FGS notification tap required: " + tappedStart);
         openShade();
         assertTrue(device.wait(Until.hasObject(By.desc("Durdur")), 10000));
+        device.dumpWindowHierarchy(new File(context.getFilesDir(), "nevofocus-compat-ui.xml"));
         capture("nevofocus-chrome-notification.png");
         clickDescription("Durdur");
         awaitState(true, true, false);
