@@ -216,6 +216,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Background Notification Preview Modal
   const [isNotificationPreviewOpen, setIsNotificationPreviewOpen] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('default');
+  const [nativeBridgeWarning, setNativeBridgeWarning] = useState<string | null>(null);
   const [showTasksPanel, setShowTasksPanel] = useState(false);
 
   // Today's date formatted in Turkish
@@ -405,24 +406,27 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   // Foreground-service chronometer is driven by Android; never a background JS interval.
   const syncNativeState = useCallback(() => {
-    if (!isNativeFocusAvailable || mode !== 'clock' || currentTimerType !== 'stopwatch' ||
-        isSessionEndedRef.current) return;
+    if (!isNativeFocusAvailable || isSessionEndedRef.current) return;
     void nativeFocus.sync({
       sessionKey: String(startTimeRef.current),
       isPaused: isPausedRef.current,
       isBreakActive: isCampActiveRef.current,
       elapsedFocusSeconds: computeCurrentFocusSeconds(),
       elapsedBreakSeconds: computeCurrentBreakSeconds(),
-    }).catch(error => console.warn('[NevoFocus] native sync:', error));
-  }, [mode, currentTimerType, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
+      timerType: currentTimerType,
+      plannedMinutes,
+    }).catch(error => {
+      console.warn('[NevoFocus] native sync:', error);
+      if (isTwaFocusPage) setNativeBridgeWarning('Android bildirimi başlatılamadı. Uygulama bildirim iznini kontrol et.');
+    });
+  }, [currentTimerType, plannedMinutes, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
 
   // Notification controls still operate while the WebView is paused.
   // Recover authoritative Android time and button states whenever the app returns.
   useEffect(() => {
     // Attach the TWA arrival listener even before Chrome finishes DAL validation.
     // Until then the native bridge is unavailable and the PWA fallback still runs.
-    if ((!isNativeFocusAvailable && !isTwaFocusPage) ||
-        mode !== 'clock' || currentTimerType !== 'stopwatch') return;
+    if (!isNativeFocusAvailable && !isTwaFocusPage) return;
     let mounted = true;
     let busy = false;
     const reconcile = async () => {
@@ -546,7 +550,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   useEffect(() => {
     backgroundFocus.setPauseHandler(handleTogglePause);
     backgroundFocus.setBreakHandler(toggleThematicBreak);
-    if (!isNativeFocusAvailable) backgroundFocus.startKeepAlive();
+    if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.startKeepAlive();
     return () => {
       backgroundFocus.setPauseHandler(null);
       backgroundFocus.setBreakHandler(null);
@@ -582,6 +586,8 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   );
 
   const handleRequestNotificationPermission = async () => {
+    // TWA permissions are owned by our Android app, not by the Chrome website.
+    if (isTwaFocusPage) return;
     if ('Notification' in window) {
       try {
         const perm = await Notification.requestPermission();
@@ -678,7 +684,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setBreakSeconds(currentBreak);
 
       // Update MediaSession & Service Worker notification
-      if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+      if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
       if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
         handleFinish(true);
@@ -698,11 +704,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       if (document.hidden) {
         // User just switched away from the app on phone/tablet/PC: push sticky notification immediately
         persistSessionState(true);
-        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+        if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
       } else {
         // User returned to the app: keep audio keep-alive active and resync immediately
         backgroundFocus.startKeepAlive();
-        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+        if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
       }
     };
 
@@ -742,7 +748,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     soundEngine.playCompletionBell();
     backgroundFocus.stopAll();
-    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
     const finalFocusSecs = computeCurrentFocusSeconds();
     const finalBreakSecs = computeCurrentBreakSeconds();
@@ -889,7 +895,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
-    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
     try {
       const userId = getEffectiveUid();
@@ -920,6 +926,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   return (
     <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 w-full h-full min-h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none">
+      {isTwaFocusPage && nativeBridgeWarning && (
+        <div role="alert" className="absolute top-14 left-3 right-3 z-[80] rounded-xl border border-orange-500/40 bg-[#171311] px-4 py-3 text-sm text-orange-100 shadow-xl">
+          {nativeBridgeWarning}
+        </div>
+      )}
       {/* Sol Üstte Zarif Müzik Widget (Spotify / YouTube Music / Apple Music) */}
       <SpotifyFocusWidget onOpenSettingsConnections={onOpenSettingsConnections} />
 
