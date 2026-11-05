@@ -65,26 +65,42 @@ jobs:
           "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
           node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+      - name: Prepare one persistent emulator shell with final evidence capture
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/nevofocus-chrome-e2e.sh" <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          capture_evidence() {
+            adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt" || true
+            for evidence in nevofocus-chrome-notification.png chrome-failure.png chrome-ui.xml; do
+              adb exec-out run-as com.furknsss.nevofocus cat "files/$evidence" > "$GITHUB_WORKSPACE/$evidence" 2>/dev/null || true
+            done
+          }
+          trap capture_evidence EXIT
+          adb shell pm path com.android.chrome
+          chrome_version=$(adb shell dumpsys package com.android.chrome | sed -n 's/.*versionName=//p' | head -1 | tr -d '\r')
+          echo "Real Chrome version: $chrome_version"
+          chrome_major=$(echo "$chrome_version" | cut -d. -f1)
+          test "$chrome_major" -ge 115
+          adb shell am set-debug-app --persistent com.android.chrome
+          adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+          adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+          adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
+          cd android
+          ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
+          BASH
       - name: Real Chrome DAL handshake, web start, app notification and actual controls
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 35
           target: google_apis_playstore
           arch: x86_64
           profile: pixel_7
           disk-size: 4096M
           ram-size: 2048M
           disable-animations: true
-          script: |
-            set -e
-            trap 'adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt"; adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-chrome-notification.png > "$GITHUB_WORKSPACE/nevofocus-chrome-notification.png" || true; adb exec-out run-as com.furknsss.nevofocus cat files/chrome-failure.png > "$GITHUB_WORKSPACE/chrome-failure.png" || true; adb exec-out run-as com.furknsss.nevofocus cat files/chrome-ui.xml > "$GITHUB_WORKSPACE/chrome-ui.xml" || true' EXIT
-            adb shell pm path com.android.chrome
-            adb shell dumpsys package com.android.chrome | grep versionName
-            adb shell am set-debug-app --persistent com.android.chrome
-            adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
-            cd android && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
+          script: bash "$RUNNER_TEMP/nevofocus-chrome-e2e.sh"
       - name: Save actual Chrome and native notification evidence
         if: always()
         uses: actions/upload-artifact@v4
