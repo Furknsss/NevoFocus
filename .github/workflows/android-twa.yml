@@ -43,6 +43,9 @@ jobs:
       NEVOFOCUS_TWA_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pwa_url || (github.event_name == 'push' && 'https://nevofocus.vercel.app/' || 'https://nevofocus.invalid/') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Build the reviewed native capsule code in the original signing-cache scope.
+          ref: d592b3227f8ca11f0cddf607b057b876a8a88546
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -62,23 +65,12 @@ jobs:
         with:
           path: .signing/nevofocus-debug.keystore
           key: nevofocus-twa-debug-signing-v2
-      - name: Create a test-only keystore on first build
+      - name: Require the existing APK signing identity
         shell: bash
         run: |
-          mkdir -p .signing
-          if [[ ! -s .signing/nevofocus-debug.keystore ]]; then
-            keytool -genkeypair -v -keystore .signing/nevofocus-debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -dname "CN=NevoFocus Android Debug,O=NevoFocus,C=TR" \
-              -keyalg RSA -keysize 2048 -validity 3650 -noprompt
-          fi
-          test -s .signing/nevofocus-debug.keystore
-      - name: Save signing certificate independently of Maven availability
-        if: github.event_name == 'push' && steps.signing-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .signing/nevofocus-debug.keystore
-          key: nevofocus-twa-debug-signing-v2
+          test -s .signing/nevofocus-debug.keystore || { echo "Existing signing key is missing; refusing to create an incompatible update."; exit 1; }
+          keytool -list -v -keystore .signing/nevofocus-debug.keystore -storepass android -alias androiddebugkey > /tmp/nevofocus-cert.txt
+          grep -F '0D:33:E8:2B:75:E3:0D:77:56:59:54:69:3C:94:83:28:91:7C:14:DC:78:35:51:19:69:66:1B:01:D3:8C:DE:F8' /tmp/nevofocus-cert.txt
       - name: Install Node dependencies
         run: npm install --no-audit --no-fund
       - name: TypeScript check
@@ -99,6 +91,7 @@ jobs:
       - name: Extract signing certificate and generate required asset links
         shell: bash
         run: |
+          git rev-parse HEAD > android-twa-source-commit.txt
           APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           test -n "$APK_SIGNER"
           "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
@@ -124,5 +117,6 @@ jobs:
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android-twa-apk-signature.txt
+            android-twa-source-commit.txt
           if-no-files-found: error
           retention-days: 14
