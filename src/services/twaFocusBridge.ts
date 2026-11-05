@@ -106,6 +106,9 @@ function adopt(next: MessagePort, initial?: unknown, queued: unknown[] = []) {
 }
 
 if (isTwaFocusPage) {
+  const applicationOrigin = 'android-app://' + new URL(window.location.origin).hostname;
+  const trustedOrigins = [window.location.origin, applicationOrigin,
+    applicationOrigin + '/com.furknsss.nevofocus'];
   const bootstrap = (window as TwaWindow).__nevoTwaBootstrap;
   const drain = () => {
     while (bootstrap?.channels.length) {
@@ -119,7 +122,7 @@ if (isTwaFocusPage) {
     drain();
   } else {
     window.addEventListener('message', event => {
-      if (event.origin !== window.location.origin || !event.ports?.length) return;
+      if (!trustedOrigins.includes(event.origin) || !event.ports?.length) return;
       adopt(event.ports[0], event.data);
     });
   }

@@ -20,13 +20,13 @@ test('the head listener preserves an empty Chrome port and early HELLO before th
   };
   (globalThis as any).window = win;
   vm.runInNewContext(fs.readFileSync(new URL('../public/twa-bootstrap.js', import.meta.url), 'utf8'), {
-    window: win, location: win.location, sessionStorage: win.sessionStorage, URLSearchParams, Event,
+    window: win, location: win.location, sessionStorage: win.sessionStorage, URLSearchParams, URL, Event,
   });
   const channel = new MessageChannel();
   const foreign = new MessageChannel();
   win.dispatchEvent({ type: 'message', origin: 'https://wrong.invalid', data: '', ports: [foreign.port1] });
   assert.equal(win.__nevoTwaBootstrap.channels.length, 0);
-  win.dispatchEvent({ type: 'message', origin: win.location.origin, data: '', ports: [channel.port1] });
+  win.dispatchEvent({ type: 'message', origin: 'android-app://fokus.example.test', data: '', ports: [channel.port1] });
   channel.port2.postMessage(JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }));
   const deadline = Date.now() + 1500;
   while (!win.__nevoTwaBootstrap.channels[0].messages.length && Date.now() < deadline) {

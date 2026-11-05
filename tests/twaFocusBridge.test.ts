@@ -25,7 +25,7 @@ test('real Chrome empty port transfer followed by HELLO on the port enables nati
 
   const evil = new MessageChannel();
   messageHandler!({
-    origin: 'https://unexpected.invalid',
+    origin: 'android-app://unexpected.invalid',
     ports: [evil.port1],
     data: JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }),
   });
@@ -58,7 +58,7 @@ test('real Chrome empty port transfer followed by HELLO on the port enables nati
   });
 
   messageHandler!({
-    origin: 'https://fokus.example.test',
+    origin: 'android-app://fokus.example.test',
     ports: [channel.port1],
     data: '',
   });
