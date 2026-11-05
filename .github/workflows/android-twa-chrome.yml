@@ -58,7 +58,7 @@ jobs:
           node scripts/setup-twa-android.mjs
           git rev-parse HEAD > android-twa-source-commit.txt
       - name: Build signed native app and integration tests
-        run: cd android && chmod +x ./gradlew && ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon
+        run: cd android && chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
       - name: Verify exact APK certificate on the live origin
         run: |
           APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
@@ -84,7 +84,7 @@ jobs:
             adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
-            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
+            cd android && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
       - name: Save actual Chrome and native notification evidence
         if: always()
         uses: actions/upload-artifact@v4
