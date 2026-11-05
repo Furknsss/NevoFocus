@@ -68,11 +68,31 @@ jobs:
       - name: Prepare one persistent emulator shell with final evidence capture
         shell: bash
         run: |
+          cat > "$RUNNER_TEMP/chrome-snapshot.mjs" <<'JS'
+          const targets = await fetch('http://127.0.0.1:9222/json/list').then(r => r.json());
+          const result = [];
+          for (const target of targets.filter(t => t.type === 'page')) {
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
+            const evaluation = await new Promise(resolve => {
+              const timeout = setTimeout(() => { ws.close(); resolve({timeout:true}); }, 5000);
+              ws.onopen = () => ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{
+                expression: 'JSON.stringify({href:location.href,title:document.title,text:document.body?.innerText?.slice(0,1800),bootstrap:!!window.__nevoTwaBootstrap,queued:window.__nevoTwaBootstrap?.channels?.map(c=>c.messages),resources:performance.getEntriesByType("resource").map(r=>r.name.split("?")[0])})',
+                returnByValue:true
+              }}));
+              ws.onmessage = event => { const value = JSON.parse(event.data); if(value.id===1) { clearTimeout(timeout); ws.close(); resolve(value); } };
+              ws.onerror = () => { clearTimeout(timeout); resolve({error:true}); };
+            });
+            result.push({url:target.url,evaluation});
+          }
+          console.log(JSON.stringify(result,null,2));
+          JS
           cat > "$RUNNER_TEMP/nevofocus-chrome-e2e.sh" <<'BASH'
           #!/usr/bin/env bash
           set -euo pipefail
           capture_evidence() {
             adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt" || true
+            adb forward tcp:9222 localabstract:chrome_devtools_remote || true
+            node "$RUNNER_TEMP/chrome-snapshot.mjs" > "$GITHUB_WORKSPACE/chrome-devtools.json" 2>&1 || true
             for evidence in nevofocus-chrome-notification.png chrome-failure.png chrome-ui.xml; do
               adb exec-out run-as com.furknsss.nevofocus cat "files/$evidence" > "$GITHUB_WORKSPACE/$evidence" 2>/dev/null || true
             done
@@ -84,11 +104,12 @@ jobs:
           chrome_major=$(echo "$chrome_version" | cut -d. -f1)
           test "$chrome_major" -ge 115
           adb shell am set-debug-app --persistent com.android.chrome
-          adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+          adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check --disable-background-networking --disable-component-update" > /data/local/tmp/chrome-command-line'
           adb install -r android/app/build/outputs/apk/debug/app-debug.apk
           adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
+          adb shell am start -a android.intent.action.VIEW -d about:blank -p com.android.chrome
           cd android
-          ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
+          ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --no-daemon
           BASH
       - name: Real Chrome DAL handshake, web start, app notification and actual controls
         uses: reactivecircus/android-emulator-runner@v2
@@ -98,7 +119,7 @@ jobs:
           arch: x86_64
           profile: pixel_7
           disk-size: 4096M
-          ram-size: 2048M
+          ram-size: 4096M
           disable-animations: true
           script: bash "$RUNNER_TEMP/nevofocus-chrome-e2e.sh"
       - name: Save actual Chrome and native notification evidence
@@ -110,6 +131,7 @@ jobs:
             android/app/build/outputs/androidTest-results/**
             android/app/build/reports/androidTests/**
             chrome-logcat.txt
+            chrome-devtools.json
             chrome-ui.xml
             chrome-failure.png
             nevofocus-chrome-notification.png
