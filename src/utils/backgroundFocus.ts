@@ -273,7 +273,9 @@ class BackgroundFocusManager {
   private siteNotificationStoppedForTwa = false;
 
   public async stopWebTimerNotification(): Promise<void> {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    if (typeof window === 'undefined') return;
+    if (isNevoFocusTwaLaunch()) this.clearMediaSession();
+    if (!('serviceWorker' in navigator)) return;
     try {
       const reg = await navigator.serviceWorker.ready;
       if (reg?.active) reg.active.postMessage({ type: 'STOP_FOCUS_TIMER' });
