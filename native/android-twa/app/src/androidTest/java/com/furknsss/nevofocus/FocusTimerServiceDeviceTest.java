@@ -151,8 +151,9 @@ public class FocusTimerServiceDeviceTest {
         boolean visible = false;
         while (SystemClock.uptimeMillis() < notificationDeadline && !visible) {
             for (StatusBarNotification item : manager.getActiveNotifications()) {
-                if (item.getNotification().contentView != null &&
-                    item.getNotification().bigContentView != null) {
+                if (item.getNotification().contentView != null) {
+                    // Single black strip; no app-supplied expanded notification layout.
+                    assertNull("No separate expanded capsule", item.getNotification().bigContentView);
                     visible = true;
                     assertEquals("Focus notification must be ongoing",
                             (item.getNotification().flags & android.app.Notification.FLAG_ONGOING_EVENT) != 0,
