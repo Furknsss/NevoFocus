@@ -3,15 +3,20 @@ import assert from 'node:assert/strict';
 import type { UserProfile } from '../src/types';
 import { isDateRestDay, toggleRestDate } from '../src/utils/stats';
 
+const base: UserProfile = {
+  name: 'Calendar test', initials: 'CT', avatarColor: '#000000', targetExam: 'YKS',
+  dailyGoalHours: 6, currentStreakDays: 0, totalFocusHours: 0,
+};
+
 test('old weekly defaults do not automatically mark Sundays', () => {
-  const profile = { weeklyRestDays: [0], customRestDates: [] } as UserProfile;
+  const profile: UserProfile = { ...base, weeklyRestDays: [0], customRestDates: [] };
   for (const date of ['2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29']) {
     assert.equal(isDateRestDay(date, profile), false);
   }
 });
 
 test('calendar checkboxes select a date without repeating its weekday or changing other dates', () => {
-  const original = { weeklyRestDays: [0], customRestDates: ['2026-12-02'], excludedRestDates: [] } as UserProfile;
+  const original: UserProfile = { ...base, weeklyRestDays: [0], customRestDates: ['2026-12-02'], excludedRestDates: [] };
   const checked = { ...original, ...toggleRestDate('2026-11-08', original) };
   assert.equal(checked.restDaySelectionMode, 'dates');
   assert.deepEqual(checked.weeklyRestDays, []);
@@ -27,14 +32,14 @@ test('calendar checkboxes select a date without repeating its weekday or changin
 });
 
 test('selecting an excluded date removes its old exception and survives persistence', () => {
-  const profile = { customRestDates: ['2026-11-08'], excludedRestDates: ['2026-11-08', '2026-11-15'] } as UserProfile;
+  const profile: UserProfile = { ...base, customRestDates: ['2026-11-08'], excludedRestDates: ['2026-11-08', '2026-11-15'] };
   const updated = JSON.parse(JSON.stringify({ ...profile, ...toggleRestDate('2026-11-08', profile) }));
   assert.equal(isDateRestDay('2026-11-08', updated), true);
   assert.deepEqual(updated.excludedRestDates, ['2026-11-15']);
 });
 
 test('recurring settings require a new explicit opt-in', () => {
-  const profile = { restDaySelectionMode: 'weekly', weeklyRestDays: [0] } as UserProfile;
+  const profile: UserProfile = { ...base, restDaySelectionMode: 'weekly', weeklyRestDays: [0] };
   assert.equal(isDateRestDay('2026-11-08', profile), true);
   assert.equal(isDateRestDay('2026-11-15', profile), true);
 });
