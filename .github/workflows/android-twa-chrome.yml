@@ -1,0 +1,111 @@
+name: Real Chrome to Native Focus Notification
+
+on:
+  push:
+    branches: ['feat/twa-premium-native-focus-20261104']
+    paths: ['.github/workflows/android-twa-chrome.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: nevofocus-real-chrome-release
+  cancel-in-progress: true
+
+jobs:
+  chrome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      NEVOFOCUS_TWA_SIGNING_STORE: ${{ github.workspace }}/.signing/nevofocus-debug.keystore
+      NEVOFOCUS_TWA_URL: https://nevofocus.vercel.app/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 842134bc34c61aff7873a0e99096326b6c885dae
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore the installed APK signing identity
+        uses: actions/cache/restore@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v2
+      - name: Refuse incompatible signing identities
+        run: |
+          test -s .signing/nevofocus-debug.keystore
+          keytool -list -v -keystore .signing/nevofocus-debug.keystore -storepass android -alias androiddebugkey > /tmp/nevofocus-cert.txt
+          grep -F '0D:33:E8:2B:75:E3:0D:77:56:59:54:69:3C:94:83:28:91:7C:14:DC:78:35:51:19:69:66:1B:01:D3:8C:DE:F8' /tmp/nevofocus-cert.txt
+      - name: Make room for an actual Chrome and SystemUI emulator
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          df -h /
+      - name: Install and verify the website source
+        run: |
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run test:unit
+          node scripts/setup-twa-android.mjs
+          git rev-parse HEAD > android-twa-source-commit.txt
+      - name: Build signed native app and integration tests
+        run: cd android && chmod +x ./gradlew && ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon
+      - name: Verify exact APK certificate on the live origin
+        run: |
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
+          node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
+          node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+      - name: Real Chrome DAL handshake, web start, app notification and actual controls
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_7
+          disk-size: 4096M
+          ram-size: 2048M
+          disable-animations: true
+          script: |
+            set -e
+            trap 'adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt"; adb exec-out run-as com.furknsss.nevofocus cat files/nevofocus-chrome-notification.png > "$GITHUB_WORKSPACE/nevofocus-chrome-notification.png" || true; adb exec-out run-as com.furknsss.nevofocus cat files/chrome-failure.png > "$GITHUB_WORKSPACE/chrome-failure.png" || true; adb exec-out run-as com.furknsss.nevofocus cat files/chrome-ui.xml > "$GITHUB_WORKSPACE/chrome-ui.xml" || true' EXIT
+            adb shell pm path com.android.chrome
+            adb shell dumpsys package com.android.chrome | grep versionName
+            adb shell am set-debug-app --persistent com.android.chrome
+            adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm grant com.furknsss.nevofocus android.permission.POST_NOTIFICATIONS
+            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.chromeE2e=true --no-daemon
+      - name: Save actual Chrome and native notification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-real-chrome-results
+          path: |
+            android/app/build/outputs/androidTest-results/**
+            android/app/build/reports/androidTests/**
+            chrome-logcat.txt
+            chrome-ui.xml
+            chrome-failure.png
+            nevofocus-chrome-notification.png
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish installable APK only after Chrome integration succeeds
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-native-chrome-verified-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-twa-apk-signature.txt
+            android-twa-source-commit.txt
+          if-no-files-found: error
+          retention-days: 14
