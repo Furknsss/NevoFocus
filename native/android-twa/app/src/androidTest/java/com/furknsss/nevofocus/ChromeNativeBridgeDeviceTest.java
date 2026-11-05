@@ -35,7 +35,7 @@ public class ChromeNativeBridgeDeviceTest {
     @After public void cleanup() throws Exception {
         if (context == null) return;
         device.dumpWindowHierarchy(new File(context.getFilesDir(), "chrome-ui.xml"));
-        if (!new File(context.getFilesDir(), "nevofocus-chrome-notification.png").exists()) capture("chrome-failure.png");
+        capture("chrome-failure.png");
         FocusTimerService.stop(context);
     }
     private void capture(String name) throws Exception {
@@ -66,7 +66,22 @@ public class ChromeNativeBridgeDeviceTest {
         assertNotNull("Missing web control: " + text, item);
         item.click();
     }
+    private void openShade() {
+        device.openNotification();
+        // Accessibility nodes arrive before the shade finishes its surface transition.
+        SystemClock.sleep(900);
+        device.waitForIdle();
+    }
+    private void returnToChrome() {
+        // Android may close the shade after dispatching a notification PendingIntent.
+        // Back in Chrome itself would close the TWA rather than dismiss SystemUI.
+        if ("com.android.systemui".equals(device.getCurrentPackageName())) {
+            device.pressBack();
+            SystemClock.sleep(500);
+        }
+    }
     private void clickDescription(String text) {
+        openShade();
         UiObject2 item = device.wait(Until.findObject(By.desc(text)), 10000);
         assertNotNull("Missing native notification control: " + text, item);
         item.click();
@@ -91,7 +106,10 @@ public class ChromeNativeBridgeDeviceTest {
             if (state.active == active && state.paused == paused && state.onBreak == rest) return;
             SystemClock.sleep(80);
         }
-        fail("Native state did not become active=" + active + " paused=" + paused + " break=" + rest);
+        FocusTimerService.State state = FocusTimerService.read(context);
+        fail("Expected active=" + active + " paused=" + paused + " break=" + rest
+                + " but actual active=" + state.active + " paused=" + state.paused
+                + " break=" + state.onBreak + " foreground=" + device.getCurrentPackageName());
     }
     @Test public void websiteStartCreatesNativeCapsuleAndItsButtonsReconcileBackToChrome() throws Exception {
         chromeWelcome();
@@ -120,7 +138,7 @@ public class ChromeNativeBridgeDeviceTest {
         assertTrue("Start from the website must produce an app-owned RemoteViews notification", nativeNotification());
         awaitState(true, false, false);
         android.util.Log.i("NevoFocusChromeTest", "Explicit FGS notification tap required: " + tappedStart);
-        device.openNotification();
+        openShade();
         assertTrue(device.wait(Until.hasObject(By.desc("Durdur")), 10000));
         capture("nevofocus-chrome-notification.png");
         clickDescription("Durdur");
@@ -128,7 +146,7 @@ public class ChromeNativeBridgeDeviceTest {
         long frozen = FocusTimerService.read(context).elapsedFocusMs();
         SystemClock.sleep(1200);
         assertEquals(frozen, FocusTimerService.read(context).elapsedFocusMs());
-        device.pressBack();
+        returnToChrome();
         clickText("DURUMU_YENILE");
         assertTrue("Notification pause must reach the website via the real Chrome port",
                 device.wait(Until.hasObject(By.textContains("\"isPaused\":true")), 10000));
@@ -143,7 +161,7 @@ public class ChromeNativeBridgeDeviceTest {
         assertTrue(FocusTimerService.read(context).elapsedBreakMs() > 0);
         clickDescription("Molayı bitir");
         awaitState(true, false, false);
-        device.pressBack();
+        returnToChrome();
         clickText("BILDIRIMI_KAPAT");
         awaitState(false, false, false);
         deadline = SystemClock.uptimeMillis() + 8000;
