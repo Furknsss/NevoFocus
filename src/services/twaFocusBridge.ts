@@ -16,7 +16,7 @@ interface BootstrapChannel {
   listener: (event: MessageEvent) => void;
 }
 interface TwaWindow extends Window {
-  __nevoTwaBootstrap?: { channels: BootstrapChannel[] };
+  __nevoTwaBootstrap?: { channels: BootstrapChannel[]; status?: string; nativeMessage?: string };
 }
 type RequestType = 'NEVOFOCUS_NATIVE_SYNC' | 'NEVOFOCUS_NATIVE_QUERY' | 'NEVOFOCUS_NATIVE_STOP';
 interface NativeReply {
@@ -52,6 +52,8 @@ function parse(raw: unknown): NativeReply | null {
 function receive(source: MessagePort, raw: unknown) {
   const reply = parse(raw);
   if (!reply) return;
+  const diagnostic = (window as TwaWindow).__nevoTwaBootstrap;
+  if (diagnostic) diagnostic.nativeMessage = reply.type;
   // Chromium transfers the port in an EMPTY window message. Android's HELLO
   // arrives later on that port, not in a window message with transferred ports.
   if (reply.type === 'NEVOFOCUS_TWA_HELLO' && reply.version === 1) {
@@ -60,6 +62,7 @@ function receive(source: MessagePort, raw: unknown) {
     if (changed && port) port.close();
     port = source;
     candidate = null;
+    if (diagnostic) diagnostic.status = 'connected';
     port.postMessage(JSON.stringify({ type: 'NEVOFOCUS_TWA_WEB_READY' }));
     if (changed) window.dispatchEvent(new Event('nevofocus:twa-connected'));
     for (const waiter of bridgeWaiters) {
