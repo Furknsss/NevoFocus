@@ -19,6 +19,8 @@ export interface NativeFocusSync {
   isBreakActive: boolean;
   elapsedFocusSeconds: number;
   elapsedBreakSeconds: number;
+  timerType?: 'countdown' | 'stopwatch';
+  plannedMinutes?: number;
 }
 
 interface NativeFocusPlugin {
