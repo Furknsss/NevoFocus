@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'feat/twa-premium-native-focus-20261104'
+      - 'feat/native-one-piece-focus-notification-20261105'
     paths:
       - '.github/workflows/android-twa.yml'
       - 'public/.well-known/assetlinks.json'
