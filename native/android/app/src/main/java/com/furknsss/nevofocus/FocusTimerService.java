@@ -24,6 +24,9 @@ public final class FocusTimerService extends Service {
     static final String ACTION_PAUSE = "com.furknsss.nevofocus.PAUSE";
     static final String ACTION_BREAK = "com.furknsss.nevofocus.BREAK";
     static final String ACTION_RETRY = "com.furknsss.nevofocus.RETRY";
+    // Matches the TWA controller action without depending on its class:
+    // Capacitor and Chrome-backed builds supply different MainActivity types.
+    static final String ACTION_OPEN_FOCUS = "com.furknsss.nevofocus.OPEN_FOCUS";
 
     private static final String CHANNEL_ID = "nevofocus_live_timer";
     private static final String START_CHANNEL_ID = "nevofocus_timer_start_action";
@@ -290,7 +293,7 @@ public final class FocusTimerService extends Service {
         prepareViews(compact, state);
 
         Intent focusIntent = new Intent(this, MainActivity.class)
-                .setAction(MainActivity.ACTION_OPEN_FOCUS)
+                .setAction(ACTION_OPEN_FOCUS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
                         Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent openApp = PendingIntent.getActivity(this, 3, focusIntent,
