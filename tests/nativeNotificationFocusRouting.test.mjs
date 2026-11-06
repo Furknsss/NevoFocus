@@ -28,7 +28,8 @@ test('Android notification action buttons remain foreground-service invocations'
 
 test('notification route resumes persisted session without wiping clock, mode or break state', () => {
   const app = read('src/App.tsx');
-  assert.match(app, /url\.searchParams\.get\('nevofocus_focus'\) !== '1'/);
+  assert.match(app, /const hasDeepLink = url\.searchParams\.get\('nevofocus_focus'\) === '1'/);
+  assert.match(app, /nevofocus:notification-open/);
   assert.match(app, /window\.history\.replaceState\(window\.history\.state/);
   assert.match(app, /localStorage\.getItem\('fokus_active_session_running'\)/);
   assert.match(app, /setCurrentTab\('focus'\)/);
