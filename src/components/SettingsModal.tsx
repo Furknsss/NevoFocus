@@ -33,7 +33,7 @@ import {
   Copy,
   ExternalLink,
 } from 'lucide-react';
-import { UserProfile, FocusSession, FocusTask, MusicPlatform, MusicConnectionsConfig } from '../types';
+import { UserProfile, FocusSession, FocusTask, FocusModeType, MusicPlatform, MusicConnectionsConfig } from '../types';
 import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
 import {
   sendPasswordResetEmail,
@@ -55,6 +55,7 @@ import {
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
+import { FocusModeSettings } from './FocusModeSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -67,10 +68,13 @@ interface SettingsModalProps {
   detectedDevice?: 'mobile' | 'tablet' | 'desktop';
   onSelectDeviceMode?: (mode: 'auto' | 'mobile' | 'tablet' | 'desktop') => void;
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
+  selectedFocusMode: FocusModeType;
+  onSelectFocusMode: (mode: FocusModeType) => void;
+  focusModeChangeDisabled?: boolean;
   onAccountDeleted: () => void;
   onSyncComplete?: (sessions: FocusSession[], tasks: FocusTask[], profile?: UserProfile) => void;
   onOpenAuth?: () => void;
-  initialTab?: 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup';
+  initialTab?: 'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -84,13 +88,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   detectedDevice = 'desktop',
   onSelectDeviceMode,
   onUpdateProfile,
+  selectedFocusMode,
+  onSelectFocusMode,
+  focusModeChangeDisabled = false,
   onAccountDeleted,
   onSyncComplete,
   onOpenAuth,
-  initialTab = 'breaks',
+  initialTab = 'modes',
 }) => {
-  const [activeTab, setActiveTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>(
-    initialTab || 'breaks'
+  const [activeTab, setActiveTab] = useState<'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>(
+    initialTab || 'modes'
   );
 
   // Sync activeTab when initialTab or isOpen changes
@@ -829,7 +836,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Uygulama & Hesap Ayarları</span>
             </h3>
             <p className="text-xs text-neutral-400">
-              Bildirim tercihlerini, tema görünümünü ve hesap güvenliğini yönet
+              Odak modlarını, bildirimleri ve hesap tercihlerini yönet
             </p>
           </div>
           <button
@@ -843,15 +850,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Tab Switcher */}
         <div className="flex items-center gap-1.5 sm:gap-2 my-4 p-1 rounded-xl bg-neutral-900 border border-neutral-800 overflow-x-auto">
           <button
-            onClick={() => setActiveTab('breaks')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
-              activeTab === 'breaks'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+            type="button"
+            onClick={() => setActiveTab('modes')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+              activeTab === 'modes'
+                ? 'bg-[#ff5500]/20 text-[#ff9a75] border border-[#ff5500]/40 shadow-sm'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
-            <Coffee className="w-3.5 h-3.5 text-amber-400" />
-            <span>Mola Günleri</span>
+            <Sparkles className="w-3.5 h-3.5 text-[#ff723b]" />
+            <span>Modlar</span>
           </button>
 
           <button
@@ -915,6 +923,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
+        {/* MODLAR: primary focus experience and alternative modes */}
+        {activeTab === 'modes' && (
+          <FocusModeSettings
+            selectedMode={selectedFocusMode}
+            onSelectMode={onSelectFocusMode}
+            onOpenRestDays={() => setActiveTab('breaks')}
+            selectionDisabled={focusModeChangeDisabled}
+          />
+        )}
+
+        {/* Legacy weekly rest scheduling is reachable from Modlar, and from statistics. */}
+        {activeTab === 'breaks' && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('modes')}
+            className="flex items-center gap-2 text-xs text-[#ff9a75] hover:text-white transition-colors mb-3"
+          >
+            <span aria-hidden="true">←</span> Modlara dön
+          </button>
+        )}
         {/* TAB 0: MOLA & DİNLENME GÜNLERİ */}
         {activeTab === 'breaks' && (
           <div className="space-y-5 py-2 max-h-[60vh] overflow-y-auto pr-1">
