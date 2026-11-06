@@ -301,7 +301,10 @@ public final class FocusTimerService extends Service {
         // With a custom RemoteViews capsule the clock surface must be tappable,
         // not just the system notification chrome. Action controls keep their
         // separate PendingIntents in prepareViews().
-        compact.setOnClickPendingIntent(R.id.focus_capsule, openApp);
+        // Do not attach a competing click target to the whole layout:
+        // Android SystemUI may make the parent an accessibility focus target
+        // and swallow taps on the pause/break child ImageViews. The native
+        // notification's setContentIntent still opens Focus from its body.
         compact.setOnClickPendingIntent(R.id.focus_main_time, openApp);
         compact.setOnClickPendingIntent(R.id.focus_seconds, openApp);
 
