@@ -42,7 +42,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         if (isFocusNotificationIntent(getIntent())) {
             focusOpenRequested = true;
@@ -90,7 +90,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         focusHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
