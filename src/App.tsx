@@ -304,12 +304,17 @@ export default function App() {
       }
     };
 
+    const handleServiceWorkerOpen = () => openFocusFromNotification(true);
     openFocusFromNotification();
-    window.addEventListener('pageshow', openFocusFromNotification);
-    window.addEventListener('popstate', openFocusFromNotification);
+    // pageshow/popstate callbacks pass Event, not a boolean request.
+    const handleUrlOpen = () => openFocusFromNotification();
+    window.addEventListener('pageshow', handleUrlOpen);
+    window.addEventListener('popstate', handleUrlOpen);
+    window.addEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
     return () => {
-      window.removeEventListener('pageshow', openFocusFromNotification);
-      window.removeEventListener('popstate', openFocusFromNotification);
+      window.removeEventListener('pageshow', handleUrlOpen);
+      window.removeEventListener('popstate', handleUrlOpen);
+      window.removeEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
     };
   }, []);
 
