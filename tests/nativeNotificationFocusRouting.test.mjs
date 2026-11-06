@@ -17,6 +17,20 @@ test('tapping the full custom notification opens a Focus-specific TWA route', ()
   assert.match(activity, /ACTION_OPEN_FOCUS\.equals\(getIntent\(\)\.getAction\(\)\)/);
 });
 
+test('Capacitor Android Activity delivers focus notification after the React listener mounts', () => {
+  const activity = read('native/android/app/src/main/java/com/furknsss/nevofocus/MainActivity.java');
+  const plugin = read('native/android/app/src/main/java/com/furknsss/nevofocus/NativeFocusPlugin.java');
+  const app = read('src/App.tsx');
+  assert.match(activity, /protected void onNewIntent\(Intent intent\)/);
+  assert.match(activity, /FocusTimerService\.ACTION_OPEN_FOCUS/);
+  assert.match(activity, /window\.__nevofocusFocusListenerReady/);
+  assert.match(activity, /nevofocus:notification-open/);
+  assert.match(activity, /focusOpenRequested = false/);
+  assert.match(app, /focusWindow\.__nevofocusFocusListenerReady = true/);
+  assert.match(plugin, /intent\.putExtra\("countdown", "countdown"\.equals\(timerType\)\)/);
+  assert.match(plugin, /intent\.putExtra\("plannedMs", Math\.round\(plannedMinutes \* 60_000\)\)/);
+});
+
 test('Android notification action buttons remain foreground-service invocations', () => {
   const service = read('native/android/app/src/main/java/com/furknsss/nevofocus/FocusTimerService.java');
   assert.match(service, /PendingIntent\.getForegroundService\(this, requestCode, intent/);
