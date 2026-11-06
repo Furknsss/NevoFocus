@@ -370,9 +370,9 @@ public final class MainActivity extends Activity {
         launched = false;
         if (session != null) {
             launchTwa();
-        } else if (!connected) {
-            // Chrome may have killed the bound Custom Tabs service while
-            // the app was backgrounded. Recreate a verified session.
+        } else {
+            // Chrome may have discarded our Custom Tabs session while the
+            // app was backgrounded. Recreate a verified session in all cases.
             recreate();
         }
     }
