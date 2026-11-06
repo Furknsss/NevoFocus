@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 288d8d0654c6232aff06ed074a18aca63b1bc81c
+          ref: 9bb2f44a2e16de55f5d08a36a855d0c2caf7d400
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -67,6 +67,16 @@ jobs:
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
           node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
           node --input-type=module -e "const r=await fetch(new URL('twa-bootstrap.js',process.env.NEVOFOCUS_TWA_URL)); if(!r.ok || !(await r.text()).includes('android-app://')) throw Error('Live origin must serve the Android-app origin fix before Chrome integration')"
+      - name: Upload 1.2.3 device-test candidate before Chrome integration
+        uses: actions/upload-artifact@v4
+        with:
+          name: nevofocus-1.2.3-notification-candidate-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android-twa-apk-signature.txt
+            android-twa-source-commit.txt
+          if-no-files-found: error
+          retention-days: 14
       - name: Prepare one persistent emulator shell with final evidence capture
         shell: bash
         run: |
@@ -95,7 +105,7 @@ jobs:
             adb logcat -d -s NevoFocusTwa NevoFocusChromeTest AndroidRuntime chromium > "$GITHUB_WORKSPACE/chrome-logcat.txt" || true
             adb forward tcp:9222 localabstract:chrome_devtools_remote || true
             node "$RUNNER_TEMP/chrome-snapshot.mjs" > "$GITHUB_WORKSPACE/chrome-devtools.json" 2>&1 || true
-            for evidence in nevofocus-chrome-notification.png nevofocus-emulator-notification.png chrome-failure.png chrome-ui.xml nevofocus-compat-ui.xml; do
+            for evidence in nevofocus-focus-after-notification-tap.png nevofocus-chrome-notification.png nevofocus-emulator-notification.png chrome-failure.png chrome-ui.xml nevofocus-compat-ui.xml; do
               adb exec-out run-as com.furknsss.nevofocus cat "files/$evidence" > "$GITHUB_WORKSPACE/$evidence" 2>/dev/null || true
             done
           }
@@ -138,6 +148,7 @@ jobs:
             nevofocus-compat-ui.xml
             chrome-failure.png
             nevofocus-chrome-notification.png
+            nevofocus-focus-after-notification-tap.png
             nevofocus-emulator-notification.png
           if-no-files-found: error
           retention-days: 14
