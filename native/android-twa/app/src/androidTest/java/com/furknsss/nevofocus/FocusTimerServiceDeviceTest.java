@@ -203,6 +203,50 @@ public class FocusTimerServiceDeviceTest {
         FocusTimerService.stop(context);
         awaitState(false, false, false);
     }
+    private void tapNativeCapsuleControl(int controlId) throws Exception {
+        final StatusBarNotification notification = clockNotification();
+        assertNotNull("A genuine posted native focus notification must exist", notification);
+        final java.util.concurrent.atomic.AtomicBoolean clicked =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            // Inflate the actual posted RemoteViews, including its PendingIntent
+            // click listeners, using Android's notification view implementation.
+            android.widget.FrameLayout parent = new android.widget.FrameLayout(context);
+            android.view.View capsule = notification.getNotification().contentView.apply(context, parent);
+            android.view.View control = capsule.findViewById(controlId);
+            if (control != null) clicked.set(control.performClick());
+        });
+        assertTrue("Native notification button must have a clickable PendingIntent listener", clicked.get());
+    }
+
+    @Test
+    public void actualPostedCapsuleButtonsPauseAndToggleBreak() throws Exception {
+        send(FocusTimerService.ACTION_SYNC);
+        awaitState(true, false, false);
+        awaitNotification(true);
+
+        tapNativeCapsuleControl(R.id.focus_pause);
+        awaitState(true, true, false);
+        long frozen = FocusTimerService.read(context).elapsedFocusMs();
+        Thread.sleep(220L);
+        assertEquals("Work must remain paused after the notification button click",
+                frozen, FocusTimerService.read(context).elapsedFocusMs());
+
+        tapNativeCapsuleControl(R.id.focus_pause);
+        awaitState(true, false, false);
+        tapNativeCapsuleControl(R.id.focus_break);
+        awaitState(true, false, true);
+        long frozenDuringBreak = FocusTimerService.read(context).elapsedFocusMs();
+        Thread.sleep(260L);
+        assertEquals("Work time must stay frozen while a break is active",
+                frozenDuringBreak, FocusTimerService.read(context).elapsedFocusMs());
+        assertTrue("Break duration must advance after the actual PendingIntent",
+                FocusTimerService.read(context).elapsedBreakMs() > 0L);
+
+        tapNativeCapsuleControl(R.id.focus_break);
+        awaitState(true, false, false);
+    }
+
     private StatusBarNotification clockNotification() {
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         for (StatusBarNotification item : manager.getActiveNotifications()) {
