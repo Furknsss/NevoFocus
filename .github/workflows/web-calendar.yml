@@ -2,7 +2,7 @@ name: Calendar Date Selection Verification
 on:
   push:
     branches: ['fix/chrome-native-notification-bridge-20261105']
-    paths: ['src/**', 'tests/manualRestDays.test.ts', 'e2e/manual-rest-calendar.mjs', '.github/workflows/web-calendar.yml']
+    paths: ['src/**', 'tests/manualRestDays.test.ts', 'e2e/manual-rest-calendar.mjs', 'e2e/focus-mode-settings.mjs', '.github/workflows/web-calendar.yml']
   workflow_dispatch:
 permissions:
   contents: read
