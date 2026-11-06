@@ -38,6 +38,12 @@ test('Android notification action buttons remain foreground-service invocations'
   assert.match(service, /setOnClickPendingIntent\(R\.id\.focus_break, serviceAction\(ACTION_BREAK, 2\)\)/);
   assert.match(service, /ACTION_PAUSE\.equals\(action\) && state\.active/);
   assert.match(service, /ACTION_BREAK\.equals\(action\) && state\.active/);
+  assert.match(service, /builder\.addAction\(state\.paused \?/);
+  assert.match(service, /builder\.addAction\(state\.onBreak \?/);
+  assert.doesNotMatch(service, /compact\.setOnClickPendingIntent\(R\.id\.focus_capsule/);
+  const layout = read('native/android/app/src/main/res/layout/nevofocus_live_notification.xml');
+  assert.match(layout, /android:id="@\+id\/focus_pause"[\s\S]*?importantForAccessibility="yes"/);
+  assert.match(layout, /android:id="@\+id\/focus_break"[\s\S]*?importantForAccessibility="yes"/);
 });
 
 test('notification route resumes persisted session without wiping clock, mode or break state', () => {
