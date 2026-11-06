@@ -205,8 +205,12 @@ public class FocusTimerServiceDeviceTest {
     }
     private void tapActualSystemUiAction(
             androidx.test.uiautomator.UiDevice device, String label) throws Exception {
-        device.openNotification();
-        SystemClock.sleep(650L);
+        // AOSP ATD can ignore UiDevice.openNotification() even though the
+        // foreground service notification is active. Use Android's actual
+        // SystemUI status-bar expansion command before finding/tapping views.
+        device.executeShellCommand("cmd statusbar expand-notifications");
+        SystemClock.sleep(900L);
+        device.waitForIdle();
         // RemoteViews ids are sometimes exposed in SystemUI without the
         // dynamic spoken label, particularly with Android's collapsed shade.
         final String resource = label.equals("Durdur") || label.equals("Devam et")
