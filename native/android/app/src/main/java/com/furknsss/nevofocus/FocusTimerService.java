@@ -326,6 +326,19 @@ public final class FocusTimerService extends Service {
         if (getApplicationInfo().targetSdkVersion >= 31) {
             builder.setCustomBigContentView(compact).setCustomHeadsUpContentView(compact);
         }
+        // Some OEM/Android SystemUI implementations do not expose tappable
+        // ImageViews inside RemoteViews as individual actionable nodes. Provide
+        // platform-supported notification actions as a reliable fallback.
+        // They use the exact same PendingIntents and native state transitions;
+        // the custom digital capsule remains the compact notification content.
+        if (Build.VERSION.SDK_INT >= 31) {
+            builder.addAction(state.paused ? R.drawable.nevofocus_action_play
+                            : R.drawable.nevofocus_action_pause,
+                    state.paused ? "Devam et" : "Durdur", serviceAction(ACTION_PAUSE, 1));
+            builder.addAction(state.onBreak ? R.drawable.nevofocus_action_break_active
+                            : R.drawable.nevofocus_action_break,
+                    state.onBreak ? "Molayı bitir" : "Mola ver", serviceAction(ACTION_BREAK, 2));
+        }
         // The separately built API-30 compatibility APK uses the legacy undecorated
         // content surface and deliberately has no expanded view or platform action row.
         // Android 12+ may defer foreground notifications for ten seconds.
