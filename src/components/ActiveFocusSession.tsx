@@ -440,6 +440,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           return;
         }
         const now = Date.now();
+        const controlsChanged =
+          isPausedRef.current !== state.isPaused ||
+          isCampActiveRef.current !== state.isBreakActive;
         accumulatedFocusSecondsRef.current = Math.max(0, state.elapsedFocusSeconds);
         accumulatedBreakSecondsRef.current = Math.max(0, state.elapsedBreakSeconds);
         anchorTimestampRef.current = now;
@@ -452,7 +455,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         setElapsedCountUp(focus);
         setSecondsRemaining(Math.max(0, totalSeconds - focus));
         setBreakSeconds(computeCurrentBreakSeconds());
-        persistSessionState(true);
+        // Don't spam remote Firestore writes when the only change is the
+        // ticking Android clock. Persist immediately for notification controls.
+        if (controlsChanged) persistSessionState(true);
       } catch (error) {
         console.warn('[NevoFocus] native restore:', error);
       } finally {
@@ -468,8 +473,15 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     window.addEventListener('focus', onVisible);
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('nevofocus:twa-connected', onVisible);
+    // Returning from the Android notification shade does not always emit a
+    // browser visibilitychange/focus event. Poll the foreground service only
+    // while visible so native Pause/Break commands cannot appear ignored.
+    const foregroundPoll = window.setInterval(() => {
+      if (!document.hidden && isNativeFocusAvailable) void reconcile();
+    }, 1750);
     return () => {
       mounted = false;
+      window.clearInterval(foregroundPoll);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
       window.removeEventListener('pageshow', onVisible);
