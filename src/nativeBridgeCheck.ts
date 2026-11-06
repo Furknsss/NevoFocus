@@ -11,9 +11,33 @@ const report = async () => {
 };
 window.addEventListener('nevofocus:twa-connected', () => void report());
 if (hasTwaFocusChannel()) void report();
+// An explicit instrumented-device fixture. No account credentials, network
+// writes or production user data are created by the diagnostic page.
+let preparedSessionKey = '';
+document.getElementById('prepare')!.onclick = () => {
+  const startedAt = Date.now() - 92_000;
+  preparedSessionKey = String(startedAt);
+  localStorage.setItem('fokus_guest_mode', 'true');
+  localStorage.setItem('fokus_profile_v4', JSON.stringify({
+    name: 'NevoFocus Chrome E2E', userId: '', email: '',
+    hasCompletedOnboarding: true, preferredFocusMode: 'clock',
+    weeklyRestDays: [], customRestDates: [], excludedRestDates: [],
+  }));
+  localStorage.setItem('fokus_active_session_running', JSON.stringify({
+    isActive: true, isFinished: false,
+    startTime: startedAt, anchorTimestamp: Date.now(),
+    accumulatedFocusSeconds: 92, accumulatedBreakSeconds: 0,
+    breakAnchorTimestamp: null,
+    elapsedCountUp: 92, breakSeconds: 0,
+    isPaused: false, isCampActive: false, mode: 'clock',
+    subject: { id: 'sub-serbest-calisma', name: 'Serbest Çalışma', color: '#6366f1' },
+    plannedMinutes: 45, timerType: 'stopwatch',
+  }));
+  status.textContent = 'FOCUS_TEST_HAZIR';
+};
 document.getElementById('start')!.onclick = async () => {
   try {
-    await twaFocus.sync({ sessionKey: 'chrome-end-to-end', isPaused: false, isBreakActive: false,
+    await twaFocus.sync({ sessionKey: preparedSessionKey || 'chrome-end-to-end', isPaused: false, isBreakActive: false,
       elapsedFocusSeconds: 92, elapsedBreakSeconds: 0, timerType: 'stopwatch', plannedMinutes: 0 });
     status.textContent = 'BILDIRIM_BASLADI';
   } catch (error) { status.textContent = String(error); }
