@@ -61,10 +61,46 @@ public class ChromeNativeBridgeDeviceTest {
             if (!clicked) SystemClock.sleep(500);
         }
     }
+    private void dismissEmulatorSystemDialogs() {
+        // Fresh Google Play emulator images occasionally show a Pixel Launcher
+        // ANR above an otherwise healthy and verified Chrome TWA. It blocks
+        // UiAutomator's active-window query even when ANDROID_BAGLI is rendered.
+        UiObject2 anr = device.findObject(By.textContains("isn't responding"));
+        if (anr == null) anr = device.findObject(By.textContains("is not responding"));
+        if (anr != null) {
+            UiObject2 wait = device.findObject(By.text("Wait"));
+            if (wait != null) {
+                android.util.Log.w("NevoFocusChromeTest",
+                        "Dismissing transient emulator launcher ANR; app under test remains unchanged");
+                wait.click();
+                SystemClock.sleep(450);
+            }
+        }
+    }
+    private void waitForChromeBridge() {
+        final long deadline = SystemClock.uptimeMillis() + 90000L;
+        while (SystemClock.uptimeMillis() < deadline) {
+            dismissEmulatorSystemDialogs();
+            UiObject2 ready = device.findObject(By.text("ANDROID_BAGLI"));
+            if (ready != null && ready.isEnabled()) return;
+            SystemClock.sleep(350);
+        }
+        fail("Chrome TWA bridge did not become accessible after 90s; check DAL logs, "
+                + "native-check.html and unexpected SystemUI dialogs");
+    }
     private void clickText(String text) {
-        UiObject2 item = device.wait(Until.findObject(By.text(text)), 15000);
-        assertNotNull("Missing web control: " + text, item);
-        item.click();
+        final long deadline = SystemClock.uptimeMillis() + 20000L;
+        while (SystemClock.uptimeMillis() < deadline) {
+            dismissEmulatorSystemDialogs();
+            UiObject2 item = device.findObject(By.text(text));
+            if (item != null) {
+                item.click();
+                return;
+            }
+            SystemClock.sleep(300);
+        }
+        fail("Missing web control: " + text +
+                ". The production website may be on an older commit than the Android APK.");
     }
     private void openShade() {
         device.openNotification();
@@ -122,8 +158,7 @@ public class ChromeNativeBridgeDeviceTest {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 .putExtra("nevofocus.bridgeCheck", true);
         context.startActivity(launch);
-        assertTrue("Real Chrome must establish the production web-to-Android bridge",
-                device.wait(Until.hasObject(By.text("ANDROID_BAGLI")), 60000));
+        waitForChromeBridge();
         // Real browser storage fixture: the notification must restore this same
         // running clock rather than landing at mode selection or creating a new timer.
         clickText("FOCUS_TEST_OTURUMUNU_HAZIRLA");
