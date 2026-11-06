@@ -124,6 +124,9 @@ public class ChromeNativeBridgeDeviceTest {
         context.startActivity(launch);
         assertTrue("Real Chrome must establish the production web-to-Android bridge",
                 device.wait(Until.hasObject(By.text("ANDROID_BAGLI")), 60000));
+        // Real browser storage fixture: the notification must restore this same
+        // running clock rather than landing at mode selection or creating a new timer.
+        clickText("FOCUS_TEST_OTURUMUNU_HAZIRLA");
         clickText("BILDIRIMI_BASLAT");
         long deadline = SystemClock.uptimeMillis() + 15000;
         boolean tappedStart = false;
@@ -197,8 +200,20 @@ public class ChromeNativeBridgeDeviceTest {
         assertTrue(FocusTimerService.read(context).elapsedBreakMs() > 0);
         clickDescription("Molayı bitir");
         awaitState(true, false, false);
-        returnToChrome();
-        clickText("BILDIRIMI_KAPAT");
+
+        // This is a tap on the actual notification clock, not a synthetic
+        // launcher intent. It must reopen the same working Focus session in Chrome.
+        openShade();
+        UiObject2 clockForOpen = device.wait(Until.findObject(
+                By.res(context.getPackageName(), "focus_main_time")), 10000);
+        assertNotNull("The notification clock must be tappable", clockForOpen);
+        clockForOpen.click();
+        assertTrue("Notification clock must reopen the running Focus screen",
+                device.wait(Until.hasObject(By.text("Seansı Bitir")), 60000));
+        assertTrue("Opening Focus must not stop the Android timer", FocusTimerService.read(context).active);
+        capture("nevofocus-focus-after-notification-tap.png");
+
+        FocusTimerService.stop(context);
         awaitState(false, false, false);
         deadline = SystemClock.uptimeMillis() + 8000;
         while (nativeNotification() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(100);
