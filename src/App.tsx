@@ -80,7 +80,6 @@ import { AchievementsModal } from './components/AchievementsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
-import { CinematicTransitionCurtain } from './components/visuals/CinematicTransitionCurtain';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
@@ -101,7 +100,6 @@ export default function App() {
 
   // Dedicated Mode Architecture
   const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType>(() => getStoredProfile().preferredFocusMode || 'clock');
-  const [transitioningToMode, setTransitioningToMode] = useState<FocusModeType | null>(null);
 
   // Firebase auth state
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
@@ -881,66 +879,6 @@ export default function App() {
     setCurrentActiveMode(profile.preferredFocusMode || 'clock');
   }, [profile.preferredFocusMode, isSessionActive, localMinimizedSession, cloudActiveSession]);
 
-  // Mode Selection Flow with Cinematic Shutter (Kepenk) Transition
-  // If user already has an active/minimized session in this mode, resume it immediately instead of resetting to 0!
-  const handleSelectModeFromHub = (mode: FocusModeType) => {
-    const existingActive = localMinimizedSession || cloudActiveSession;
-    if (existingActive && existingActive.mode === mode) {
-      try {
-        localStorage.setItem(
-          'fokus_active_session_running',
-          JSON.stringify({
-            startTime: existingActive.startedAt,
-            anchorTimestamp: existingActive.anchorTimestamp,
-            accumulatedFocusSeconds: existingActive.accumulatedFocusSeconds ?? existingActive.elapsedSeconds ?? 0,
-            breakAnchorTimestamp: existingActive.breakAnchorTimestamp ?? null,
-            accumulatedBreakSeconds: existingActive.accumulatedBreakSeconds ?? existingActive.breakSeconds ?? 0,
-            mode: existingActive.mode,
-            subject: existingActive.subject || SERBEST_CALISMA_SUBJECT,
-            plannedMinutes: existingActive.plannedMinutes,
-            timerType: existingActive.timerType,
-            elapsedSeconds: existingActive.elapsedSeconds,
-            elapsedCountUp: existingActive.elapsedSeconds,
-            breakSeconds: existingActive.breakSeconds || 0,
-            isPaused: existingActive.isPaused,
-            isCampActive: Boolean(existingActive.isCampActive),
-            selectedTaskId: existingActive.selectedTaskId,
-            selectedTaskTitle: existingActive.selectedTaskTitle,
-            selectedTreeSpecies: existingActive.selectedTreeSpecies,
-            originAirport: existingActive.originAirport,
-            destAirport: existingActive.destAirport,
-            deviceId: existingActive.deviceId || getDeviceId(),
-            deviceName: existingActive.deviceName || getDeviceName(),
-            updatedAt: Date.now(),
-          })
-        );
-      } catch {}
-      setCurrentActiveMode(existingActive.mode);
-      setSelectedSubject(existingActive.subject || SERBEST_CALISMA_SUBJECT);
-      setDurationMinutes(existingActive.plannedMinutes);
-      setTimerType(existingActive.timerType);
-      setLocalMinimizedSession(null);
-      setIsSessionActive(true);
-      return;
-    }
-
-    setCurrentActiveMode(mode);
-    setTransitioningToMode(mode);
-    if (mode === 'clock') {
-      setTimerType('stopwatch');
-    }
-  };
-
-  const handleTransitionCurtainMidpoint = () => {
-    if (transitioningToMode) {
-      setCurrentActiveMode(transitioningToMode);
-    }
-  };
-
-  const handleTransitionCurtainEnd = () => {
-    setTransitioningToMode(null);
-  };
-
   const handleStartSession = () => {
     let subToUse = selectedSubject;
     if (!selectedTask) {
@@ -1553,15 +1491,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Cinematic Transition Curtain (Roller Shutter / Kepenk) */}
-      {transitioningToMode && (
-        <CinematicTransitionCurtain
-          mode={transitioningToMode}
-          onMidpoint={handleTransitionCurtainMidpoint}
-          onTransitionEnd={handleTransitionCurtainEnd}
-        />
-      )}
-
       {/* Main Viewport Content - Adaptive bottom padding for mobile bottom nav */}
       <main className={`flex-1 flex flex-col ${isMobile && !isSessionActive ? 'pb-24' : ''}`}>
         {isSessionActive && selectedSubject && currentActiveMode ? (
@@ -1755,7 +1684,8 @@ export default function App() {
         focusModeChangeDisabled={Boolean(isSessionActive || localMinimizedSession || cloudActiveSession)}
         onSelectFocusMode={(mode) => {
           if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
-          if (currentActiveMode !== mode) handleSelectModeFromHub(mode);
+          setCurrentActiveMode(mode);
+          if (mode === 'clock') setTimerType('stopwatch');
           void handleUpdateProfile({ preferredFocusMode: mode });
           setIsSettingsModalOpen(false);
           setCurrentTab('focus');
