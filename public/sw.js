@@ -173,16 +173,17 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
+        // Use the same direct-Focus command as the native Android capsule;
+        // restoring the existing window preserves the live timer and media.
+        if (new URL(client.url).origin !== self.location.origin) continue;
         client.postMessage({
           type: 'FOKUS_NOTIFICATION_ACTION',
-          action: 'open_app',
+          action: 'open_focus',
         });
-        if ('focus' in client) {
-          return client.focus();
-        }
+        if ('focus' in client) return client.focus();
       }
       if (self.clients.openWindow) {
-        return self.clients.openWindow('/');
+        return self.clients.openWindow('/?nevofocus_focus=1');
       }
     })
   );
