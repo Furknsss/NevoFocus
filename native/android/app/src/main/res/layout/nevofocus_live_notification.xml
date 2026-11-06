@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One capsule; compatibility builds use the full 64dp compact notification height. -->
+<!-- Direct dimensions are required for RemoteViews inflation inside SystemUI. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/focus_capsule"
     android:layout_width="match_parent"
-    android:layout_height="@dimen/nevofocus_notification_height"
+    android:layout_height="48dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingStart="20dp"
@@ -49,8 +49,8 @@
 
     <ImageView
         android:id="@+id/focus_pause"
-        android:layout_width="@dimen/nevofocus_notification_action_size"
-        android:layout_height="@dimen/nevofocus_notification_action_size"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
         android:layout_marginEnd="8dp"
         android:src="@drawable/nevofocus_action_pause"
         android:clickable="true"
@@ -59,8 +59,8 @@
 
     <ImageView
         android:id="@+id/focus_break"
-        android:layout_width="@dimen/nevofocus_notification_action_size"
-        android:layout_height="@dimen/nevofocus_notification_action_size"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
         android:src="@drawable/nevofocus_action_break"
         android:clickable="true"
         android:focusable="true"
