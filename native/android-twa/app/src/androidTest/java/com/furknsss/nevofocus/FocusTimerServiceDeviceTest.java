@@ -216,11 +216,39 @@ public class FocusTimerServiceDeviceTest {
                         androidx.test.uiautomator.By.res(context.getPackageName(), resource)), 4000L);
         if (action == null) {
             action = device.wait(androidx.test.uiautomator.Until.findObject(
-                    androidx.test.uiautomator.By.desc(label)), 4500L);
+                    androidx.test.uiautomator.By.desc(label)), 2500L);
         }
-        assertNotNull("Android SystemUI must expose an actual, tappable Focus " +
-                "notification control (" + resource + "): " + label, action);
+        if (action == null) {
+            // OS-native fallback actions may appear as visible text buttons,
+            // not as accessibility-labelled custom RemoteViews ImageViews.
+            action = device.wait(androidx.test.uiautomator.Until.findObject(
+                    androidx.test.uiautomator.By.text(label)), 3000L);
+        }
+        assertNotNull("Android SystemUI must expose a tappable Focus control: "
+                + label + " (custom RemoteViews or native action)", action);
         action.click();
+    }
+
+    @Test
+    public void notificationHasNativeFallbackActionsWithWorkingPendingIntents() throws Exception {
+        send(FocusTimerService.ACTION_SYNC);
+        awaitState(true, false, false);
+        awaitNotification(true);
+        StatusBarNotification posted = clockNotification();
+        assertNotNull("Native Focus notification must be active", posted);
+        if (Build.VERSION.SDK_INT >= 31) {
+            android.app.Notification.Action[] actions = posted.getNotification().actions;
+            assertNotNull("Android must have OS-native pause/break actions", actions);
+            assertTrue("Both fallback actions must exist", actions.length >= 2);
+            assertEquals("Durdur", actions[0].title.toString());
+            assertEquals("Mola ver", actions[1].title.toString());
+            assertNotNull(actions[0].actionIntent);
+            assertNotNull(actions[1].actionIntent);
+            actions[0].actionIntent.send();
+            awaitState(true, true, false);
+            actions[1].actionIntent.send();
+            awaitState(true, false, true);
+        }
     }
 
     @Test
