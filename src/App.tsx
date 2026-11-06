@@ -261,6 +261,55 @@ export default function App() {
     };
   }, []);
 
+  // A tap on the Android foreground notification always returns to the
+  // running Focus screen, even if the user previously minimized the session
+  // and navigated to Tasks or Statistics. Do not start a new timer.
+  useEffect(() => {
+    const openFocusFromNotification = () => {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('nevofocus_focus') !== '1') return;
+      // Consume only this one-shot intent; keep the TWA bridge marker intact.
+      url.searchParams.delete('nevofocus_focus');
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      setCurrentTab('focus');
+      try {
+        const raw = localStorage.getItem('fokus_active_session_running');
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        const startedAt = saved?.startTime || saved?.anchorTimestamp || 0;
+        if (!startedAt || saved?.isFinished || saved?.isActive === false ||
+            Date.now() - startedAt > 24 * 3600 * 1000 || isSessionTerminated(startedAt) ||
+            !['clock', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
+
+        setCurrentActiveMode(saved.mode);
+        setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
+        setDurationMinutes(saved.plannedMinutes || 45);
+        setTimerType(saved.timerType === 'stopwatch' ? 'stopwatch' : 'countdown');
+        const storedTasks = getStoredTasks();
+        setSelectedTask(saved.selectedTaskId
+          ? storedTasks.find((task) => task.id === saved.selectedTaskId) || null
+          : null);
+        if (saved.originAirport) setOriginAirport(saved.originAirport);
+        if (saved.destAirport) setDestAirport(saved.destAirport);
+        if (saved.selectedTreeSpecies) setSelectedTreeSpecies(saved.selectedTreeSpecies);
+        // Mounting ActiveFocusSession reconciles the notification button state
+        // from Android's authoritative service before resuming display.
+        setLocalMinimizedSession(null);
+        setIsSessionActive(true);
+      } catch (error) {
+        console.warn('[NevoFocus] Notification Focus restore:', error);
+      }
+    };
+
+    openFocusFromNotification();
+    window.addEventListener('pageshow', openFocusFromNotification);
+    window.addEventListener('popstate', openFocusFromNotification);
+    return () => {
+      window.removeEventListener('pageshow', openFocusFromNotification);
+      window.removeEventListener('popstate', openFocusFromNotification);
+    };
+  }, []);
+
   // Real-time cross-device sync listener on shared backup envelope (Tablet <-> Phone <-> PC)
   useEffect(() => {
     const sharedBackupDoc = doc(db, 'test', 'backup_latest_shared');
