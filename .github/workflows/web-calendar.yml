@@ -30,6 +30,7 @@ jobs:
           preview_pid=$!
           trap 'kill "$preview_pid" || true' EXIT
           node e2e/manual-rest-calendar.mjs
+          node e2e/focus-mode-settings.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -37,5 +38,8 @@ jobs:
           path: |
             calendar-selection-mobile.png
             calendar-failure.png
+            focus-settings-mobile.png
+            focus-settings-desktop.png
+            focus-settings-failure.png
           if-no-files-found: ignore
           retention-days: 7
