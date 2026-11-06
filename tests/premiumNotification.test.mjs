@@ -57,3 +57,17 @@ test('Android 12+ system affordances are not misrepresented as removable', () =>
   assert.ok(service.includes('system expansion affordance'));
 });
 
+
+test('remote notification layout uses direct dp dimensions so SystemUI can inflate it', () => {
+  const xml = read('res/layout/nevofocus_live_notification.xml');
+  assert.ok(xml.includes('android:layout_height="48dp"'));
+  assert.equal((xml.match(/android:layout_width="34dp"/g) || []).length, 2);
+  assert.equal((xml.match(/android:layout_height="34dp"/g) || []).length, 2);
+  assert.ok(!xml.includes('@dimen/nevofocus_notification_'));
+  const setup = fs.readFileSync(path.join(root, 'scripts/setup-twa-android.mjs'), 'utf8');
+  for (const dim of ['android:layout_height="64dp"',
+                     'android:layout_width="44dp"',
+                     'android:layout_height="44dp"']) {
+    assert.ok(setup.includes(dim), 'Compatibility setup must use direct dimensions: ' + dim);
+  }
+});
