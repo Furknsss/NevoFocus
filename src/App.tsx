@@ -21,7 +21,6 @@ import {
   deleteTask,
   setAllStoredSessions,
   setAllStoredTasks,
-  FOCUS_MODES,
 } from './utils/storage';
 import {
   calculateRealStreak,
@@ -68,7 +67,6 @@ import {
 } from 'firebase/firestore';
 
 import { Header } from './components/Header';
-import { ModeHubSelection } from './components/ModeHubSelection';
 import { DedicatedModeScreen } from './components/DedicatedModeScreen';
 import { ActiveFocusSession } from './components/ActiveFocusSession';
 import { TasksView } from './components/TasksView';
@@ -102,7 +100,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
 
   // Dedicated Mode Architecture
-  const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType | null>(null);
+  const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType>(() => getStoredProfile().preferredFocusMode || 'clock');
   const [transitioningToMode, setTransitioningToMode] = useState<FocusModeType | null>(null);
 
   // Firebase auth state
@@ -167,18 +165,10 @@ export default function App() {
   const [destAirport, setDestAirport] = useState<FlightAirport>(WORLD_AIRPORTS[2]); // Tokyo HND
 
   // Timer mode state (countdown vs stopwatch)
-  const [timerType, setTimerType] = useState<'countdown' | 'stopwatch'>('countdown');
+  const [timerType, setTimerType] = useState<'countdown' | 'stopwatch'>('stopwatch');
 
   // Forest selected tree species
   const [selectedTreeSpecies, setSelectedTreeSpecies] = useState<string>('Meşe Ağacı');
-
-  // Today's date string & calculated planned task minutes
-  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
-  const todayPlannedMinutes = useMemo(() => {
-    return tasks
-      .filter((t) => !t.dateString || t.dateString === todayStr)
-      .reduce((sum, t) => sum + (t.plannedMinutes || 45), 0);
-  }, [tasks, todayStr]);
 
   // Active focus session state
   const [isSessionActive, setIsSessionActive] = useState<boolean>(false);
@@ -187,7 +177,7 @@ export default function App() {
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>('breaks');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>('modes');
   const [isMarketModalOpen, setIsMarketModalOpen] = useState<boolean>(false);
   const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
@@ -422,6 +412,7 @@ export default function App() {
               targetUniversity: typeof data.targetUniversity === 'string' ? data.targetUniversity : '',
               targetDepartment: typeof data.targetDepartment === 'string' ? data.targetDepartment : '',
               targetExam: typeof data.targetExam === 'string' ? data.targetExam : 'YKS 2026 Sayısal',
+              preferredFocusMode: ['clock', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
               studyTrack: typeof data.studyTrack === 'string' ? data.studyTrack : 'Sayısal',
               dailyGoalHours: parseNumericField(data.dailyGoalHours, 6),
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
@@ -736,19 +727,11 @@ export default function App() {
     todayTotalMinutes: todayMinutes,
   }), [profile, realStreak, realTotalHours, todayMinutes]);
 
-  // Instant tab transition without delay
+  // Tab switches never return the focus page to the old mode-selection hub.
   const handleSelectTab = useCallback((tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => {
-    // Non-blocking tactile feedback
-    setTimeout(() => {
-      soundEngine.playClick();
-    }, 0);
-
-    if (tab === 'focus' && currentTab === 'focus' && !isSessionActive) {
-      setCurrentActiveMode(null);
-    }
-
+    setTimeout(() => soundEngine.playClick(), 0);
     setCurrentTab(tab);
-  }, [currentTab, isSessionActive]);
+  }, []);
 
   // Read live running session telemetry from localStorage / minimized state
   const getLiveRunningTelemetry = useCallback(() => {
@@ -889,6 +872,14 @@ export default function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [currentUser?.uid, profile.userId, isSessionActive, localMinimizedSession, getLiveRunningTelemetry, updateCloudStatus]);
+
+  // Cloud preferences should update the setup screen without interrupting any live timer.
+  useEffect(() => {
+    const runningOnThisDevice = typeof window !== 'undefined' &&
+      Boolean(localStorage.getItem('fokus_active_session_running'));
+    if (isSessionActive || localMinimizedSession || cloudActiveSession || runningOnThisDevice) return;
+    setCurrentActiveMode(profile.preferredFocusMode || 'clock');
+  }, [profile.preferredFocusMode, isSessionActive, localMinimizedSession, cloudActiveSession]);
 
   // Mode Selection Flow with Cinematic Shutter (Kepenk) Transition
   // If user already has an active/minimized session in this mode, resume it immediately instead of resetting to 0!
@@ -1506,7 +1497,10 @@ export default function App() {
           profile={dynamicProfile}
           currentUser={currentUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSettings={() => {
+            setSettingsInitialTab('modes');
+            setIsSettingsModalOpen(true);
+          }}
           onOpenBackup={() => {
             setSettingsInitialTab('backup');
             setIsSettingsModalOpen(true);
@@ -1649,47 +1643,30 @@ export default function App() {
         ) : (
           <>
             {currentTab === 'focus' && (
-              <>
-                {/* 1. Mode Selection Hub: 4 Cards */}
-                {!currentActiveMode && (
-                  <ModeHubSelection
-                    onSelectMode={handleSelectModeFromHub}
-                    todayMinutes={todayMinutes}
-                    streakDays={realStreak}
-                    dailyGoalHours={dynamicProfile.dailyGoalHours}
-                    todayPlannedMinutes={todayPlannedMinutes}
-                  />
-                )}
-
-                {/* 2. Dedicated Mode Hub for chosen mode */}
-                {currentActiveMode && (
-                  <DedicatedModeScreen
-                    mode={currentActiveMode}
-                    onBackToHub={() => setCurrentActiveMode(null)}
-                    subjects={subjects}
-                    selectedSubject={selectedSubject || subjects[0]}
-                    onSelectSubject={setSelectedSubject}
-                    durationMinutes={durationMinutes}
-                    onChangeDuration={setDurationMinutes}
-                    tasks={tasks}
-                    selectedTask={selectedTask}
-                    onSelectTask={setSelectedTask}
-                    originAirport={originAirport}
-                    destAirport={destAirport}
-                    onChangeAirports={(orig, dest) => {
-                      setOriginAirport(orig);
-                      setDestAirport(dest);
-                    }}
-                    profile={dynamicProfile}
-                    timerType={timerType}
-                    onChangeTimerType={setTimerType}
-                    onAddNewTask={handleAddTask}
-                    onStartActiveSession={handleStartSession}
-                    selectedTreeSpecies={selectedTreeSpecies}
-                    onSelectTreeSpecies={setSelectedTreeSpecies}
-                  />
-                )}
-              </>
+              <DedicatedModeScreen
+                mode={currentActiveMode}
+                subjects={subjects}
+                selectedSubject={selectedSubject || subjects[0]}
+                onSelectSubject={setSelectedSubject}
+                durationMinutes={durationMinutes}
+                onChangeDuration={setDurationMinutes}
+                tasks={tasks}
+                selectedTask={selectedTask}
+                onSelectTask={setSelectedTask}
+                originAirport={originAirport}
+                destAirport={destAirport}
+                onChangeAirports={(orig, dest) => {
+                  setOriginAirport(orig);
+                  setDestAirport(dest);
+                }}
+                profile={dynamicProfile}
+                timerType={timerType}
+                onChangeTimerType={setTimerType}
+                onAddNewTask={handleAddTask}
+                onStartActiveSession={handleStartSession}
+                selectedTreeSpecies={selectedTreeSpecies}
+                onSelectTreeSpecies={setSelectedTreeSpecies}
+              />
             )}
 
             {currentTab === 'tasks' && (
@@ -1774,6 +1751,15 @@ export default function App() {
           handleUpdateProfile({ deviceModePreference: mode });
         }}
         onUpdateProfile={handleUpdateProfile}
+        selectedFocusMode={dynamicProfile.preferredFocusMode || 'clock'}
+        focusModeChangeDisabled={Boolean(isSessionActive || localMinimizedSession || cloudActiveSession)}
+        onSelectFocusMode={(mode) => {
+          if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
+          if (currentActiveMode !== mode) handleSelectModeFromHub(mode);
+          void handleUpdateProfile({ preferredFocusMode: mode });
+          setIsSettingsModalOpen(false);
+          setCurrentTab('focus');
+        }}
         onAccountDeleted={handleAccountDeleted}
         onSyncComplete={(newSessions, newTasks, newProfile) => {
           setSessions(newSessions);
@@ -2143,9 +2129,12 @@ export default function App() {
         <BottomNav
           currentTab={currentTab}
           onSelectTab={handleSelectTab}
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSettings={() => {
+            setSettingsInitialTab('modes');
+            setIsSettingsModalOpen(true);
+          }}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          activeModeTitle={currentActiveMode ? FOCUS_MODES.find((m) => m.id === currentActiveMode)?.title : undefined}
+          activeModeTitle="Odaklan"
         />
       )}
     </div>
