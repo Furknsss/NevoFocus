@@ -265,12 +265,15 @@ export default function App() {
   // running Focus screen, even if the user previously minimized the session
   // and navigated to Tasks or Statistics. Do not start a new timer.
   useEffect(() => {
-    const openFocusFromNotification = () => {
+    const openFocusFromNotification = (fromServiceWorker = false) => {
       const url = new URL(window.location.href);
-      if (url.searchParams.get('nevofocus_focus') !== '1') return;
+      const hasDeepLink = url.searchParams.get('nevofocus_focus') === '1';
+      if (!hasDeepLink && !fromServiceWorker) return;
       // Consume only this one-shot intent; keep the TWA bridge marker intact.
-      url.searchParams.delete('nevofocus_focus');
-      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      if (hasDeepLink) {
+        url.searchParams.delete('nevofocus_focus');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      }
       setCurrentTab('focus');
       try {
         const raw = localStorage.getItem('fokus_active_session_running');
