@@ -276,6 +276,7 @@ export async function syncAllToFirestore(
       liveNotifications: currentProfile.liveNotifications ?? false,
       theme: currentProfile.theme || 'dark',
       deviceModePreference: currentProfile.deviceModePreference || 'auto',
+      preferredFocusMode: currentProfile.preferredFocusMode || 'clock',
       restDaySelectionMode: currentProfile.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates',
       weeklyRestDays: Array.isArray(currentProfile.weeklyRestDays)
         ? currentProfile.weeklyRestDays
@@ -727,6 +728,9 @@ export async function restoreAllFromFirestore(
         patch.dailyGoalHours = parseNumericField(cloudProfile.dailyGoalHours, 6);
       }
       if (cloudProfile.theme) patch.theme = cloudProfile.theme;
+      if (['clock', 'forest', 'climb', 'flight', 'dive'].includes(cloudProfile.preferredFocusMode)) {
+        patch.preferredFocusMode = cloudProfile.preferredFocusMode;
+      }
       patch.restDaySelectionMode = cloudProfile.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates';
       if (Array.isArray(cloudProfile.weeklyRestDays)) {
         patch.weeklyRestDays = cloudProfile.weeklyRestDays;
