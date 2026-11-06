@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 9bb2f44a2e16de55f5d08a36a855d0c2caf7d400
+          ref: 03f2c6d267dfcb32064c6bb792260d687b4594a1
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -77,6 +77,20 @@ jobs:
             android-twa-source-commit.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Verify live website has matching Focus-notification diagnostic
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          const url = new URL('/native-check.html', process.env.NEVOFOCUS_TWA_URL);
+          const response = await fetch(url, { cache: 'no-store' });
+          if (!response.ok) throw new Error('LIVE_SITE_UNAVAILABLE: ' + url + ' HTTP ' + response.status);
+          const body = await response.text();
+          if (!body.includes('FOCUS_TEST_OTURUMUNU_HAZIRLA')) {
+            throw new Error('STALE_LIVE_SITE: signed 1.2.3 native APK requires the new Focus restore test on ' + url +
+              '. The website has not been deployed yet. Publish the matching commit before running real Chrome E2E.');
+          }
+          console.log('Live diagnostic page is compatible with this native APK.');
+          JS
       - name: Prepare one persistent emulator shell with final evidence capture
         shell: bash
         run: |
