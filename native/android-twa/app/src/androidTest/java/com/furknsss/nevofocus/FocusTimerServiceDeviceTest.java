@@ -207,11 +207,19 @@ public class FocusTimerServiceDeviceTest {
             androidx.test.uiautomator.UiDevice device, String label) throws Exception {
         device.openNotification();
         SystemClock.sleep(650L);
+        // RemoteViews ids are sometimes exposed in SystemUI without the
+        // dynamic spoken label, particularly with Android's collapsed shade.
+        final String resource = label.equals("Durdur") || label.equals("Devam et")
+                ? "focus_pause" : "focus_break";
         androidx.test.uiautomator.UiObject2 action = device.wait(
                 androidx.test.uiautomator.Until.findObject(
-                        androidx.test.uiautomator.By.desc(label)), 8500L);
-        assertNotNull("Android SystemUI must expose an actual, tappable native Focus control: "
-                + label, action);
+                        androidx.test.uiautomator.By.res(context.getPackageName(), resource)), 4000L);
+        if (action == null) {
+            action = device.wait(androidx.test.uiautomator.Until.findObject(
+                    androidx.test.uiautomator.By.desc(label)), 4500L);
+        }
+        assertNotNull("Android SystemUI must expose an actual, tappable Focus " +
+                "notification control (" + resource + "): " + label, action);
         action.click();
     }
 
