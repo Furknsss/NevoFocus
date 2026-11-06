@@ -225,6 +225,7 @@ export function getStoredProfile(): UserProfile {
     desktopNotifications: false,
     liveNotifications: false,
     theme: 'dark',
+    preferredFocusMode: 'clock',
     restDaySelectionMode: 'dates',
     weeklyRestDays: [], // Default: Mola günü seçilmedikçe takvimde mola günü gösterilmez
     customRestDates: [],
@@ -257,6 +258,7 @@ export function getStoredProfile(): UserProfile {
       currentStreakDays: safeNum(parsed.currentStreakDays, 0),
       totalFocusHours: safeNum(parsed.totalFocusHours, 0),
       cheersReceived: safeNum(parsed.cheersReceived, 0),
+      preferredFocusMode: FOCUS_MODES.some((mode) => mode.id === parsed.preferredFocusMode) ? parsed.preferredFocusMode : 'clock',
       restDaySelectionMode: parsed.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates',
       weeklyRestDays: Array.isArray(parsed.weeklyRestDays) ? parsed.weeklyRestDays : [],
       customRestDates: Array.isArray(parsed.customRestDates) ? parsed.customRestDates : [],
