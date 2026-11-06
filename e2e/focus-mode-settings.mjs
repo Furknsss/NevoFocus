@@ -69,7 +69,32 @@ try {
   await clockTitle.waitFor();
   await page.screenshot({ path: 'focus-settings-desktop.png', fullPage: true });
   assert.equal(await page.getByRole('button', { name: 'Odaklanmaya Başla' }).count(), 1);
-  console.log('Focus UI passed: direct clock, settings-only modes, rest-day access, mobile/desktop and persistence.');
+  // Simulate an installed app's one-shot notification deep link with a
+  // persisted paused session. It must restore the live clock, not create a
+  // new 00:00 session or return to the mode-setup screen.
+  await page.evaluate(() => {
+    const now = Date.now();
+    localStorage.setItem('fokus_active_session_running', JSON.stringify({
+      isActive: true, isFinished: false, mode: 'clock',
+      startTime: now - 61000, anchorTimestamp: now,
+      accumulatedFocusSeconds: 61, accumulatedBreakSeconds: 0,
+      elapsedCountUp: 61, isPaused: true, isCampActive: false,
+      plannedMinutes: 45, timerType: 'stopwatch',
+      subject: { id: 'sub-serbest-calisma', name: 'Serbest Çalışma', color: '#6366f1' },
+    }));
+  });
+  await page.goto(base + '/?nevofocus_focus=1');
+  await page.getByRole('button', { name: 'Seansı Bitir' }).waitFor();
+  const restored = await page.evaluate(() => ({
+    url: window.location.href,
+    saved: JSON.parse(localStorage.getItem('fokus_active_session_running')),
+  }));
+  assert.ok(!new URL(restored.url).searchParams.has('nevofocus_focus'),
+    'Notification intent must be consumed after it opens Focus');
+  assert.equal(restored.saved.isPaused, true, 'Deep link must not resume a paused session');
+  assert.ok(restored.saved.elapsedCountUp >= 61, 'Deep link must preserve elapsed time');
+
+  console.log('Focus UI passed: direct clock, settings-only modes, rest days and notification deep-link restore.');
 } catch (error) {
   await page.screenshot({ path: 'focus-settings-failure.png', fullPage: true });
   console.error((await page.locator('body').innerText()).slice(0, 2400));
