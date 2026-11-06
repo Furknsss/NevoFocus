@@ -203,6 +203,51 @@ public class FocusTimerServiceDeviceTest {
         FocusTimerService.stop(context);
         awaitState(false, false, false);
     }
+    private void tapActualSystemUiAction(
+            androidx.test.uiautomator.UiDevice device, String label) throws Exception {
+        device.openNotification();
+        SystemClock.sleep(650L);
+        androidx.test.uiautomator.UiObject2 action = device.wait(
+                androidx.test.uiautomator.Until.findObject(
+                        androidx.test.uiautomator.By.desc(label)), 8500L);
+        assertNotNull("Android SystemUI must expose an actual, tappable native Focus control: "
+                + label, action);
+        action.click();
+    }
+
+    @Test
+    public void actualSystemUiButtonsPauseResumeAndStartEndBreak() throws Exception {
+        // Unlike RemoteViews.apply(), this test dispatches physical UIAutomator
+        // taps through Android SystemUI, with the app in the background.
+        startTimingSession(false, 92_000L, 0L);
+        androidx.test.uiautomator.UiDevice device =
+                androidx.test.uiautomator.UiDevice.getInstance(
+                        InstrumentationRegistry.getInstrumentation());
+        device.pressHome();
+
+        tapActualSystemUiAction(device, "Durdur");
+        awaitState(true, true, false);
+        final long paused = FocusTimerService.read(context).elapsedFocusMs();
+        Thread.sleep(200L);
+        assertEquals("Focus time must freeze from a genuine SystemUI tap",
+                paused, FocusTimerService.read(context).elapsedFocusMs());
+
+        tapActualSystemUiAction(device, "Devam et");
+        awaitState(true, false, false);
+
+        tapActualSystemUiAction(device, "Mola ver");
+        awaitState(true, false, true);
+        final long pausedForBreak = FocusTimerService.read(context).elapsedFocusMs();
+        Thread.sleep(240L);
+        assertEquals("Focus time must freeze during a genuine SystemUI break",
+                pausedForBreak, FocusTimerService.read(context).elapsedFocusMs());
+
+        tapActualSystemUiAction(device, "Molayı bitir");
+        awaitState(true, false, false);
+        android.util.Log.i("NevoFocusTimingTest",
+                "Verified actual Android SystemUI pause/resume/break/end-break taps");
+    }
+
     private void tapNativeCapsuleControl(int controlId) throws Exception {
         final StatusBarNotification notification = clockNotification();
         assertNotNull("A genuine posted native focus notification must exist", notification);
