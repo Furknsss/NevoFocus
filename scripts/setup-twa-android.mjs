@@ -137,9 +137,9 @@ if (!targetPattern.test(gradle)) throw new Error('Generated Android targetSdk de
 gradle = gradle.replace(targetPattern, legacyCapsule
   ? 'targetSdkVersion 30'
   : 'targetSdkVersion rootProject.ext.targetSdkVersion');
-gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 7')
+gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 8')
   .replace(/\bversionName\s+"[^"]+"/, 'versionName "' +
-    (legacyCapsule ? '1.2.2-premium-capsule' : '1.2.2-timer-accuracy') + '"');
+    (legacyCapsule ? '1.2.3-premium-capsule' : '1.2.3-focus-notification') + '"');
 fs.writeFileSync(appGradlePath, gradle);
 
 // Keep layout dimensions literal: SystemUI inflates RemoteViews in a different
