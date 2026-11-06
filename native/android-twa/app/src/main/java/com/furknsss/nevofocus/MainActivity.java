@@ -34,6 +34,9 @@ import org.json.JSONObject;
  */
 public final class MainActivity extends Activity {
     private static final String TAG = "NevoFocusTwa";
+    // Only the app's own focus notification uses this action. It must open
+    // the running focus screen instead of the normal app landing route.
+    public static final String ACTION_OPEN_FOCUS = "com.furknsss.nevofocus.OPEN_FOCUS";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 306;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Uri siteOrigin = Uri.parse(TwaWebConfig.ORIGIN);
@@ -189,8 +192,14 @@ public final class MainActivity extends Activity {
                 getIntent().getBooleanExtra("nevofocus.bridgeCheck", false)) {
             start = siteOrigin.buildUpon().path("/native-check.html").build();
         }
-        Uri url = start.buildUpon()
-                .appendQueryParameter("nevofocus_twa", "1").build();
+        Uri.Builder urlBuilder = start.buildUpon()
+                .appendQueryParameter("nevofocus_twa", "1");
+        if (ACTION_OPEN_FOCUS.equals(getIntent().getAction())) {
+            // The website uses its persisted session and the authoritative
+            // Android timer state to restore the exact focus screen.
+            urlBuilder.appendQueryParameter("nevofocus_focus", "1");
+        }
+        Uri url = urlBuilder.build();
         new TrustedWebActivityIntentBuilder(url)
                 .setToolbarColor(android.graphics.Color.BLACK)
                 .setNavigationBarColor(android.graphics.Color.BLACK)
@@ -344,6 +353,27 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             Log.e(TAG, "native command failed", error);
             sendResponse("NEVOFOCUS_NATIVE_ERROR", "", null, error.getMessage());
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent == null) return;
+        setIntent(intent);
+        if (!ACTION_OPEN_FOCUS.equals(intent.getAction())) return;
+
+        // FLAG_ACTIVITY_CLEAR_TOP | SINGLE_TOP can reuse this controller.
+        // A repeated notification tap must reopen the actual Focus TWA,
+        // even if Chrome was already launched earlier in this Activity.
+        browserWasInFront = false;
+        launched = false;
+        if (session != null) {
+            launchTwa();
+        } else if (!connected) {
+            // Chrome may have killed the bound Custom Tabs service while
+            // the app was backgrounded. Recreate a verified session.
+            recreate();
         }
     }
 
