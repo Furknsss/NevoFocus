@@ -9,6 +9,7 @@ test('focus tab opens the selected mode directly, never a mode card hub', () => 
   const app = read('src/App.tsx');
   assert.match(app, /useState<FocusModeType>\(\(\) => getStoredProfile\(\)\.preferredFocusMode \|\| 'clock'\)/);
   assert.doesNotMatch(app, /<ModeHubSelection/);
+  assert.doesNotMatch(app, /<CinematicTransitionCurtain/, 'Settings mode switches must not cover the focus screen');
   assert.doesNotMatch(app, /setCurrentActiveMode\(null\)/);
   assert.match(app, /\{currentTab === 'focus' && \(\s*<DedicatedModeScreen/);
   assert.match(app, /onSelectFocusMode=\{\(mode\) =>/);
