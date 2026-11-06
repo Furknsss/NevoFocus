@@ -311,7 +311,12 @@ export default function App() {
     window.addEventListener('pageshow', handleUrlOpen);
     window.addEventListener('popstate', handleUrlOpen);
     window.addEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
+    // Capacitor delivers cold-start notification intents only once the React
+    // listener exists; Android retries until this explicit readiness flag.
+    const focusWindow = window as Window & { __nevofocusFocusListenerReady?: boolean };
+    focusWindow.__nevofocusFocusListenerReady = true;
     return () => {
+      focusWindow.__nevofocusFocusListenerReady = false;
       window.removeEventListener('pageshow', handleUrlOpen);
       window.removeEventListener('popstate', handleUrlOpen);
       window.removeEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
