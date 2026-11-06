@@ -304,6 +304,8 @@ class BackgroundFocusManager {
             this.onTogglePauseCallback();
           } else if (event.data.action === 'toggle_break' && this.onToggleBreakCallback) {
             this.onToggleBreakCallback();
+          } else if (event.data.action === 'open_focus') {
+            window.dispatchEvent(new Event('nevofocus:notification-open'));
           } else if (event.data.action === 'open_app' && this.onMaximizeCallback) {
             this.onMaximizeCallback();
           }
