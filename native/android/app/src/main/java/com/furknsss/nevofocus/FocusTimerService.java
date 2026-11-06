@@ -274,6 +274,13 @@ public final class FocusTimerService extends Service {
 
     private PendingIntent serviceAction(String action, int requestCode) {
         Intent intent = new Intent(this, FocusTimerService.class).setAction(action);
+        // A notification tap is a user-initiated foreground-service action.
+        // getService() can be blocked when the app's Chrome TWA is backgrounded.
+        // Keep pause/break executable while Android owns the notification shade.
+        if (Build.VERSION.SDK_INT >= 26) {
+            return PendingIntent.getForegroundService(this, requestCode, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
         return PendingIntent.getService(this, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
@@ -282,9 +289,18 @@ public final class FocusTimerService extends Service {
         RemoteViews compact = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification);
         prepareViews(compact, state);
 
-        PendingIntent openApp = PendingIntent.getActivity(this, 0,
-                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        Intent focusIntent = new Intent(this, MainActivity.class)
+                .setAction(MainActivity.ACTION_OPEN_FOCUS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openApp = PendingIntent.getActivity(this, 3, focusIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        // With a custom RemoteViews capsule the clock surface must be tappable,
+        // not just the system notification chrome. Action controls keep their
+        // separate PendingIntents in prepareViews().
+        compact.setOnClickPendingIntent(R.id.focus_capsule, openApp);
+        compact.setOnClickPendingIntent(R.id.focus_main_time, openApp);
+        compact.setOnClickPendingIntent(R.id.focus_seconds, openApp);
 
         Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.nevofocus_notification_icon)
