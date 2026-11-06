@@ -142,16 +142,23 @@ gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 7')
     (legacyCapsule ? '1.2.2-premium-capsule' : '1.2.2-timer-accuracy') + '"');
 fs.writeFileSync(appGradlePath, gradle);
 
-// Legacy compact RemoteViews can use 64dp without restoring SystemUI decoration.
-// Keep modern builds inside Android 12+'s 48dp custom-content limit.
+// Keep layout dimensions literal: SystemUI inflates RemoteViews in a different
+// process, and dimension resource indirection crashed the compact capsule on
+// Android 15. Only the explicit compatibility build expands the normal 48/34dp
+// layout to 64/44dp. Regular builds preserve the modern OS limits.
 if (legacyCapsule) {
-  fs.writeFileSync(path.join(androidMain, 'res', 'values', 'nevofocus_notification_dimensions.xml'),
-    '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n' +
-    '    <dimen name="nevofocus_notification_height">64dp</dimen>\n' +
-    '    <dimen name="nevofocus_notification_action_size">44dp</dimen>\n' +
-    '</resources>\n');
+  const capsulePath = path.join(androidMain, 'res', 'layout', 'nevofocus_live_notification.xml');
+  let capsule = fs.readFileSync(capsulePath, 'utf8');
+  const expected = ['android:layout_height="48dp"', 'android:layout_width="34dp"',
+    'android:layout_height="34dp"'];
+  for (const token of expected) {
+    if (!capsule.includes(token)) throw new Error('Missing capsule layout dimension: ' + token);
+  }
+  capsule = capsule.replace('android:layout_height="48dp"', 'android:layout_height="64dp"')
+    .replaceAll('android:layout_width="34dp"', 'android:layout_width="44dp"')
+    .replaceAll('android:layout_height="34dp"', 'android:layout_height="44dp"');
+  fs.writeFileSync(capsulePath, capsule);
 }
-
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated
 // Android CI builds. Prefer Google's public Maven Central mirror with the
