@@ -7,7 +7,8 @@ const read = (path) => fs.readFileSync(path, 'utf8');
 test('tapping the full custom notification opens a Focus-specific TWA route', () => {
   const service = read('native/android/app/src/main/java/com/furknsss/nevofocus/FocusTimerService.java');
   const activity = read('native/android-twa/app/src/main/java/com/furknsss/nevofocus/MainActivity.java');
-  assert.match(service, /setAction\(MainActivity\.ACTION_OPEN_FOCUS\)/);
+  assert.match(service, /setAction\(ACTION_OPEN_FOCUS\)/);
+  assert.match(service, /ACTION_OPEN_FOCUS = "com\\.furknsss\\.nevofocus\\.OPEN_FOCUS"/);
   assert.match(service, /Intent\.FLAG_ACTIVITY_CLEAR_TOP \| Intent\.FLAG_ACTIVITY_SINGLE_TOP/);
   assert.match(service, /setContentIntent\(openApp\)/);
   assert.match(service, /setOnClickPendingIntent\(R\.id\.focus_main_time, openApp\)/);
