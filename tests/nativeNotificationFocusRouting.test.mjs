@@ -59,3 +59,21 @@ test('notification route resumes persisted session without wiping clock, mode or
   assert.match(active, /setIsPaused\(state\.isPaused\)/);
   assert.match(active, /setIsCampActive\(state\.isBreakActive\)/);
 });
+
+test('foreground capsule reuses stable PendingIntents and cached clock state', () => {
+  const service = read('native/android/app/src/main/java/com/furknsss/nevofocus/FocusTimerService.java');
+  assert.match(service, /private State clockState;/);
+  assert.match(service, /State current = clockState != null \? clockState : read\(FocusTimerService\.this\)/);
+  assert.match(service, /clockState = state;/);
+  assert.match(service, /if \(ACTION_PAUSE\.equals\(action\) && pauseActionIntent != null\) return pauseActionIntent;/);
+  assert.match(service, /if \(ACTION_BREAK\.equals\(action\) && breakActionIntent != null\) return breakActionIntent;/);
+  assert.match(service, /if \(openFocusIntent != null\) return openFocusIntent;/);
+  assert.match(service, /clockState = null;/);
+});
+
+test('Focus page checks notification controls promptly without polling in background', () => {
+  const active = read('src/components/ActiveFocusSession.tsx');
+  assert.match(active, /if \(busy \|\| !mounted \|\| isSessionEndedRef\.current\) return;/);
+  assert.match(active, /if \(!document\.hidden && isNativeFocusAvailable\) void reconcile\(\);\s*\}, 650\);/);
+  assert.match(active, /window\.clearInterval\(foregroundPoll\)/);
+});
