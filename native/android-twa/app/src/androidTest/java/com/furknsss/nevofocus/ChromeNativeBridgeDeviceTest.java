@@ -248,6 +248,14 @@ public class ChromeNativeBridgeDeviceTest {
         assertTrue("Notification clock must reopen the running Focus screen",
                 device.wait(Until.hasObject(By.text("Seansı Bitir")), 60000));
         assertTrue("Opening Focus must not stop the Android timer", FocusTimerService.read(context).active);
+        // A transient focus overlay is not sufficient. The previous evidence
+        // captured the setup screen despite an earlier Seansı Bitir match.
+        // Verify the active session survives React hydration/navigation.
+        SystemClock.sleep(2600L);
+        assertTrue("Restored Focus must remain visibly active after 2.6 seconds",
+                device.hasObject(By.text("Seansı Bitir")));
+        assertFalse("Notification tap must not fall back to Odaklanmaya Başla",
+                device.hasObject(By.text("Odaklanmaya Başla")));
         capture("nevofocus-focus-after-notification-tap.png");
 
         FocusTimerService.stop(context);
