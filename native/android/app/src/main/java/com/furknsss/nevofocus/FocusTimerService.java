@@ -324,7 +324,8 @@ public final class FocusTimerService extends Service {
                 // Android 15. Without bigContentView the OS silently substitutes
                 // its standard title/text view and hides our live clock entirely.
                 // Supply the interactive capsule for ALL three presentation modes.
-                // Android itself may still decorate the row with its own header.
+                // Android owns the system expansion affordance and app header;
+                // keep those OS decorations outside our interactive clock.
                 .setCustomContentView(compact)
                 .setCustomBigContentView(compact)
                 .setCustomHeadsUpContentView(compact);
