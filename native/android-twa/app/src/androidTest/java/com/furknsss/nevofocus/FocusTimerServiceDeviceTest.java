@@ -212,22 +212,31 @@ public class FocusTimerServiceDeviceTest {
         // dynamic spoken label, particularly with Android's collapsed shade.
         final String resource = label.equals("Durdur") || label.equals("Devam et")
                 ? "focus_pause" : "focus_break";
-        androidx.test.uiautomator.UiObject2 action = device.wait(
-                androidx.test.uiautomator.Until.findObject(
-                        androidx.test.uiautomator.By.res(context.getPackageName(), resource)), 4000L);
-        if (action == null) {
-            action = device.wait(androidx.test.uiautomator.Until.findObject(
-                    androidx.test.uiautomator.By.desc(label)), 2500L);
+        // RemoteViews timer text repaints every second, replacing accessibility
+        // nodes. Re-query immediately after StaleObjectException instead of
+        // treating a genuine transient SystemUI refresh as a missing button.
+        final long deadline = SystemClock.uptimeMillis() + 16000L;
+        while (SystemClock.uptimeMillis() < deadline) {
+            androidx.test.uiautomator.UiObject2 action =
+                    device.findObject(androidx.test.uiautomator.By.res(
+                            context.getPackageName(), resource));
+            if (action == null) action = device.findObject(
+                    androidx.test.uiautomator.By.desc(label));
+            if (action == null) action = device.findObject(
+                    androidx.test.uiautomator.By.text(label));
+            if (action != null) {
+                try {
+                    action.click();
+                    return;
+                } catch (androidx.test.uiautomator.StaleObjectException stale) {
+                    android.util.Log.i("NevoFocusTimingTest",
+                            "SystemUI repainted " + label + " during accessibility tap; retrying");
+                }
+            }
+            SystemClock.sleep(140L);
         }
-        if (action == null) {
-            // OS-native fallback actions may appear as visible text buttons,
-            // not as accessibility-labelled custom RemoteViews ImageViews.
-            action = device.wait(androidx.test.uiautomator.Until.findObject(
-                    androidx.test.uiautomator.By.text(label)), 3000L);
-        }
-        assertNotNull("Android SystemUI must expose a tappable Focus control: "
-                + label + " (custom RemoteViews or native action)", action);
-        action.click();
+        fail("Android SystemUI must expose a tappable Focus control: "
+                + label + " (custom RemoteViews or native action)");
     }
 
     @Test
@@ -390,9 +399,27 @@ public class FocusTimerServiceDeviceTest {
                 .putExtra("paused", false).putExtra("onBreak", false);
         context.startForegroundService(intent);
         awaitState(true, false, false);
+        // The previous Chrome instrumentation may leave delayed WebView work.
+        // Never start a timing assertion until the exact expected SYNC has
+        // reached the service, with the intended type and session key.
+        final String expectedKey = countdown ? "timing-countdown" : "timing-stopwatch";
+        final long deadline = SystemClock.uptimeMillis() + 10000L;
+        while (SystemClock.uptimeMillis() < deadline) {
+            FocusTimerService.State state = FocusTimerService.read(context);
+            if (expectedKey.equals(state.sessionKey) && state.countdown == countdown
+                    && state.plannedMs == planned && state.focusMs == focus) break;
+            SystemClock.sleep(45L);
+        }
+        FocusTimerService.State started = FocusTimerService.read(context);
+        assertEquals("The timing run must own the active native session",
+                expectedKey, started.sessionKey);
+        assertEquals("The timing run must not inherit the previous timer kind",
+                countdown, started.countdown);
+        assertEquals("The timing run must start at its requested accumulated time",
+                focus, started.focusMs);
         awaitNotification(true);
         assertTrue("Android boot counter must be available for monotonic recovery",
-                FocusTimerService.read(context).currentBootCount >= 0);
+                started.currentBootCount >= 0);
     }
 
     private void restorePersistedServiceByNotificationTap(
@@ -454,8 +481,14 @@ public class FocusTimerServiceDeviceTest {
         long reference = SystemClock.elapsedRealtime() - baselineElapsed;
         long measured = FocusTimerService.read(context).elapsedFocusMs() - baselineFocus;
         long error = Math.abs(reference - measured);
+        FocusTimerService.State actualState = FocusTimerService.read(context);
         android.util.Log.i("NevoFocusTimingTest", "NEVO_TIMING mode=" + mode
-                + " referenceMs=" + reference + " timerMs=" + measured + " errorMs=" + error);
+                + " referenceMs=" + reference + " timerMs=" + measured + " errorMs=" + error
+                + " session=" + actualState.sessionKey + " baseFocusMs=" + actualState.focusMs
+                + " wallDeltaMs=" + (System.currentTimeMillis() - actualState.anchorMs)
+                + " monotonicDeltaMs=" + (SystemClock.elapsedRealtime() - actualState.anchorElapsedMs)
+                + " anchorBoot=" + actualState.anchorBootCount
+                + " currentBoot=" + actualState.currentBootCount);
         assertTrue("Clock drift over background/screen-off/recreation: " + error + "ms", error <= 500L);
     }
 
