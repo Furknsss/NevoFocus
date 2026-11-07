@@ -42,6 +42,9 @@ test('native foreground service owns each second and reuses the capsule in both 
     '.setOnlyAlertOnce(true)',
   ]) assert.ok(service.includes(token), 'Native notification must include ' + token);
   assert.ok(service.includes('.setCustomBigContentView(compact)'), 'SystemUI expansion must preserve the same clock and controls');
+  assert.match(service,
+    /\.setCustomContentView\(compact\)\s*\.setCustomBigContentView\(compact\)\s*\.setCustomHeadsUpContentView\(compact\)/,
+    'Android 15 automatically expands legacy targetSdk 30 notifications: every layout must use the live clock');
   assert.ok(service.indexOf('setOnClickPendingIntent(R.id.focus_pause') <
             service.indexOf('setOnClickPendingIntent(R.id.focus_break'));
 });
