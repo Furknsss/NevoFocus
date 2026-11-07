@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: dbb8c426203f3cc58b91bde744ca160f0ef84254
+          ref: 00e62f4658131e4793c6389267a416f812c16f63
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -67,10 +67,10 @@ jobs:
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
           node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
           node --input-type=module -e "const r=await fetch(new URL('twa-bootstrap.js',process.env.NEVOFOCUS_TWA_URL)); if(!r.ok || !(await r.text()).includes('android-app://')) throw Error('Live origin must serve the Android-app origin fix before Chrome integration')"
-      - name: Upload 1.2.4 device-test candidate before Chrome integration
+      - name: Upload 1.2.5 device-test candidate before Chrome integration
         uses: actions/upload-artifact@v4
         with:
-          name: nevofocus-1.2.4-notification-candidate-apk
+          name: nevofocus-1.2.5-notification-candidate-apk
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android-twa-apk-signature.txt
@@ -86,7 +86,7 @@ jobs:
           if (!response.ok) throw new Error('LIVE_SITE_UNAVAILABLE: ' + url + ' HTTP ' + response.status);
           const body = await response.text();
           if (!body.includes('FOCUS_TEST_OTURUMUNU_HAZIRLA')) {
-            throw new Error('STALE_LIVE_SITE: signed 1.2.4 native APK requires the new Focus restore test on ' + url +
+            throw new Error('STALE_LIVE_SITE: signed 1.2.5 native APK requires the new Focus restore test on ' + url +
               '. The website has not been deployed yet. Publish the matching commit before running real Chrome E2E.');
           }
           console.log('Live diagnostic page is compatible with this native APK.');
