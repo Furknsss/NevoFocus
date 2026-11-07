@@ -473,12 +473,13 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     window.addEventListener('focus', onVisible);
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('nevofocus:twa-connected', onVisible);
-    // Returning from the Android notification shade does not always emit a
-    // browser visibilitychange/focus event. Poll the foreground service only
-    // while visible so native Pause/Break commands cannot appear ignored.
+    // Returning from Android's notification shade sometimes emits no browser
+    // visibility/focus event. The previous 1750ms foreground poll made a
+    // pause/break tap appear delayed in the Focus screen. A 650ms poll only
+    // runs while the session is visible; busy guards avoid overlapping calls.
     const foregroundPoll = window.setInterval(() => {
       if (!document.hidden && isNativeFocusAvailable) void reconcile();
-    }, 1750);
+    }, 650);
     return () => {
       mounted = false;
       window.clearInterval(foregroundPoll);
