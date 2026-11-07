@@ -127,14 +127,12 @@ public class ChromeNativeBridgeDeviceTest {
         for (StatusBarNotification item : manager.getActiveNotifications()) {
             if (item.getNotification().contentView != null) {
                 assertEquals(context.getPackageName(), item.getPackageName());
-                if (context.getApplicationInfo().targetSdkVersion >= 31) {
-                    assertNotNull(item.getNotification().bigContentView);
-                    assertEquals(item.getNotification().contentView.getLayoutId(),
-                            item.getNotification().bigContentView.getLayoutId());
-                } else {
-                    assertNull("Compatibility capsule must not provide an expanded view",
-                            item.getNotification().bigContentView);
-                }
+                // Android 15 expands legacy targetSdk 30 notifications too.
+                // The big content must explicitly carry the custom clock.
+                assertNotNull("Expanded notification must retain the timer capsule",
+                        item.getNotification().bigContentView);
+                assertEquals(item.getNotification().contentView.getLayoutId(),
+                        item.getNotification().bigContentView.getLayoutId());
                 return true;
             }
         }
@@ -202,13 +200,13 @@ public class ChromeNativeBridgeDeviceTest {
             assertTrue("Both controls must fit inside the capsule",
                     rest.getVisibleBounds().right <= bounds.right &&
                     pause.getVisibleBounds().left > clock.getVisibleBounds().right);
-            UiObject2 row = capsule;
-            while (row.getParent() != null &&
-                    !"com.android.systemui:id/expandableNotificationRow".equals(row.getResourceName())) {
-                row = row.getParent();
-            }
-            assertNull("No app logo may return to the capsule", row.findObject(By.res("android", "icon")));
-            assertNull("No expand arrow may return to the capsule", row.findObject(By.res("android", "expand_button")));
+            // Android 15 may add an OS-owned app icon and collapse arrow
+            // *outside* the custom view. Those system decorations are not
+            // removable and must never cause a false capsule failure.
+            assertNull("Do not embed an app icon inside our actual clock capsule",
+                    capsule.findObject(By.res("android", "icon")));
+            assertNull("Do not embed an expansion button inside our actual clock capsule",
+                    capsule.findObject(By.res("android", "expand_button")));
             android.util.Log.i("NevoFocusChromeTest", "NEVO_CAPSULE heightDp=" + bounds.height() / density
                     + " clockInsetDp=" + (clock.getVisibleBounds().left - bounds.left) / density
                     + " buttonDp=" + pause.getVisibleBounds().height() / density);
