@@ -37,6 +37,10 @@ public class ChromeNativeBridgeDeviceTest {
         device.dumpWindowHierarchy(new File(context.getFilesDir(), "chrome-ui.xml"));
         capture("chrome-failure.png");
         FocusTimerService.stop(context);
+        // A live Chrome tab can send late native SYNC requests after cleanup
+        // and silently overwrite the next native-only countdown test. Shut
+        // down this instrumentation-owned browser after saving all evidence.
+        device.executeShellCommand("am force-stop com.android.chrome");
     }
     private void capture(String name) throws Exception {
         Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
