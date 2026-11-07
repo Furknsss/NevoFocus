@@ -156,14 +156,11 @@ public class FocusTimerServiceDeviceTest {
             for (StatusBarNotification item : manager.getActiveNotifications()) {
                 if (item.getNotification().contentView != null) {
                     // SystemUI may auto-expand the row. Keep the same clock and controls.
-                    if (context.getApplicationInfo().targetSdkVersion >= 31) {
-                        assertNotNull(item.getNotification().bigContentView);
-                        assertEquals(item.getNotification().contentView.getLayoutId(),
-                                item.getNotification().bigContentView.getLayoutId());
-                    } else {
-                        assertNull("Compatibility capsule must not provide an expanded view",
-                                item.getNotification().bigContentView);
-                    }
+                    assertNotNull("Even a legacy SDK notification needs the expanded clock view",
+                            item.getNotification().bigContentView);
+                    assertEquals("Expanded notification must use the same live clock layout",
+                            item.getNotification().contentView.getLayoutId(),
+                            item.getNotification().bigContentView.getLayoutId());
                     visible = true;
                     assertEquals("Focus notification must be ongoing",
                             (item.getNotification().flags & android.app.Notification.FLAG_ONGOING_EVENT) != 0,
