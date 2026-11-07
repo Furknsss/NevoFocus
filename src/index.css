@@ -35,3 +35,18 @@
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
+
+/* APK-only touch behavior; retain the existing layouts and editable fields. */
+html.nevo-native, html.nevo-native body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.nevo-native button, html.nevo-native a, html.nevo-native [role="button"] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.nevo-native input, html.nevo-native textarea, html.nevo-native [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}

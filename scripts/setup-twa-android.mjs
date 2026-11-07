@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const smoke = process.argv.includes('--ci-smoke');
+// Explicit opt-in private APK variant; the default build keeps the current Android target.
+const legacyCapsule = process.env.NEVOFOCUS_LEGACY_CAPSULE === '1';
 const raw = process.env.NEVOFOCUS_TWA_URL || (smoke ? 'https://nevofocus.invalid/' : '');
 
 if (!raw) {
@@ -89,6 +91,7 @@ const dependency = 'implementation "androidx.browser:browser:1.10.0"';
 const junitDependency = 'testImplementation "junit:junit:4.13.2"';
 const instrumentationDependency = 'androidTestImplementation "androidx.test:runner:1.6.2"';
 const instrumentationJunitDependency = 'androidTestImplementation "androidx.test.ext:junit:1.2.1"';
+const uiAutomatorDependency = 'androidTestImplementation "androidx.test.uiautomator:uiautomator:2.3.0"';
 if (!gradle.includes(dependency)) {
   if (!gradle.includes('dependencies {')) throw new Error('Android Gradle dependencies block not found.');
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + dependency);
@@ -96,7 +99,7 @@ if (!gradle.includes(dependency)) {
 if (!gradle.includes(junitDependency)) {
   gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + junitDependency);
 }
-for (const required of [instrumentationDependency, instrumentationJunitDependency]) {
+for (const required of [instrumentationDependency, instrumentationJunitDependency, uiAutomatorDependency]) {
   if (!gradle.includes(required)) {
     gradle = gradle.replace('dependencies {', 'dependencies {\n    ' + required);
   }
@@ -129,7 +132,33 @@ if (process.env.NEVOFOCUS_TWA_SIGNING_STORE) {
         }
     }`);
 }
+const targetPattern = /\btargetSdk(?:Version)?\s*(?:=\s*)?(?:rootProject\.ext\.targetSdkVersion|\d+)/;
+if (!targetPattern.test(gradle)) throw new Error('Generated Android targetSdk declaration missing.');
+gradle = gradle.replace(targetPattern, legacyCapsule
+  ? 'targetSdkVersion 30'
+  : 'targetSdkVersion rootProject.ext.targetSdkVersion');
+gradle = gradle.replace(/\bversionCode\s+\d+/, 'versionCode 11')
+  .replace(/\bversionName\s+"[^"]+"/, 'versionName "' +
+    (legacyCapsule ? '1.2.6-premium-capsule' : '1.2.6-focus-notification') + '"');
 fs.writeFileSync(appGradlePath, gradle);
+
+// Keep layout dimensions literal: SystemUI inflates RemoteViews in a different
+// process, and dimension resource indirection crashed the compact capsule on
+// Android 15. Only the explicit compatibility build expands the normal 48/34dp
+// layout to 64/44dp. Regular builds preserve the modern OS limits.
+if (legacyCapsule) {
+  const capsulePath = path.join(androidMain, 'res', 'layout', 'nevofocus_live_notification.xml');
+  let capsule = fs.readFileSync(capsulePath, 'utf8');
+  const expected = ['android:layout_height="48dp"', 'android:layout_width="34dp"',
+    'android:layout_height="34dp"'];
+  for (const token of expected) {
+    if (!capsule.includes(token)) throw new Error('Missing capsule layout dimension: ' + token);
+  }
+  capsule = capsule.replace('android:layout_height="48dp"', 'android:layout_height="64dp"')
+    .replaceAll('android:layout_width="34dp"', 'android:layout_width="44dp"')
+    .replaceAll('android:layout_height="34dp"', 'android:layout_height="44dp"');
+  fs.writeFileSync(capsulePath, capsule);
+}
 
 // GitHub shared runners can receive Maven Central HTTP 429 after repeated
 // Android CI builds. Prefer Google's public Maven Central mirror with the
@@ -152,3 +181,4 @@ if (smoke) {
 } else {
   console.log('Publish .well-known/assetlinks.json at this HTTPS origin before device testing.');
 }
+

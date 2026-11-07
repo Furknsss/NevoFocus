@@ -34,6 +34,9 @@ import org.json.JSONObject;
  */
 public final class MainActivity extends Activity {
     private static final String TAG = "NevoFocusTwa";
+    // Only the app's own focus notification uses this action. It must open
+    // the running focus screen instead of the normal app landing route.
+    public static final String ACTION_OPEN_FOCUS = "com.furknsss.nevofocus.OPEN_FOCUS";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 306;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Uri siteOrigin = Uri.parse(TwaWebConfig.ORIGIN);
@@ -49,6 +52,7 @@ public final class MainActivity extends Activity {
     private boolean launched;
     private boolean browserWasInFront;
     private boolean notificationPermissionResolved;
+    private int channelGeneration;
 
     private final CustomTabsCallback callback = new CustomTabsCallback() {
         @Override
@@ -62,6 +66,13 @@ public final class MainActivity extends Activity {
 
         @Override
         public void onNavigationEvent(int navigationEvent, @Nullable Bundle extras) {
+            if (navigationEvent == NAVIGATION_STARTED) {
+                navigated = false;
+                channelRequested = false;
+                channelReady = false;
+                webReady = false;
+                channelGeneration++;
+            }
             if (navigationEvent == NAVIGATION_FINISHED) {
                 navigated = true;
                 maybeRequestChannel();
@@ -72,13 +83,14 @@ public final class MainActivity extends Activity {
         public void onMessageChannelReady(@Nullable Bundle extras) {
             if (!verified) return;
             channelReady = true;
+            final int generation = channelGeneration;
             // React's first load can take longer than a few seconds on a
             // cold phone; retry until the page attaches its MessagePort.
             sendHello();
             for (int attempt = 1; attempt <= 18; attempt++) {
                 final int delay = attempt * 1100;
                 handler.postDelayed(() -> {
-                    if (channelReady && !webReady) sendHello();
+                    if (generation == channelGeneration && channelReady && !webReady) sendHello();
                 }, delay);
             }
         }
@@ -93,6 +105,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        showLaunchBrand();
         // Prefer the same stable Chrome browser that hosts the user's PWA
         // profile. Other Custom Tabs providers may have a separate login store.
         // Request POST_NOTIFICATIONS while our native Activity is still in the foreground.
@@ -141,13 +154,52 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void showLaunchBrand() {
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setGravity(android.view.Gravity.CENTER);
+        panel.setBackgroundColor(android.graphics.Color.WHITE);
+        float density = getResources().getDisplayMetrics().density;
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        logo.setImageResource(R.drawable.nevofocus_brand_logo);
+        logo.setContentDescription("NevoFocus");
+        int size = Math.round(108 * density);
+        panel.addView(logo, new android.widget.LinearLayout.LayoutParams(size, size));
+        android.widget.TextView name = new android.widget.TextView(this);
+        name.setText("NevoFocus");
+        name.setTextColor(android.graphics.Color.BLACK);
+        name.setTextSize(24);
+        name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        android.widget.LinearLayout.LayoutParams label = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        label.topMargin = Math.round(18 * density);
+        panel.addView(name, label);
+        setContentView(panel);
+        getWindow().setStatusBarColor(android.graphics.Color.WHITE);
+        getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
+        getWindow().getDecorView().setSystemUiVisibility(
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    }
+
     private void launchTwa() {
         if (launched || session == null || !notificationPermissionResolved) return;
         launched = true;
         // Explicit marker only gates the JavaScript bridge path; it is not an
         // authentication token or a replacement for Chrome origin validation.
-        Uri url = Uri.parse(TwaWebConfig.START_URL).buildUpon()
-                .appendQueryParameter("nevofocus_twa", "1").build();
+        Uri start = Uri.parse(TwaWebConfig.START_URL);
+        // Debug-only, same-origin diagnostic. Never changes Firebase or account data.
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+                getIntent().getBooleanExtra("nevofocus.bridgeCheck", false)) {
+            start = siteOrigin.buildUpon().path("/native-check.html").build();
+        }
+        Uri.Builder urlBuilder = start.buildUpon()
+                .appendQueryParameter("nevofocus_twa", "1");
+        if (ACTION_OPEN_FOCUS.equals(getIntent().getAction())) {
+            // The website uses its persisted session and the authoritative
+            // Android timer state to restore the exact focus screen.
+            urlBuilder.appendQueryParameter("nevofocus_focus", "1");
+        }
+        Uri url = urlBuilder.build();
         new TrustedWebActivityIntentBuilder(url)
                 .setToolbarColor(android.graphics.Color.BLACK)
                 .setNavigationBarColor(android.graphics.Color.BLACK)
@@ -181,7 +233,8 @@ public final class MainActivity extends Activity {
 
     private void sendHello() {
         if (session == null || !channelReady || !verified) return;
-        session.postMessage("{\"type\":\"NEVOFOCUS_TWA_HELLO\",\"version\":1}", null);
+        int result = session.postMessage("{\"type\":\"NEVOFOCUS_TWA_HELLO\",\"version\":1}", null);
+        Log.i(TAG, "Native HELLO sent through transferred MessagePort: " + result);
     }
 
     private void sendResponse(String type, String requestId, JSONObject state, String error) {
@@ -257,8 +310,21 @@ public final class MainActivity extends Activity {
                         "Android bildirim izni kapalı. Kronometre kapsülünü kullanmak için uygulama bildirimlerini açın.");
                 return;
             }
+            String timerType = message.optString("timerType", "stopwatch");
+            double plannedMinutes = message.optDouble("plannedMinutes", 0);
+            if (!"stopwatch".equals(timerType) && !"countdown".equals(timerType)) {
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null, "invalid timer type");
+                return;
+            }
+            if (!Double.isFinite(plannedMinutes) || plannedMinutes < 0 ||
+                    plannedMinutes > 30 * 1440) {
+                sendResponse("NEVOFOCUS_NATIVE_ERROR", requestId, null, "invalid planned time");
+                return;
+            }
             Intent start = new Intent(this, FocusTimerService.class);
             start.setAction(FocusTimerService.ACTION_SYNC);
+            start.putExtra("countdown", "countdown".equals(timerType));
+            start.putExtra("plannedMs", Math.round(plannedMinutes * 60_000));
             start.putExtra("sessionKey", sessionKey);
             start.putExtra("paused", message.optBoolean("isPaused", false));
             start.putExtra("onBreak", message.optBoolean("isBreakActive", false));
@@ -291,6 +357,27 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent == null) return;
+        setIntent(intent);
+        if (!ACTION_OPEN_FOCUS.equals(intent.getAction())) return;
+
+        // FLAG_ACTIVITY_CLEAR_TOP | SINGLE_TOP can reuse this controller.
+        // A repeated notification tap must reopen the actual Focus TWA,
+        // even if Chrome was already launched earlier in this Activity.
+        browserWasInFront = false;
+        launched = false;
+        if (session != null) {
+            launchTwa();
+        } else {
+            // Chrome may have discarded our Custom Tabs session while the
+            // app was backgrounded. Recreate a verified session in all cases.
+            recreate();
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         if (launched) browserWasInFront = true;
@@ -315,3 +402,4 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 }
+

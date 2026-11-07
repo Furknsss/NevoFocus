@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  ArrowLeft,
   Play,
   Clock,
   Plus,
@@ -28,7 +27,6 @@ import { soundEngine } from '../utils/audio';
 
 interface DedicatedModeScreenProps {
   mode: FocusModeType;
-  onBackToHub: () => void;
   subjects: SubjectItem[];
   selectedSubject: SubjectItem;
   onSelectSubject: (s: SubjectItem) => void;
@@ -51,7 +49,6 @@ interface DedicatedModeScreenProps {
 
 export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
   mode,
-  onBackToHub,
   subjects,
   selectedSubject,
   onSelectSubject,
@@ -313,44 +310,15 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 animate-in fade-in duration-300">
-      {/* Top Navigation & Back Button */}
-      <div className="flex items-center justify-between pb-4 border-b border-neutral-800/80 mb-6">
-        <button
-          onClick={onBackToHub}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-xs font-bold text-neutral-300 hover:text-white transition-all cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Mod Seçimine Dön</span>
-        </button>
-
-        <div className="flex items-center gap-2">
-          {mode === 'flight' && (
-            <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/60 border border-sky-800/40 px-3 py-1 rounded-full">
-              ✈️ Focus Flight İstasyonu
-            </span>
-          )}
-          {mode === 'climb' && (
-            <span className="text-xs font-mono font-bold text-orange-400 bg-orange-950/60 border border-orange-800/40 px-3 py-1 rounded-full">
-              🏔️ Dağcılık Üssü
-            </span>
-          )}
-          {mode === 'forest' && (
-            <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-3 py-1 rounded-full">
-              🌿 Kadim Orman Alanı
-            </span>
-          )}
-          {mode === 'dive' && (
-            <span className="text-xs font-mono font-bold text-teal-400 bg-teal-950/60 border border-teal-800/40 px-3 py-1 rounded-full">
-              🌊 Okyanus Araştırma
-            </span>
-          )}
-          {mode === 'clock' && (
-            <span className="text-xs font-mono font-bold text-white bg-neutral-900 border border-neutral-700 px-3 py-1 rounded-full">
-              ⏱️ Dijital Saat & Flip Clock
-            </span>
-          )}
+      {/* Focus page has no mode picker. All alternatives are managed in Settings > Modlar. */}
+      {mode !== 'clock' && (
+        <div className="flex items-center justify-between gap-3 pb-5 border-b border-neutral-800/80 mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">Odaklanma Alanı</p>
+          <span className="rounded-full border border-white/10 bg-neutral-900 px-3 py-1 text-[11px] font-medium text-neutral-300">
+            {mode === 'forest' ? 'Orman' : mode === 'climb' ? 'Tırmanış' : mode === 'flight' ? 'Uçuş' : 'Dalış'}
+          </span>
         </div>
-      </div>
+      )}
 
       {/* 1. FOCUS FLIGHT: 2D WORLD MAP & AIRLINE BOARDING PASS */}
       {mode === 'flight' && (
@@ -604,93 +572,54 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
         </div>
       )}
 
-      {/* 5. DIJITAL SAAT TERMINALI */}
+      {/* Focus is a calm single-purpose digital clock; no mode marketplace. */}
       {mode === 'clock' && (
-        <div className="space-y-6">
-          <div className="text-center max-w-2xl mx-auto mb-2">
-            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
-              Dijital Saat
+        <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
+          <header className="text-center pt-2 sm:pt-4">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#ff5500]/20 bg-[#ff5500]/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#ff956c]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#ff5500]" aria-hidden="true" />
+              NevoFocus · Odaklanma Alanı
+            </span>
+            <h1 className="mt-4 text-3xl sm:text-5xl font-black text-white tracking-[-0.05em] leading-tight">
+              Odaklan<span className="text-[#ff5500]">.</span>
             </h1>
-            <p className="text-xs sm:text-sm text-neutral-400 mt-1">
-              Sade siyah arka plan, dijital kronometre ve Flip Clock seçeneğiyle maksimum odak.
+            <p className="mx-auto mt-2 max-w-md text-xs sm:text-sm text-neutral-400 leading-relaxed">
+              Dikkatini tek bir şeye ver. Sayacını ayarla, çalışmaya başla.
             </p>
-          </div>
+          </header>
 
-          {/* Stopwatch Visual Preview Card */}
-          <div className="w-full rounded-3xl border border-neutral-800 bg-[#000000] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col items-center justify-center min-h-[260px] sm:min-h-[300px]">
-            {/* Top Left Mini Spotify Indicator */}
-            <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-900/80 border border-neutral-800 text-xs text-neutral-300">
-              <span className="w-2 h-2 rounded-full bg-[#1DB954] animate-pulse" />
-              <span className="text-[11px] font-medium text-white">Spotify Entegre</span>
+          {/* Quiet timer preview: the actual live timer is ActiveClockCanvas during a session. */}
+          <section
+            aria-label="Odaklanma sayacı önizlemesi"
+            className="relative isolate overflow-hidden rounded-[28px] sm:rounded-[32px] border border-white/10 bg-black px-4 py-9 sm:px-8 sm:py-12 text-center shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+          >
+            <div className="absolute inset-x-1/4 -top-28 h-44 bg-[#ff5500]/10 blur-[90px] pointer-events-none" aria-hidden="true" />
+            <div className="relative mx-auto flex max-w-xl items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+              <span>Digital Focus</span>
+              <span>Önizleme</span>
             </div>
-
-            {/* Mode Tag */}
-            <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-neutral-900/80 border border-neutral-800 text-[11px] font-mono text-neutral-400">
-              Sade Odak
+            <div className="relative flex items-baseline justify-center gap-1 sm:gap-2 font-mono tabular-nums tracking-[-0.07em] mt-9 sm:mt-11 mb-7 sm:mb-9" aria-hidden="true">
+              <span className="text-[clamp(3.3rem,12vw,8rem)] leading-none text-white font-light">
+                {timerType === 'stopwatch'
+                  ? '00:00'
+                  : `${String(Math.floor(durationMinutes / 60)).padStart(2, '0')}:${String(durationMinutes % 60).padStart(2, '0')}`}
+              </span>
+              <span className="text-[clamp(1.8rem,6vw,4rem)] leading-none text-neutral-500 font-light">:00</span>
             </div>
-
-            {/* Digital Watch Digits Mockup */}
-            <div className="relative z-10 flex items-baseline justify-center tracking-tight font-mono">
-              <span className="text-6xl sm:text-8xl md:text-9xl text-white font-light">
-                00:45
-              </span>
-              <span className="text-3xl sm:text-5xl md:text-6xl text-neutral-500 mx-1 sm:mx-2 font-extralight">
-                :
-              </span>
-              <span className="text-3xl sm:text-5xl md:text-6xl text-neutral-400 font-normal">
-                00
-              </span>
-            </div>
-
-            <p className="relative z-10 mt-3 text-xs font-mono text-neutral-400 tracking-wider">
-              SAAT : DAKİKA : <span className="text-neutral-500">SANİYE (KÜÇÜK & SAKİN)</span>
+            <p className="relative text-[11px] text-neutral-400 tracking-wide">
+              {timerType === 'stopwatch'
+                ? 'Kronometre · Süre sen başladığında akar'
+                : `Geri sayım · ${durationMinutes} dakikalık odaklanma`}
             </p>
-          </div>
+          </section>
 
-          {/* Feature Highlights Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-neutral-800 text-white flex items-center justify-center shrink-0">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-bold text-white">Kronometre</h4>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Sade ve zarif kronometre tasarımı, mola takibi ve akıcı kontrol butonları.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-[#1DB954]/20 text-[#1DB954] flex items-center justify-center shrink-0">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-bold text-white">Spotify API Entegre</h4>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Soldaki Spotify ikonuna dokunarak kulaklığınızdaki canlı müziği yönetin veya Lo-Fi çalın.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-neutral-800 bg-neutral-900/60 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
-                <Hourglass className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-bold text-white">Flip Clock</h4>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Tek dokunuşla çalışan mekanik çevirmeli masa saati görünümüne geçiş yapın.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Unified Controls: Task Selection + Countdown/Stopwatch + Launch */}
           {renderUnifiedTaskTimerBar(
-            'Dijital Saati Başlat',
-            'bg-neutral-900 hover:bg-neutral-800 text-white border-2 border-neutral-700/80 hover:border-neutral-500 shadow-xl shadow-black active:scale-95'
+            'Odaklanmaya Başla',
+            'bg-[#ff5500] hover:bg-[#ff6a25] border border-[#ff7c43]/30 shadow-lg shadow-[#ff5500]/15'
           )}
+          <p className="text-center text-[11px] text-neutral-500 pb-2">
+            Çalışırken süre, mola ve duraklatma kontrolleri tek ekranda kalır.
+          </p>
         </div>
       )}
     </div>

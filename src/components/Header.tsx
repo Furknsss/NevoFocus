@@ -116,13 +116,11 @@ export const Header: React.FC<HeaderProps> = ({
           }}
           className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none"
         >
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#ff5500] to-[#ff7722] flex items-center justify-center shadow-lg shadow-[#ff5500]/25 group-hover:scale-105 transition-transform">
-            <span className="text-white font-black text-sm tracking-wider">F</span>
-          </div>
+          <img src="/icons/nevofocus-premium-192.png" alt="" className="w-8 h-8 rounded-xl bg-white object-contain shrink-0" />
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm sm:text-base font-extrabold text-white tracking-tight group-hover:text-neutral-200 transition-colors">
-                FOKUS
+                NevoFocus
               </span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-[#ff5500]/15 text-[#ff5500] border border-[#ff5500]/30 hidden sm:inline">
                 PRO
