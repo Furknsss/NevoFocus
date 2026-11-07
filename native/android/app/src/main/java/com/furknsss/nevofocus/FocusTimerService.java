@@ -320,12 +320,14 @@ public final class FocusTimerService extends Service {
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openApp)
-                // Reuse the exact capsule when SystemUI auto-expands the row.
-                // Android owns the system expansion affordance in both states.
-                .setCustomContentView(compact);
-        if (getApplicationInfo().targetSdkVersion >= 31) {
-            builder.setCustomBigContentView(compact).setCustomHeadsUpContentView(compact);
-        }
+                // SystemUI can expand even a legacy targetSdk 30 notification on
+                // Android 15. Without bigContentView the OS silently substitutes
+                // its standard title/text view and hides our live clock entirely.
+                // Supply the interactive capsule for ALL three presentation modes.
+                // Android itself may still decorate the row with its own header.
+                .setCustomContentView(compact)
+                .setCustomBigContentView(compact)
+                .setCustomHeadsUpContentView(compact);
         // Some OEM/Android SystemUI implementations do not expose tappable
         // ImageViews inside RemoteViews as individual actionable nodes. Provide
         // platform-supported notification actions as a reliable fallback.
