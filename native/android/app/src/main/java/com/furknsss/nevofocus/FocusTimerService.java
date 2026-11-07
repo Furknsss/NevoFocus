@@ -34,11 +34,20 @@ public final class FocusTimerService extends Service {
     private static final int NOTIFICATION_ID = 31415;
     private static final int START_NOTIFICATION_ID = 31416;
     private boolean destroyed;
+    // Native timer state stays in memory while the foreground service is
+    // alive. The persistent snapshot is still authoritative after a restart.
+    // Avoid re-reading SharedPreferences and Settings.Global on every second.
+    private State clockState;
+    // PendingIntents are immutable: creating them on every one-second repaint
+    // added unnecessary binder traffic between our process and SystemUI.
+    private PendingIntent pauseActionIntent;
+    private PendingIntent breakActionIntent;
+    private PendingIntent openFocusIntent;
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private final Runnable updateClock = new Runnable() {
         @Override public void run() {
             if (destroyed) return;
-            State current = read(FocusTimerService.this);
+            State current = clockState != null ? clockState : read(FocusTimerService.this);
             if (!current.active || current.paused) return;
             try {
                 NotificationManager manager = (NotificationManager)
@@ -53,6 +62,7 @@ public final class FocusTimerService extends Service {
     };
 
     private void refreshClockUpdates(State state) {
+        clockState = state;
         clockHandler.removeCallbacks(updateClock);
         if (state.active && !state.paused) {
             clockHandler.postDelayed(updateClock, state.nextDisplayDelayMs());
@@ -276,28 +286,38 @@ public final class FocusTimerService extends Service {
     }
 
     private PendingIntent serviceAction(String action, int requestCode) {
+        if (ACTION_PAUSE.equals(action) && pauseActionIntent != null) return pauseActionIntent;
+        if (ACTION_BREAK.equals(action) && breakActionIntent != null) return breakActionIntent;
+
         Intent intent = new Intent(this, FocusTimerService.class).setAction(action);
         // A notification tap is a user-initiated foreground-service action.
-        // getService() can be blocked when the app's Chrome TWA is backgrounded.
-        // Keep pause/break executable while Android owns the notification shade.
-        if (Build.VERSION.SDK_INT >= 26) {
-            return PendingIntent.getForegroundService(this, requestCode, intent,
+        // getService() may be blocked when Chrome's TWA is backgrounded.
+        PendingIntent pending = Build.VERSION.SDK_INT >= 26
+                ? PendingIntent.getForegroundService(this, requestCode, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
+                : PendingIntent.getService(this, requestCode, intent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        }
-        return PendingIntent.getService(this, requestCode, intent,
+        if (ACTION_PAUSE.equals(action)) pauseActionIntent = pending;
+        if (ACTION_BREAK.equals(action)) breakActionIntent = pending;
+        return pending;
+    }
+
+    private PendingIntent openFocusAction() {
+        if (openFocusIntent != null) return openFocusIntent;
+        Intent focusIntent = new Intent(this, MainActivity.class)
+                .setAction(ACTION_OPEN_FOCUS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openFocusIntent = PendingIntent.getActivity(this, 3, focusIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        return openFocusIntent;
     }
 
     private Notification buildNotification(State state) {
         RemoteViews compact = new RemoteViews(getPackageName(), R.layout.nevofocus_live_notification);
         prepareViews(compact, state);
 
-        Intent focusIntent = new Intent(this, MainActivity.class)
-                .setAction(ACTION_OPEN_FOCUS)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent openApp = PendingIntent.getActivity(this, 3, focusIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent openApp = openFocusAction();
         // With a custom RemoteViews capsule the clock surface must be tappable,
         // not just the system notification chrome. Action controls keep their
         // separate PendingIntents in prepareViews().
@@ -412,6 +432,10 @@ public final class FocusTimerService extends Service {
         // A queued screen-wake callback must not publish again after this instance is stopped.
         destroyed = true;
         clockHandler.removeCallbacksAndMessages(null);
+        clockState = null;
+        pauseActionIntent = null;
+        breakActionIntent = null;
+        openFocusIntent = null;
         if (screenReceiverRegistered) unregisterReceiver(screenReceiver);
         stopForeground(STOP_FOREGROUND_REMOVE);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
