@@ -21,7 +21,6 @@ import {
   deleteTask,
   setAllStoredSessions,
   setAllStoredTasks,
-  FOCUS_MODES,
 } from './utils/storage';
 import {
   calculateRealStreak,
@@ -68,7 +67,6 @@ import {
 } from 'firebase/firestore';
 
 import { Header } from './components/Header';
-import { ModeHubSelection } from './components/ModeHubSelection';
 import { DedicatedModeScreen } from './components/DedicatedModeScreen';
 import { ActiveFocusSession } from './components/ActiveFocusSession';
 import { TasksView } from './components/TasksView';
@@ -82,7 +80,6 @@ import { AchievementsModal } from './components/AchievementsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
-import { CinematicTransitionCurtain } from './components/visuals/CinematicTransitionCurtain';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { BottomNav } from './components/BottomNav';
@@ -102,8 +99,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
 
   // Dedicated Mode Architecture
-  const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType | null>(null);
-  const [transitioningToMode, setTransitioningToMode] = useState<FocusModeType | null>(null);
+  const [currentActiveMode, setCurrentActiveMode] = useState<FocusModeType>(() => getStoredProfile().preferredFocusMode || 'clock');
 
   // Firebase auth state
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
@@ -167,18 +163,10 @@ export default function App() {
   const [destAirport, setDestAirport] = useState<FlightAirport>(WORLD_AIRPORTS[2]); // Tokyo HND
 
   // Timer mode state (countdown vs stopwatch)
-  const [timerType, setTimerType] = useState<'countdown' | 'stopwatch'>('countdown');
+  const [timerType, setTimerType] = useState<'countdown' | 'stopwatch'>('stopwatch');
 
   // Forest selected tree species
   const [selectedTreeSpecies, setSelectedTreeSpecies] = useState<string>('Meşe Ağacı');
-
-  // Today's date string & calculated planned task minutes
-  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
-  const todayPlannedMinutes = useMemo(() => {
-    return tasks
-      .filter((t) => !t.dateString || t.dateString === todayStr)
-      .reduce((sum, t) => sum + (t.plannedMinutes || 45), 0);
-  }, [tasks, todayStr]);
 
   // Active focus session state
   const [isSessionActive, setIsSessionActive] = useState<boolean>(false);
@@ -187,7 +175,7 @@ export default function App() {
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>('breaks');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>('modes');
   const [isMarketModalOpen, setIsMarketModalOpen] = useState<boolean>(false);
   const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
@@ -270,6 +258,68 @@ export default function App() {
     window.addEventListener('fokus-cloud-restored', handleCloudRestoredEvent);
     return () => {
       window.removeEventListener('fokus-cloud-restored', handleCloudRestoredEvent);
+    };
+  }, []);
+
+  // A tap on the Android foreground notification always returns to the
+  // running Focus screen, even if the user previously minimized the session
+  // and navigated to Tasks or Statistics. Do not start a new timer.
+  useEffect(() => {
+    const openFocusFromNotification = (fromServiceWorker = false) => {
+      const url = new URL(window.location.href);
+      const hasDeepLink = url.searchParams.get('nevofocus_focus') === '1';
+      if (!hasDeepLink && !fromServiceWorker) return;
+      // Consume only this one-shot intent; keep the TWA bridge marker intact.
+      if (hasDeepLink) {
+        url.searchParams.delete('nevofocus_focus');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      }
+      setCurrentTab('focus');
+      try {
+        const raw = localStorage.getItem('fokus_active_session_running');
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        const startedAt = saved?.startTime || saved?.anchorTimestamp || 0;
+        if (!startedAt || saved?.isFinished || saved?.isActive === false ||
+            Date.now() - startedAt > 24 * 3600 * 1000 || isSessionTerminated(startedAt) ||
+            !['clock', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
+
+        setCurrentActiveMode(saved.mode);
+        setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
+        setDurationMinutes(saved.plannedMinutes || 45);
+        setTimerType(saved.timerType === 'stopwatch' ? 'stopwatch' : 'countdown');
+        const storedTasks = getStoredTasks();
+        setSelectedTask(saved.selectedTaskId
+          ? storedTasks.find((task) => task.id === saved.selectedTaskId) || null
+          : null);
+        if (saved.originAirport) setOriginAirport(saved.originAirport);
+        if (saved.destAirport) setDestAirport(saved.destAirport);
+        if (saved.selectedTreeSpecies) setSelectedTreeSpecies(saved.selectedTreeSpecies);
+        // Mounting ActiveFocusSession reconciles the notification button state
+        // from Android's authoritative service before resuming display.
+        setLocalMinimizedSession(null);
+        setIsSessionActive(true);
+      } catch (error) {
+        console.warn('[NevoFocus] Notification Focus restore:', error);
+      }
+    };
+
+    const handleServiceWorkerOpen = () => openFocusFromNotification(true);
+    openFocusFromNotification();
+    // pageshow/popstate callbacks pass Event, not a boolean request.
+    const handleUrlOpen = () => openFocusFromNotification();
+    window.addEventListener('pageshow', handleUrlOpen);
+    window.addEventListener('popstate', handleUrlOpen);
+    window.addEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
+    // Capacitor delivers cold-start notification intents only once the React
+    // listener exists; Android retries until this explicit readiness flag.
+    const focusWindow = window as Window & { __nevofocusFocusListenerReady?: boolean };
+    focusWindow.__nevofocusFocusListenerReady = true;
+    return () => {
+      focusWindow.__nevofocusFocusListenerReady = false;
+      window.removeEventListener('pageshow', handleUrlOpen);
+      window.removeEventListener('popstate', handleUrlOpen);
+      window.removeEventListener('nevofocus:notification-open', handleServiceWorkerOpen);
     };
   }, []);
 
@@ -422,11 +472,14 @@ export default function App() {
               targetUniversity: typeof data.targetUniversity === 'string' ? data.targetUniversity : '',
               targetDepartment: typeof data.targetDepartment === 'string' ? data.targetDepartment : '',
               targetExam: typeof data.targetExam === 'string' ? data.targetExam : 'YKS 2026 Sayısal',
+              preferredFocusMode: ['clock', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
               studyTrack: typeof data.studyTrack === 'string' ? data.studyTrack : 'Sayısal',
               dailyGoalHours: parseNumericField(data.dailyGoalHours, 6),
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
               totalFocusHours: parseNumericField(data.totalFocusHours, 0),
               cheersReceived: parseNumericField(data.cheersReceived, 0),
+              restDaySelectionMode: data.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates',
+              excludedRestDates: Array.isArray(data.excludedRestDates) ? data.excludedRestDates : (immediateProfile.excludedRestDates || []),
               weeklyRestDays: Array.isArray(data.weeklyRestDays) ? data.weeklyRestDays : (immediateProfile.weeklyRestDays || []),
               customRestDates: Array.isArray(data.customRestDates) ? data.customRestDates : (immediateProfile.customRestDates || []),
               musicConnections: data.musicConnections || immediateProfile.musicConnections,
@@ -734,19 +787,11 @@ export default function App() {
     todayTotalMinutes: todayMinutes,
   }), [profile, realStreak, realTotalHours, todayMinutes]);
 
-  // Instant tab transition without delay
+  // Tab switches never return the focus page to the old mode-selection hub.
   const handleSelectTab = useCallback((tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => {
-    // Non-blocking tactile feedback
-    setTimeout(() => {
-      soundEngine.playClick();
-    }, 0);
-
-    if (tab === 'focus' && currentTab === 'focus' && !isSessionActive) {
-      setCurrentActiveMode(null);
-    }
-
+    setTimeout(() => soundEngine.playClick(), 0);
     setCurrentTab(tab);
-  }, [currentTab, isSessionActive]);
+  }, []);
 
   // Read live running session telemetry from localStorage / minimized state
   const getLiveRunningTelemetry = useCallback(() => {
@@ -888,65 +933,13 @@ export default function App() {
     };
   }, [currentUser?.uid, profile.userId, isSessionActive, localMinimizedSession, getLiveRunningTelemetry, updateCloudStatus]);
 
-  // Mode Selection Flow with Cinematic Shutter (Kepenk) Transition
-  // If user already has an active/minimized session in this mode, resume it immediately instead of resetting to 0!
-  const handleSelectModeFromHub = (mode: FocusModeType) => {
-    const existingActive = localMinimizedSession || cloudActiveSession;
-    if (existingActive && existingActive.mode === mode) {
-      try {
-        localStorage.setItem(
-          'fokus_active_session_running',
-          JSON.stringify({
-            startTime: existingActive.startedAt,
-            anchorTimestamp: existingActive.anchorTimestamp,
-            accumulatedFocusSeconds: existingActive.accumulatedFocusSeconds ?? existingActive.elapsedSeconds ?? 0,
-            breakAnchorTimestamp: existingActive.breakAnchorTimestamp ?? null,
-            accumulatedBreakSeconds: existingActive.accumulatedBreakSeconds ?? existingActive.breakSeconds ?? 0,
-            mode: existingActive.mode,
-            subject: existingActive.subject || SERBEST_CALISMA_SUBJECT,
-            plannedMinutes: existingActive.plannedMinutes,
-            timerType: existingActive.timerType,
-            elapsedSeconds: existingActive.elapsedSeconds,
-            elapsedCountUp: existingActive.elapsedSeconds,
-            breakSeconds: existingActive.breakSeconds || 0,
-            isPaused: existingActive.isPaused,
-            isCampActive: Boolean(existingActive.isCampActive),
-            selectedTaskId: existingActive.selectedTaskId,
-            selectedTaskTitle: existingActive.selectedTaskTitle,
-            selectedTreeSpecies: existingActive.selectedTreeSpecies,
-            originAirport: existingActive.originAirport,
-            destAirport: existingActive.destAirport,
-            deviceId: existingActive.deviceId || getDeviceId(),
-            deviceName: existingActive.deviceName || getDeviceName(),
-            updatedAt: Date.now(),
-          })
-        );
-      } catch {}
-      setCurrentActiveMode(existingActive.mode);
-      setSelectedSubject(existingActive.subject || SERBEST_CALISMA_SUBJECT);
-      setDurationMinutes(existingActive.plannedMinutes);
-      setTimerType(existingActive.timerType);
-      setLocalMinimizedSession(null);
-      setIsSessionActive(true);
-      return;
-    }
-
-    setCurrentActiveMode(mode);
-    setTransitioningToMode(mode);
-    if (mode === 'clock') {
-      setTimerType('stopwatch');
-    }
-  };
-
-  const handleTransitionCurtainMidpoint = () => {
-    if (transitioningToMode) {
-      setCurrentActiveMode(transitioningToMode);
-    }
-  };
-
-  const handleTransitionCurtainEnd = () => {
-    setTransitioningToMode(null);
-  };
+  // Cloud preferences should update the setup screen without interrupting any live timer.
+  useEffect(() => {
+    const runningOnThisDevice = typeof window !== 'undefined' &&
+      Boolean(localStorage.getItem('fokus_active_session_running'));
+    if (isSessionActive || localMinimizedSession || cloudActiveSession || runningOnThisDevice) return;
+    setCurrentActiveMode(profile.preferredFocusMode || 'clock');
+  }, [profile.preferredFocusMode, isSessionActive, localMinimizedSession, cloudActiveSession]);
 
   const handleStartSession = () => {
     let subToUse = selectedSubject;
@@ -1504,7 +1497,10 @@ export default function App() {
           profile={dynamicProfile}
           currentUser={currentUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSettings={() => {
+            setSettingsInitialTab('modes');
+            setIsSettingsModalOpen(true);
+          }}
           onOpenBackup={() => {
             setSettingsInitialTab('backup');
             setIsSettingsModalOpen(true);
@@ -1555,15 +1551,6 @@ export default function App() {
             </button>
           </div>
         </div>
-      )}
-
-      {/* Cinematic Transition Curtain (Roller Shutter / Kepenk) */}
-      {transitioningToMode && (
-        <CinematicTransitionCurtain
-          mode={transitioningToMode}
-          onMidpoint={handleTransitionCurtainMidpoint}
-          onTransitionEnd={handleTransitionCurtainEnd}
-        />
       )}
 
       {/* Main Viewport Content - Adaptive bottom padding for mobile bottom nav */}
@@ -1647,47 +1634,30 @@ export default function App() {
         ) : (
           <>
             {currentTab === 'focus' && (
-              <>
-                {/* 1. Mode Selection Hub: 4 Cards */}
-                {!currentActiveMode && (
-                  <ModeHubSelection
-                    onSelectMode={handleSelectModeFromHub}
-                    todayMinutes={todayMinutes}
-                    streakDays={realStreak}
-                    dailyGoalHours={dynamicProfile.dailyGoalHours}
-                    todayPlannedMinutes={todayPlannedMinutes}
-                  />
-                )}
-
-                {/* 2. Dedicated Mode Hub for chosen mode */}
-                {currentActiveMode && (
-                  <DedicatedModeScreen
-                    mode={currentActiveMode}
-                    onBackToHub={() => setCurrentActiveMode(null)}
-                    subjects={subjects}
-                    selectedSubject={selectedSubject || subjects[0]}
-                    onSelectSubject={setSelectedSubject}
-                    durationMinutes={durationMinutes}
-                    onChangeDuration={setDurationMinutes}
-                    tasks={tasks}
-                    selectedTask={selectedTask}
-                    onSelectTask={setSelectedTask}
-                    originAirport={originAirport}
-                    destAirport={destAirport}
-                    onChangeAirports={(orig, dest) => {
-                      setOriginAirport(orig);
-                      setDestAirport(dest);
-                    }}
-                    profile={dynamicProfile}
-                    timerType={timerType}
-                    onChangeTimerType={setTimerType}
-                    onAddNewTask={handleAddTask}
-                    onStartActiveSession={handleStartSession}
-                    selectedTreeSpecies={selectedTreeSpecies}
-                    onSelectTreeSpecies={setSelectedTreeSpecies}
-                  />
-                )}
-              </>
+              <DedicatedModeScreen
+                mode={currentActiveMode}
+                subjects={subjects}
+                selectedSubject={selectedSubject || subjects[0]}
+                onSelectSubject={setSelectedSubject}
+                durationMinutes={durationMinutes}
+                onChangeDuration={setDurationMinutes}
+                tasks={tasks}
+                selectedTask={selectedTask}
+                onSelectTask={setSelectedTask}
+                originAirport={originAirport}
+                destAirport={destAirport}
+                onChangeAirports={(orig, dest) => {
+                  setOriginAirport(orig);
+                  setDestAirport(dest);
+                }}
+                profile={dynamicProfile}
+                timerType={timerType}
+                onChangeTimerType={setTimerType}
+                onAddNewTask={handleAddTask}
+                onStartActiveSession={handleStartSession}
+                selectedTreeSpecies={selectedTreeSpecies}
+                onSelectTreeSpecies={setSelectedTreeSpecies}
+              />
             )}
 
             {currentTab === 'tasks' && (
@@ -1772,6 +1742,16 @@ export default function App() {
           handleUpdateProfile({ deviceModePreference: mode });
         }}
         onUpdateProfile={handleUpdateProfile}
+        selectedFocusMode={dynamicProfile.preferredFocusMode || 'clock'}
+        focusModeChangeDisabled={Boolean(isSessionActive || localMinimizedSession || cloudActiveSession)}
+        onSelectFocusMode={(mode) => {
+          if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
+          setCurrentActiveMode(mode);
+          if (mode === 'clock') setTimerType('stopwatch');
+          void handleUpdateProfile({ preferredFocusMode: mode });
+          setIsSettingsModalOpen(false);
+          setCurrentTab('focus');
+        }}
         onAccountDeleted={handleAccountDeleted}
         onSyncComplete={(newSessions, newTasks, newProfile) => {
           setSessions(newSessions);
@@ -2141,9 +2121,12 @@ export default function App() {
         <BottomNav
           currentTab={currentTab}
           onSelectTab={handleSelectTab}
-          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenSettings={() => {
+            setSettingsInitialTab('modes');
+            setIsSettingsModalOpen(true);
+          }}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          activeModeTitle={currentActiveMode ? FOCUS_MODES.find((m) => m.id === currentActiveMode)?.title : undefined}
+          activeModeTitle="Odaklan"
         />
       )}
     </div>

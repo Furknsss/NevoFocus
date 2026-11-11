@@ -35,3 +35,43 @@
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
+
+/* APK-only touch behavior; retain the existing layouts and editable fields. */
+html.nevo-native, html.nevo-native body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.nevo-native button, html.nevo-native a, html.nevo-native [role="button"] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.nevo-native input, html.nevo-native textarea, html.nevo-native [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Focus task drawer: black scrollbar track, white movable thumb.
+   Scope this to the small task drawer; do not recolor other app scrollbars. */
+.nevo-dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff #000000;
+}
+.nevo-dark-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nevo-dark-scrollbar::-webkit-scrollbar-track {
+  background: #000000;
+  border-radius: 999px;
+}
+.nevo-dark-scrollbar::-webkit-scrollbar-thumb {
+  background: #ffffff;
+  border-radius: 999px;
+  border: 1px solid #000000;
+}
+.nevo-dark-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}

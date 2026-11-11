@@ -14,7 +14,6 @@ import {
   Waves,
   Mountain,
   Trees,
-  Bell,
   Coffee,
 } from 'lucide-react';
 import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
@@ -216,6 +215,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   // Background Notification Preview Modal
   const [isNotificationPreviewOpen, setIsNotificationPreviewOpen] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('default');
+  const [nativeBridgeWarning, setNativeBridgeWarning] = useState<string | null>(null);
   const [showTasksPanel, setShowTasksPanel] = useState(false);
 
   // Today's date formatted in Turkish
@@ -405,24 +405,27 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   // Foreground-service chronometer is driven by Android; never a background JS interval.
   const syncNativeState = useCallback(() => {
-    if (!isNativeFocusAvailable || mode !== 'clock' || currentTimerType !== 'stopwatch' ||
-        isSessionEndedRef.current) return;
+    if (!isNativeFocusAvailable || isSessionEndedRef.current) return;
     void nativeFocus.sync({
       sessionKey: String(startTimeRef.current),
       isPaused: isPausedRef.current,
       isBreakActive: isCampActiveRef.current,
       elapsedFocusSeconds: computeCurrentFocusSeconds(),
       elapsedBreakSeconds: computeCurrentBreakSeconds(),
-    }).catch(error => console.warn('[NevoFocus] native sync:', error));
-  }, [mode, currentTimerType, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
+      timerType: currentTimerType,
+      plannedMinutes,
+    }).catch(error => {
+      console.warn('[NevoFocus] native sync:', error);
+      if (isTwaFocusPage) setNativeBridgeWarning(error instanceof Error ? error.message : 'Android bildirimi başlatılamadı.');
+    });
+  }, [currentTimerType, plannedMinutes, computeCurrentFocusSeconds, computeCurrentBreakSeconds]);
 
   // Notification controls still operate while the WebView is paused.
   // Recover authoritative Android time and button states whenever the app returns.
   useEffect(() => {
     // Attach the TWA arrival listener even before Chrome finishes DAL validation.
-    // Until then the native bridge is unavailable and the PWA fallback still runs.
-    if ((!isNativeFocusAvailable && !isTwaFocusPage) ||
-        mode !== 'clock' || currentTimerType !== 'stopwatch') return;
+    // TWA never falls back to a Chrome/site timer notification.
+    if (!isNativeFocusAvailable && !isTwaFocusPage) return;
     let mounted = true;
     let busy = false;
     const reconcile = async () => {
@@ -436,6 +439,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           return;
         }
         const now = Date.now();
+        const controlsChanged =
+          isPausedRef.current !== state.isPaused ||
+          isCampActiveRef.current !== state.isBreakActive;
         accumulatedFocusSecondsRef.current = Math.max(0, state.elapsedFocusSeconds);
         accumulatedBreakSecondsRef.current = Math.max(0, state.elapsedBreakSeconds);
         anchorTimestampRef.current = now;
@@ -448,7 +454,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         setElapsedCountUp(focus);
         setSecondsRemaining(Math.max(0, totalSeconds - focus));
         setBreakSeconds(computeCurrentBreakSeconds());
-        persistSessionState(true);
+        // Don't spam remote Firestore writes when the only change is the
+        // ticking Android clock. Persist immediately for notification controls.
+        if (controlsChanged) persistSessionState(true);
       } catch (error) {
         console.warn('[NevoFocus] native restore:', error);
       } finally {
@@ -456,6 +464,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       }
     };
     const onVisible = () => {
+      if (isTwaFocusPage) void backgroundFocus.stopWebTimerNotification();
       if (!document.hidden) void reconcile();
     };
     void reconcile();
@@ -463,8 +472,16 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     window.addEventListener('focus', onVisible);
     window.addEventListener('pageshow', onVisible);
     window.addEventListener('nevofocus:twa-connected', onVisible);
+    // Returning from Android's notification shade sometimes emits no browser
+    // visibility/focus event. The previous 1750ms foreground poll made a
+    // pause/break tap appear delayed in the Focus screen. A 650ms poll only
+    // runs while the session is visible; busy guards avoid overlapping calls.
+    const foregroundPoll = window.setInterval(() => {
+      if (!document.hidden && isNativeFocusAvailable) void reconcile();
+    }, 650);
     return () => {
       mounted = false;
+      window.clearInterval(foregroundPoll);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
       window.removeEventListener('pageshow', onVisible);
@@ -473,6 +490,30 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     // Session identity remains fixed while ActiveFocusSession is mounted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, currentTimerType]);
+
+  useEffect(() => {
+    if (!isTwaFocusPage) return;
+    // Close old Chrome/PWA notifications even before Android MessagePort arrives.
+    void backgroundFocus.stopWebTimerNotification();
+    if (isNativeFocusAvailable) return;
+    const timeout = window.setTimeout(() => {
+      if (!isNativeFocusAvailable && !isSessionEndedRef.current) {
+        setNativeBridgeWarning(
+          'Android bildirim bağlantısı kurulamadı. Chrome güncel olmalı ve NevoFocus uygulamasını yeniden açmalısın.'
+        );
+      }
+    }, 25000);
+    const connected = () => {
+      window.clearTimeout(timeout);
+      setNativeBridgeWarning(null);
+      void backgroundFocus.stopWebTimerNotification();
+    };
+    window.addEventListener('nevofocus:twa-connected', connected);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('nevofocus:twa-connected', connected);
+    };
+  }, []);
 
   // Pause / Resume with exact Wall-Clock Anchor updates
   const handleTogglePause = useCallback(() => {
@@ -546,7 +587,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   useEffect(() => {
     backgroundFocus.setPauseHandler(handleTogglePause);
     backgroundFocus.setBreakHandler(toggleThematicBreak);
-    if (!isNativeFocusAvailable) backgroundFocus.startKeepAlive();
+    if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.startKeepAlive();
     return () => {
       backgroundFocus.setPauseHandler(null);
       backgroundFocus.setBreakHandler(null);
@@ -582,6 +623,8 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   );
 
   const handleRequestNotificationPermission = async () => {
+    // TWA permissions are owned by our Android app, not by the Chrome website.
+    if (isTwaFocusPage) return;
     if ('Notification' in window) {
       try {
         const perm = await Notification.requestPermission();
@@ -678,7 +721,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setBreakSeconds(currentBreak);
 
       // Update MediaSession & Service Worker notification
-      if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+      if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
       if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
         handleFinish(true);
@@ -698,11 +741,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       if (document.hidden) {
         // User just switched away from the app on phone/tablet/PC: push sticky notification immediately
         persistSessionState(true);
-        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+        if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
       } else {
         // User returned to the app: keep audio keep-alive active and resync immediately
-        backgroundFocus.startKeepAlive();
-        if (!isNativeFocusAvailable) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
+        if (!isTwaFocusPage) backgroundFocus.startKeepAlive();
+        if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
       }
     };
 
@@ -742,7 +785,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     soundEngine.playCompletionBell();
     backgroundFocus.stopAll();
-    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
     const finalFocusSecs = computeCurrentFocusSeconds();
     const finalBreakSecs = computeCurrentBreakSeconds();
@@ -889,7 +932,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
-    if (isNativeFocusAvailable && mode === 'clock') void nativeFocus.stop();
+    if (isNativeFocusAvailable) void nativeFocus.stop();
 
     try {
       const userId = getEffectiveUid();
@@ -920,6 +963,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
   return (
     <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 w-full h-full min-h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none">
+      {isTwaFocusPage && nativeBridgeWarning && (
+        <div role="alert" className="absolute top-14 left-3 right-3 z-[80] rounded-xl border border-orange-500/40 bg-[#171311] px-4 py-3 text-sm text-orange-100 shadow-xl">
+          {nativeBridgeWarning}
+        </div>
+      )}
       {/* Sol Üstte Zarif Müzik Widget (Spotify / YouTube Music / Apple Music) */}
       <SpotifyFocusWidget onOpenSettingsConnections={onOpenSettingsConnections} />
 
@@ -1023,29 +1071,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
         {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-2">
-          {/* Bildirim Logosu (Sadece İkon) */}
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playClick();
-              setIsNotificationPreviewOpen(true);
-            }}
-            className={`relative p-2 rounded-full border backdrop-blur-md transition-all cursor-pointer ${
-              permissionState === 'granted'
-                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                : 'bg-black/50 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
-            }`}
-            title="Bildirim & Canlı Kapsül"
-            aria-label="Bildirim & Canlı Kapsül"
-          >
-            <Bell className="w-4 h-4 text-[#ff5500]" />
-            <span
-              className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${
-                permissionState === 'granted' ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-          </button>
-
           {/* Görevler Button */}
           <button
             type="button"
@@ -1088,19 +1113,20 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
                 persistSessionState(true);
                 onMinimize();
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-neutral-800 border border-white/10 text-neutral-300 hover:text-white transition-all cursor-pointer text-xs font-semibold backdrop-blur-md active:scale-95 shadow-sm"
+              className="p-2 rounded-full bg-black/50 border border-white/10 text-white hover:bg-black/80 transition-all cursor-pointer backdrop-blur-md active:scale-95"
               title="Seansı Küçült (Mini Ekrana Geç)"
+              aria-label="Seansı Küçült (Mini Ekrana Geç)"
             >
-              <Minimize2 className="w-3.5 h-3.5 text-sky-400" />
-              <span>Küçült</span>
+              <Minimize2 className="w-4 h-4 text-white" />
             </button>
           )}
 
           {/* Tam Ekran Büyüt/Küçült */}
           <button
             onClick={handleToggleFullscreen}
-            className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
-            title={isFullscreen ? 'Küçült' : 'Büyüt'}
+            className="p-2 rounded-full bg-black/50 border border-white/10 text-white hover:bg-black/80 transition-all cursor-pointer"
+            title={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}
+            aria-label={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -1175,7 +1201,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             </span>
           </div>
 
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+          <div className="nevo-dark-scrollbar space-y-1.5 max-h-48 overflow-y-auto pr-1">
             {todayTasks.length === 0 ? (
               <p className="text-xs text-neutral-500 text-center py-4">Bugün için görev bulunmuyor.</p>
             ) : (
@@ -1358,9 +1384,15 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         }}
         onOpenPipCapsule={() => backgroundFocus.openPipCapsule(buildNotificationPayload(true))}
         onSendTestNotification={() => {
-          backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+          if (isTwaFocusPage) {
+            if (isNativeFocusAvailable) syncNativeState();
+            else setNativeBridgeWarning('Android bildirim servisi bağlı değil. NevoFocus uygulamasını yeniden aç.');
+          } else {
+            backgroundFocus.syncLiveNotification(buildNotificationPayload(true));
+          }
         }}
       />
     </div>
   );
 };
+
