@@ -40,6 +40,8 @@ jobs:
             calendar-failure.png
             focus-settings-mobile.png
             focus-settings-desktop.png
+            focus-compact-controls-mobile.png
+            focus-compact-controls-desktop.png
             focus-settings-failure.png
           if-no-files-found: ignore
           retention-days: 7
