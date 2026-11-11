@@ -1224,7 +1224,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             </span>
           </div>
 
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+          <div className="nevo-dark-scrollbar space-y-1.5 max-h-48 overflow-y-auto pr-1">
             {todayTasks.length === 0 ? (
               <p className="text-xs text-neutral-500 text-center py-4">Bugün için görev bulunmuyor.</p>
             ) : (
