@@ -14,7 +14,6 @@ import {
   Waves,
   Mountain,
   Trees,
-  Bell,
   Coffee,
 } from 'lucide-react';
 import { FocusModeType, FocusSession, SubjectItem, FlightAirport, FocusTask } from '../types';
