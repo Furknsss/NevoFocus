@@ -94,6 +94,31 @@ try {
   assert.equal(restored.saved.isPaused, true, 'Deep link must not resume a paused session');
   assert.ok(restored.saved.elapsedCountUp >= 61, 'Deep link must preserve elapsed time');
 
+  // Compact header controls and the real task drawer scrollbar, on a live
+  // running-focus page (not just source-code snapshots).
+  await page.setViewportSize({ width: 430, height: 932 });
+  assert.equal(await page.locator('button[title="Bildirim & Canlı Kapsül"]').count(), 0,
+    'Focus header must not take space with a notification preview button');
+  const minimize = page.locator('button[aria-label="Seansı Küçült (Mini Ekrana Geç)"]');
+  assert.equal(await minimize.count(), 1);
+  assert.equal((await minimize.innerText()).trim(), '', 'Minimize must be icon only');
+  assert.equal(await minimize.locator('svg.text-white').count(), 1, 'Minimize glyph must be white');
+  await page.locator('button[title="Günün Görevleri"]').click();
+  const scroll = page.locator('.nevo-dark-scrollbar');
+  await scroll.waitFor();
+  const actualScroll = await scroll.evaluate(el => ({
+    colors: getComputedStyle(el).scrollbarColor,
+    track: getComputedStyle(el, '::-webkit-scrollbar-track').backgroundColor,
+    thumb: getComputedStyle(el, '::-webkit-scrollbar-thumb').backgroundColor,
+  }));
+  assert.match(actualScroll.colors, /rgb\(255, 255, 255\).*rgb\(0, 0, 0\)/,
+    'Scrollbar thumb must be white and track black');
+  assert.equal(actualScroll.track, 'rgb(0, 0, 0)');
+  assert.equal(actualScroll.thumb, 'rgb(255, 255, 255)');
+  await page.screenshot({ path: 'focus-compact-controls-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: 'focus-compact-controls-desktop.png', fullPage: true });
+
   console.log('Focus UI passed: direct clock, settings-only modes, rest days and notification deep-link restore.');
 } catch (error) {
   await page.screenshot({ path: 'focus-settings-failure.png', fullPage: true });
