@@ -1072,29 +1072,6 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
         {/* Right: Quick Action Controls */}
         <div className="flex items-center gap-2">
-          {/* Bildirim Logosu (Sadece İkon) */}
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.playClick();
-              setIsNotificationPreviewOpen(true);
-            }}
-            className={`relative p-2 rounded-full border backdrop-blur-md transition-all cursor-pointer ${
-              permissionState === 'granted'
-                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                : 'bg-black/50 border-white/10 text-neutral-300 hover:text-white hover:bg-black/80'
-            }`}
-            title="Bildirim & Canlı Kapsül"
-            aria-label="Bildirim & Canlı Kapsül"
-          >
-            <Bell className="w-4 h-4 text-[#ff5500]" />
-            <span
-              className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${
-                permissionState === 'granted' ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-          </button>
-
           {/* Görevler Button */}
           <button
             type="button"
@@ -1137,19 +1114,20 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
                 persistSessionState(true);
                 onMinimize();
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 hover:bg-neutral-800 border border-white/10 text-neutral-300 hover:text-white transition-all cursor-pointer text-xs font-semibold backdrop-blur-md active:scale-95 shadow-sm"
+              className="p-2 rounded-full bg-black/50 border border-white/10 text-white hover:bg-black/80 transition-all cursor-pointer backdrop-blur-md active:scale-95"
               title="Seansı Küçült (Mini Ekrana Geç)"
+              aria-label="Seansı Küçült (Mini Ekrana Geç)"
             >
-              <Minimize2 className="w-3.5 h-3.5 text-sky-400" />
-              <span>Küçült</span>
+              <Minimize2 className="w-4 h-4 text-white" />
             </button>
           )}
 
           {/* Tam Ekran Büyüt/Küçült */}
           <button
             onClick={handleToggleFullscreen}
-            className="p-2 rounded-full bg-black/50 border border-white/10 text-neutral-300 hover:text-white hover:bg-black/80 transition-all cursor-pointer"
-            title={isFullscreen ? 'Küçült' : 'Büyüt'}
+            className="p-2 rounded-full bg-black/50 border border-white/10 text-white hover:bg-black/80 transition-all cursor-pointer"
+            title={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}
+            aria-label={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran'}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
