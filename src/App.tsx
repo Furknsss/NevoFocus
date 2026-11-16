@@ -1410,7 +1410,7 @@ export default function App() {
       ? 'bg-[#06170e]'
       : dynamicProfile.theme === 'midnight'
       ? 'bg-[#0d081f]'
-      : 'bg-[#0b0c10]';
+      : 'bg-black';
 
   // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
   // Kullanıcı zaten kayıtlıysa veya misafir modundaysa ASLA bekleme ekranında takılı kalmaz, 0ms anında açılır!
@@ -1426,7 +1426,7 @@ export default function App() {
 
   if (isAndroidNativeAuth && isAuthChecking) {
     return (
-      <div className="min-h-screen bg-[#07090e] text-white flex items-center justify-center font-sans">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center font-sans">
         <span className="text-sm text-neutral-400 tracking-wide">NevoFocus · Hesap doğrulanıyor…</span>
       </div>
     );
@@ -1436,7 +1436,7 @@ export default function App() {
   // Onboarding ASLA açılmaz; sağ üstte Giriş Yap ve Kaydol butonları olan Tanıtım Sayfası (LandingPage) gösterilir!
   if (!isExistingUser) {
     return (
-      <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] flex flex-col font-sans">
+      <div className="min-h-screen bg-black text-[#f1f5f9] flex flex-col font-sans">
         <LandingPage
           onOpenLogin={() => {
             soundEngine.playClick();
@@ -1488,7 +1488,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen ${themeBackground} text-[#f1f5f9] flex flex-col font-sans selection:bg-[#ff5500]/30 selection:text-white transition-colors duration-300`}>
+    <div className={`min-h-[100dvh] ${themeBackground} text-[#f1f5f9] flex flex-col font-sans selection:bg-[#ff5500]/30 selection:text-white transition-colors duration-300`}>
       {/* Top Header */}
       {!isSessionActive && (
         <Header
