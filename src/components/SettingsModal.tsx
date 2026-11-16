@@ -828,7 +828,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl rounded-3xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl">
+      <div className="relative w-full max-w-xl rounded-[30px] border border-white/[0.09] bg-[#090909] p-6 sm:p-7 shadow-[0_30px_90px_rgba(0,0,0,0.7)]">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
           <div>
