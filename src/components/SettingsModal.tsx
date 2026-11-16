@@ -288,7 +288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         soundEngine.playCompletionBell();
         setConnNotice({
           type: 'success',
-          text: `YouTube Music'te çalıyor: ${played.name} – ${played.artists.join(', ')}`,
+          text: `NevoFocus içi oynatıcıda çalıyor: ${played.name} – ${played.artists.join(', ')}`,
         });
       } else {
         setConnNotice({
@@ -303,6 +303,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleDisconnectPlatform = (platform: MusicPlatform) => {
     soundEngine.playClick();
+    if (platform === 'youtube_music' && twaYouTubeMusic.isAvailable()) {
+      void spotifyService.requestNativeYouTubePermission().then(() => {
+        setConnNotice({ type: 'success',
+          text: 'Android ayarlarında NevoFocus Bildirim erişimini kapatarak bağlantıyı kesebilirsin. Bu izin yalnızca senin kontrolündedir.' });
+      }).catch(error => setConnNotice({
+        type: 'error', text: error instanceof Error ? error.message : 'İzin ayarları açılamadı.'
+      }));
+      return;
+    }
     const updated = spotifyService.disconnectPlatform(platform);
     persistMusicConnectionsToCloud(updated);
     if (platform === 'spotify') {
@@ -1394,7 +1403,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 color: meta.accentHex,
                               }}
                             >
-                              Bağlı · {info?.accountName || meta.name}
+                              {platform === 'youtube_music' ? 'Cihaz erişimi açık' : `Bağlı · ${info?.accountName || meta.name}`}
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-neutral-800 text-neutral-400">
@@ -1608,11 +1617,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <span className="text-xs font-bold text-[#FF0000] flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5" />
-                            <span>Doğrudan YouTube Music Çalar & Anında Senkronizasyon (Tokensız)</span>
+                            <span>İsteğe Bağlı Uygulama İçi Müzik Arama</span>
                           </span>
                         </div>
                         <p className="text-[11px] text-neutral-400 leading-relaxed">
-                          Hiçbir token veya izinle uğraşmadan doğrudan şarkı ya da sanatçı adını yazıp <strong>Hemen Çal</strong>&apos;a basın; parça tam sürüm olarak YouTube Music üzerinden başlar ve odak ekranına otomatik yansır:
+                          Aşağıdaki arama, NevoFocus içindeki YouTube oynatıcısını kullanır; Google hesabına bağlanmaz. Yukarıdaki gerçek YouTube Music uygulaması senkronizasyonu ise Android Bildirim erişimiyle çalışır. Bu izin Android'e diğer bildirimleri görme yetkisi de verir; NevoFocus yalnızca YouTube Music medya oturumunu okur.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-2">
