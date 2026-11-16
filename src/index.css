@@ -75,3 +75,45 @@ html.nevo-native input, html.nevo-native textarea, html.nevo-native [contentedit
   width: 0;
   height: 0;
 }
+
+/* NevoFocus OLED immersive surfaces — keep native display-cutout insets safe.
+   The TWA uses Chrome's TrustedWebActivity ImmersiveMode; CSS alone cannot
+   hide the Android status bar. These rules paint exposed pixels solid black. */
+html.nevo-oled,
+html.nevo-oled body,
+html.nevo-oled #root {
+  min-height: 100%;
+  background: #000000;
+  color-scheme: dark;
+}
+html.nevo-oled body {
+  min-height: 100dvh;
+  margin: 0;
+}
+html.nevo-oled #root {
+  min-height: 100dvh;
+}
+html.nevo-oled {
+  overscroll-behavior-y: none;
+  background-color: #000;
+}
+html.nevo-oled body {
+  overscroll-behavior-y: none;
+}
+html.nevo-native.nevo-oled header.sticky {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+  background: rgba(0, 0, 0, 0.98);
+}
+html.nevo-native.nevo-oled main {
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+}
+html.nevo-oled ::selection {
+  background: rgba(255, 85, 0, 0.28);
+  color: #fff;
+}
+@media (min-width: 768px) and (pointer: coarse) {
+  html.nevo-oled button,
+  html.nevo-oled [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
