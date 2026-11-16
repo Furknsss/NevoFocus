@@ -21,6 +21,7 @@ import androidx.browser.customtabs.CustomTabsService;
 import androidx.browser.customtabs.CustomTabsServiceConnection;
 import androidx.browser.customtabs.CustomTabsSession;
 import androidx.browser.trusted.TrustedWebActivityIntentBuilder;
+import androidx.browser.trusted.TrustedWebActivityDisplayMode;
 
 import org.json.JSONObject;
 
@@ -158,7 +159,7 @@ public final class MainActivity extends Activity {
         android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
         panel.setOrientation(android.widget.LinearLayout.VERTICAL);
         panel.setGravity(android.view.Gravity.CENTER);
-        panel.setBackgroundColor(android.graphics.Color.WHITE);
+        panel.setBackgroundColor(android.graphics.Color.BLACK);
         float density = getResources().getDisplayMetrics().density;
         android.widget.ImageView logo = new android.widget.ImageView(this);
         logo.setImageResource(R.drawable.nevofocus_brand_logo);
@@ -167,7 +168,7 @@ public final class MainActivity extends Activity {
         panel.addView(logo, new android.widget.LinearLayout.LayoutParams(size, size));
         android.widget.TextView name = new android.widget.TextView(this);
         name.setText("NevoFocus");
-        name.setTextColor(android.graphics.Color.BLACK);
+        name.setTextColor(android.graphics.Color.WHITE);
         name.setTextSize(24);
         name.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         android.widget.LinearLayout.LayoutParams label = new android.widget.LinearLayout.LayoutParams(
@@ -175,10 +176,9 @@ public final class MainActivity extends Activity {
         label.topMargin = Math.round(18 * density);
         panel.addView(name, label);
         setContentView(panel);
-        getWindow().setStatusBarColor(android.graphics.Color.WHITE);
-        getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
-        getWindow().getDecorView().setSystemUiVisibility(
-                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+        getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
+        getWindow().getDecorView().setSystemUiVisibility(0);
     }
 
     private void launchTwa() {
@@ -201,6 +201,13 @@ public final class MainActivity extends Activity {
         }
         Uri url = urlBuilder.build();
         new TrustedWebActivityIntentBuilder(url)
+                // Chrome owns the visible TWA window. Setting a color on the
+                // launcher Activity cannot remove the Android grey status strip.
+                // Immersive sticky hides both system bars on this verified origin;
+                // the user can still reveal them temporarily with an edge swipe.
+                .setDisplayMode(new TrustedWebActivityDisplayMode.ImmersiveMode(
+                        true,
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES))
                 .setToolbarColor(android.graphics.Color.BLACK)
                 .setNavigationBarColor(android.graphics.Color.BLACK)
                 .build(session).launchTrustedWebActivity(this);
