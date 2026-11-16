@@ -106,7 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
   const displayEmail = currentUser?.email || profile.email || storedEmail || (isUserLoggedIn ? 'Kayıtlı Öğrenci' : 'Giriş yapılmadı');
 
   return (
-    <header className="sticky top-0 z-40 w-full backdrop-blur-md bg-black/60 border-b border-neutral-800/80 px-4 sm:px-6 py-3 flex items-center justify-between transition-colors">
+    <header className="sticky top-0 z-40 w-full bg-black/95 backdrop-blur-xl border-b border-white/[0.07] px-4 sm:px-6 lg:px-9 py-2.5 sm:py-3 flex items-center justify-between transition-colors">
       {/* Brand Logo */}
       <div className="flex items-center gap-3">
         <button
@@ -135,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Center Navigation Tabs - Hidden on mobile if bottom nav is active */}
       {!isMobile && (
-        <nav className="flex items-center gap-0.5 sm:gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner max-w-full overflow-x-auto">
+        <nav className="flex items-center gap-0.5 sm:gap-1 bg-[#090909] p-1 rounded-full border border-white/[0.08] shadow-none max-w-full overflow-x-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTabOptimistic === item.id;
@@ -150,8 +150,8 @@ export const Header: React.FC<HeaderProps> = ({
                 }}
                 className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-75 active:scale-95 cursor-pointer shrink-0 ${
                   isActive
-                    ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50 border border-transparent'
+                    ? 'bg-[#1b1b1b] text-white shadow-sm border border-white/[0.1]'
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.06] border border-transparent'
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff5500]' : 'text-neutral-400'}`} />
@@ -181,7 +181,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Daily Focus Counter (Sağ üstte sesin solunda - yeşil nokta kaldırıldı) */}
         <div
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-neutral-900/90 border border-neutral-800 text-xs shadow-inner shrink-0"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-[#0c0c0c] border border-white/[0.08] text-xs shadow-inner shrink-0"
           title="Bugün tamamlanan toplam odaklanma süresi"
         >
           <Clock className="w-3.5 h-3.5 text-[#ff5500]" />
@@ -216,7 +216,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setIsDropdownOpen((prev) => !prev)}
-            className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-neutral-900/90 border border-neutral-800 hover:border-neutral-700 transition-all cursor-pointer group"
+            className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-[#0c0c0c] border border-white/[0.08] hover:border-neutral-700 transition-all cursor-pointer group"
           >
             {effectiveAvatar ? (
               <img
@@ -241,7 +241,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* DROPDOWN MENU */}
           {isDropdownOpen && (
-            <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-800 bg-[#12141a] p-2 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-neutral-800 bg-[#080808] p-2 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
               {/* Dropdown Header: Name & Email & Target Uni */}
               <div className="p-3 rounded-xl bg-neutral-900/80 border border-neutral-800/80 mb-2">
                 <div className="flex items-center gap-3">
