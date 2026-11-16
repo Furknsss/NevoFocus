@@ -1,4 +1,5 @@
 import { MusicPlatform, MusicConnectionsConfig } from '../types';
+import { twaYouTubeMusic, type NativeYouTubeMusicState } from './twaFocusBridge';
 
 export interface SpotifyTrack {
   id: string;
@@ -211,6 +212,8 @@ class SpotifyService {
   private connectionListeners: ((config: MusicConnectionsConfig) => void)[] = [];
   private lastLiveTrack: SpotifyTrack | null = null;
   private lastYouTubeLiveTrack: SpotifyTrack | null = null;
+  private nativeYouTubeState: NativeYouTubeMusicState | null = null;
+  private nativeYouTubeQueryBusy = false;
   private ytLiveStartTimestamp: number = 0;
   private ytLiveTrackId: string | null = null;
   private connections: MusicConnectionsConfig = { ...DEFAULT_CONNECTIONS };
@@ -269,7 +272,7 @@ class SpotifyService {
         if (this.getAccessToken()) {
           this.pollSpotifyNowPlaying();
         }
-        if (this.connections.youtube_music.connected) {
+        if (twaYouTubeMusic.isAvailable() || this.connections.youtube_music.connected) {
           this.pollYouTubeMusicAccountNowPlaying();
         }
         this.tryAutoSyncFromClipboardOnFocus();
@@ -283,7 +286,7 @@ class SpotifyService {
       });
 
       // If YouTube Music is connected, poll immediately
-      if (this.connections.youtube_music.connected) {
+      if (twaYouTubeMusic.isAvailable() || this.connections.youtube_music.connected) {
         this.pollYouTubeMusicAccountNowPlaying();
       }
 
@@ -294,7 +297,7 @@ class SpotifyService {
 
       // Periodic check for YouTube Music and Spotify live updates
       setInterval(() => {
-        if (this.connections.youtube_music.connected) {
+        if (twaYouTubeMusic.isAvailable() || this.connections.youtube_music.connected) {
           this.pollYouTubeMusicAccountNowPlaying();
         }
       }, 2000);
@@ -690,7 +693,9 @@ class SpotifyService {
   // --- YOUTUBE MUSIC DIRECT ZERO-TOKEN INTEGRATION (SEARCH, STREAM & LIVE SCROBBLE) ---
 
   public hasYouTubeLiveToken(): boolean {
-    return Boolean(this.connections.youtube_music?.connected);
+    return twaYouTubeMusic.isAvailable()
+      ? Boolean(this.nativeYouTubeState?.permissionGranted)
+      : Boolean(this.connections.youtube_music?.connected);
   }
 
   /**
@@ -938,7 +943,68 @@ class SpotifyService {
     }
   }
 
+  public getNativeYouTubeState(): NativeYouTubeMusicState | null {
+    return this.nativeYouTubeState;
+  }
+
+  public async requestNativeYouTubePermission(): Promise<NativeYouTubeMusicState> {
+    if (!twaYouTubeMusic.isAvailable()) {
+      throw new Error('Bu özellik NevoFocus Android APK içinde kullanılabilir.');
+    }
+    const state = await twaYouTubeMusic.openPermissionSettings();
+    this.nativeYouTubeState = state;
+    this.notifyConnectionListeners();
+    return state;
+  }
+
+  public async controlNativeYouTube(
+    command: 'play' | 'pause' | 'next' | 'previous' | 'seek', positionMs = 0
+  ): Promise<void> {
+    if (!twaYouTubeMusic.isAvailable() || !this.nativeYouTubeState?.sessionAvailable) {
+      throw new Error('YouTube Music oturumu bulunamadı.');
+    }
+    await twaYouTubeMusic.control(command, positionMs);
+    await this.pollYouTubeMusicAccountNowPlaying();
+  }
+
   public async pollYouTubeMusicAccountNowPlaying(): Promise<SpotifyTrack | null> {
+    // Real, on-device MediaSession data; no cloud writes or fake OAuth claim.
+    if (twaYouTubeMusic.isAvailable()) {
+      if (this.nativeYouTubeQueryBusy) return this.lastYouTubeLiveTrack;
+      this.nativeYouTubeQueryBusy = true;
+      try {
+        const state = await twaYouTubeMusic.getState();
+        const previouslyGranted = this.nativeYouTubeState?.permissionGranted;
+        this.nativeYouTubeState = state;
+        if (state.permissionGranted !== previouslyGranted) this.notifyConnectionListeners();
+        if (!state.permissionGranted || !state.sessionAvailable) {
+          this.lastYouTubeLiveTrack = null;
+          this.notifyListeners();
+          return null;
+        }
+        const live: SpotifyTrack = {
+          id: 'android-ytmusic-' + (state.title || '').slice(0, 120),
+          name: state.title || 'YouTube Music',
+          artists: [state.artist || 'YouTube Music'],
+          albumName: state.album || 'YouTube Music',
+          albumArt: state.art || '',
+          durationMs: Math.max(0, state.durationMs || 0),
+          progressMs: Math.max(0, state.positionMs || 0),
+          isPlaying: Boolean(state.isPlaying),
+          source: 'youtube_music',
+          externalUrl: 'https://music.youtube.com',
+        };
+        this.lastYouTubeLiveTrack = live;
+        if (live.isPlaying || !this.lastLiveTrack?.isPlaying)
+          this.connections.activePlatform = 'youtube_music';
+        this.notifyListeners();
+        return live;
+      } catch {
+        return this.lastYouTubeLiveTrack;
+      } finally {
+        this.nativeYouTubeQueryBusy = false;
+      }
+    }
     if (!this.connections.youtube_music.connected) return null;
 
     const scrobbleRef = this.connections.youtube_music.accessToken || '';
@@ -1321,7 +1387,9 @@ class SpotifyService {
       return Boolean(this.getAccessToken());
     }
     if (platform === 'youtube_music') {
-      return Boolean(this.connections.youtube_music?.connected);
+      return twaYouTubeMusic.isAvailable()
+        ? Boolean(this.nativeYouTubeState?.permissionGranted)
+        : Boolean(this.connections.youtube_music?.connected);
     }
     return Boolean(
       this.connections[platform]?.connected &&
@@ -1347,6 +1415,8 @@ class SpotifyService {
    * No manual "Aktif Et" needed: whichever platform is playing takes priority automatically.
    */
   public getDetectedPlatform(): MusicPlatform | null {
+    if (this.nativeYouTubeState?.sessionAvailable && this.lastYouTubeLiveTrack?.isPlaying)
+      return 'youtube_music';
     // 1. If Spotify is actively playing right now, return Spotify
     if (this.lastLiveTrack?.isPlaying && this.isPlatformConnected('spotify')) {
       return 'spotify';
@@ -1896,6 +1966,11 @@ class SpotifyService {
   // --- LIVE CONTROLS ON USER'S ACTIVE MUSIC PLATFORM ---
 
   public async spotifyPlay() {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')) {
+      await this.controlNativeYouTube('play');
+      return;
+    }
     const active = this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
     if (active === 'spotify' && this.getAccessToken()) {
       if (this.lastLiveTrack) {
@@ -1921,6 +1996,11 @@ class SpotifyService {
   }
 
   public async spotifyPause() {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')) {
+      await this.controlNativeYouTube('pause');
+      return;
+    }
     const active = this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
     if (this.isStreamPlaying) {
       this.pauseStream();
@@ -1944,6 +2024,11 @@ class SpotifyService {
   }
 
   public async spotifyNext() {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')) {
+      await this.controlNativeYouTube('next');
+      return;
+    }
     const active = this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
     if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
       const token = this.getAccessToken();
@@ -1965,6 +2050,11 @@ class SpotifyService {
   }
 
   public async spotifyPrevious() {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')) {
+      await this.controlNativeYouTube('previous');
+      return;
+    }
     const active = this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
     if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
       const token = this.getAccessToken();
@@ -1986,6 +2076,11 @@ class SpotifyService {
   }
 
   public async spotifySeek(positionMs: number) {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        (this.getDetectedPlatform() === 'youtube_music' || this.connections.activePlatform === 'youtube_music')) {
+      await this.controlNativeYouTube('seek', positionMs);
+      return;
+    }
     const active = this.getDetectedPlatform() || this.connections.activePlatform || 'spotify';
     if (active === 'spotify' && this.getAccessToken() && !this.isStreamPlaying) {
       if (this.lastLiveTrack) {
