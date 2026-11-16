@@ -199,6 +199,14 @@ export default defineConfig(() => {
         },
       },
     ],
+    build: {
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          nativeCheck: path.resolve(__dirname, 'native-check.html'),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -212,5 +220,6 @@ export default defineConfig(() => {
     },
   };
 });
+
 
 

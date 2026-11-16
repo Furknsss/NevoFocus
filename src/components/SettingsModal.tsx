@@ -33,7 +33,7 @@ import {
   Copy,
   ExternalLink,
 } from 'lucide-react';
-import { UserProfile, FocusSession, FocusTask, MusicPlatform, MusicConnectionsConfig } from '../types';
+import { UserProfile, FocusSession, FocusTask, FocusModeType, MusicPlatform, MusicConnectionsConfig } from '../types';
 import { auth, db, handleFirestoreError, OperationType, safeSetDoc } from '../firebase';
 import {
   sendPasswordResetEmail,
@@ -54,7 +54,9 @@ import {
   getLastSyncTime,
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
+import { twaYouTubeMusic } from '../services/twaFocusBridge';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
+import { FocusModeSettings } from './FocusModeSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -67,10 +69,13 @@ interface SettingsModalProps {
   detectedDevice?: 'mobile' | 'tablet' | 'desktop';
   onSelectDeviceMode?: (mode: 'auto' | 'mobile' | 'tablet' | 'desktop') => void;
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
+  selectedFocusMode: FocusModeType;
+  onSelectFocusMode: (mode: FocusModeType) => void;
+  focusModeChangeDisabled?: boolean;
   onAccountDeleted: () => void;
   onSyncComplete?: (sessions: FocusSession[], tasks: FocusTask[], profile?: UserProfile) => void;
   onOpenAuth?: () => void;
-  initialTab?: 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup';
+  initialTab?: 'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -84,13 +89,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   detectedDevice = 'desktop',
   onSelectDeviceMode,
   onUpdateProfile,
+  selectedFocusMode,
+  onSelectFocusMode,
+  focusModeChangeDisabled = false,
   onAccountDeleted,
   onSyncComplete,
   onOpenAuth,
-  initialTab = 'breaks',
+  initialTab = 'modes',
 }) => {
-  const [activeTab, setActiveTab] = useState<'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>(
-    initialTab || 'breaks'
+  const [activeTab, setActiveTab] = useState<'modes' | 'breaks' | 'notifications' | 'connections' | 'theme' | 'security' | 'backup'>(
+    initialTab || 'modes'
   );
 
   // Sync activeTab when initialTab or isOpen changes
@@ -156,17 +164,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (platform === 'youtube_music') {
       setConnectingPlatform('youtube_music');
       try {
-        const res = await spotifyService.connectYouTubeMusicDirect(
-          currentUser?.displayName || currentUser?.email || profile.name || 'YouTube Music Hesabım'
-        );
-        const updated = spotifyService.getConnectionsConfig();
-        persistMusicConnectionsToCloud(updated);
+        if (!twaYouTubeMusic.isAvailable()) {
+          setConnNotice({
+            type: 'error',
+            text: 'YouTube Music cihaz kontrolü Android APK içinden kullanılabilir; tarayıcı başka uygulamanın medya oturumuna erişemez.',
+          });
+          return;
+        }
+        await spotifyService.requestNativeYouTubePermission();
         setShowYouTubeAuthStep(true);
-        soundEngine.playCompletionBell();
         setConnNotice({
           type: 'success',
-          text: `YouTube Music (${res.accountName}) doğrudan bağlandı! Aşağıdan dilediğiniz parçayı anında başlatabilir veya canlı cihaz senkronizasyonu yapabilirsiniz.`,
+          text: "Android ayarlarında NevoFocus için Bildirim erişimini aç. Sonra uygulamaya dön ve YouTube Music'te bir şarkı başlat.",
         });
+      } catch (error) {
+        setConnNotice({ type: 'error', text: error instanceof Error ? error.message : 'İzin ekranı açılamadı.' });
       } finally {
         setConnectingPlatform(null);
       }
@@ -276,7 +288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         soundEngine.playCompletionBell();
         setConnNotice({
           type: 'success',
-          text: `YouTube Music'te çalıyor: ${played.name} – ${played.artists.join(', ')}`,
+          text: `NevoFocus içi oynatıcıda çalıyor: ${played.name} – ${played.artists.join(', ')}`,
         });
       } else {
         setConnNotice({
@@ -291,6 +303,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleDisconnectPlatform = (platform: MusicPlatform) => {
     soundEngine.playClick();
+    if (platform === 'youtube_music' && twaYouTubeMusic.isAvailable()) {
+      void spotifyService.requestNativeYouTubePermission().then(() => {
+        setConnNotice({ type: 'success',
+          text: 'Android ayarlarında NevoFocus Bildirim erişimini kapatarak bağlantıyı kesebilirsin. Bu izin yalnızca senin kontrolündedir.' });
+      }).catch(error => setConnNotice({
+        type: 'error', text: error instanceof Error ? error.message : 'İzin ayarları açılamadı.'
+      }));
+      return;
+    }
     const updated = spotifyService.disconnectPlatform(platform);
     persistMusicConnectionsToCloud(updated);
     if (platform === 'spotify') {
@@ -308,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Rest Days (Haftalık Mola & Dinlenme Günleri)
   const [weeklyRestDays, setWeeklyRestDays] = useState<number[]>(
-    Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []
+    profile.restDaySelectionMode === 'weekly' && Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []
   );
   const [customRestDates, setCustomRestDates] = useState<string[]>(
     Array.isArray(profile.customRestDates) ? profile.customRestDates : []
@@ -320,10 +341,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Keep in sync with profile updates
   React.useEffect(() => {
-    setWeeklyRestDays(Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []);
+    setWeeklyRestDays(profile.restDaySelectionMode === 'weekly' && Array.isArray(profile.weeklyRestDays) ? profile.weeklyRestDays : []);
     setCustomRestDates(Array.isArray(profile.customRestDates) ? profile.customRestDates : []);
     setExcludedRestDates(Array.isArray(profile.excludedRestDates) ? profile.excludedRestDates : []);
-  }, [profile.weeklyRestDays, profile.customRestDates, profile.excludedRestDates]);
+  }, [profile.restDaySelectionMode, profile.weeklyRestDays, profile.customRestDates, profile.excludedRestDates]);
 
   const handleToggleWeeklyDay = (dayIndex: number) => {
     soundEngine.playClick();
@@ -331,9 +352,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       ? weeklyRestDays.filter((d) => d !== dayIndex)
       : [...weeklyRestDays, dayIndex].sort();
     setWeeklyRestDays(updated);
-    onUpdateProfile({ weeklyRestDays: updated });
+    onUpdateProfile({ restDaySelectionMode: 'weekly', weeklyRestDays: updated });
     if (currentUser) {
-      safeSetDoc(doc(db, 'users', currentUser.uid), { weeklyRestDays: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      safeSetDoc(doc(db, 'users', currentUser.uid), { restDaySelectionMode: 'weekly', weeklyRestDays: updated, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
   };
 
@@ -388,9 +409,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (preset === 'weekend') days = [6, 0];
     if (preset === 'none') days = [];
     setWeeklyRestDays(days);
-    onUpdateProfile({ weeklyRestDays: days });
+    onUpdateProfile({ restDaySelectionMode: 'weekly', weeklyRestDays: days });
     if (currentUser) {
-      safeSetDoc(doc(db, 'users', currentUser.uid), { weeklyRestDays: days, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      safeSetDoc(doc(db, 'users', currentUser.uid), { restDaySelectionMode: 'weekly', weeklyRestDays: days, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }
   };
 
@@ -821,7 +842,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl rounded-3xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl">
+      <div className="relative w-full max-w-xl rounded-[30px] border border-white/[0.09] bg-[#090909] p-6 sm:p-7 shadow-[0_30px_90px_rgba(0,0,0,0.7)]">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
           <div>
@@ -829,7 +850,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Uygulama & Hesap Ayarları</span>
             </h3>
             <p className="text-xs text-neutral-400">
-              Bildirim tercihlerini, tema görünümünü ve hesap güvenliğini yönet
+              Odak modlarını, bildirimleri ve hesap tercihlerini yönet
             </p>
           </div>
           <button
@@ -843,15 +864,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Tab Switcher */}
         <div className="flex items-center gap-1.5 sm:gap-2 my-4 p-1 rounded-xl bg-neutral-900 border border-neutral-800 overflow-x-auto">
           <button
-            onClick={() => setActiveTab('breaks')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
-              activeTab === 'breaks'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+            type="button"
+            onClick={() => setActiveTab('modes')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+              activeTab === 'modes'
+                ? 'bg-[#ff5500]/20 text-[#ff9a75] border border-[#ff5500]/40 shadow-sm'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
-            <Coffee className="w-3.5 h-3.5 text-amber-400" />
-            <span>Mola Günleri</span>
+            <Sparkles className="w-3.5 h-3.5 text-[#ff723b]" />
+            <span>Modlar</span>
           </button>
 
           <button
@@ -915,6 +937,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
+        {/* MODLAR: primary focus experience and alternative modes */}
+        {activeTab === 'modes' && (
+          <FocusModeSettings
+            selectedMode={selectedFocusMode}
+            onSelectMode={onSelectFocusMode}
+            onOpenRestDays={() => setActiveTab('breaks')}
+            selectionDisabled={focusModeChangeDisabled}
+          />
+        )}
+
+        {/* Legacy weekly rest scheduling is reachable from Modlar, and from statistics. */}
+        {activeTab === 'breaks' && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('modes')}
+            className="flex items-center gap-2 text-xs text-[#ff9a75] hover:text-white transition-colors mb-3"
+          >
+            <span aria-hidden="true">←</span> Modlara dön
+          </button>
+        )}
         {/* TAB 0: MOLA & DİNLENME GÜNLERİ */}
         {activeTab === 'breaks' && (
           <div className="space-y-5 py-2 max-h-[60vh] overflow-y-auto pr-1">
@@ -1289,7 +1331,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Doğrudan Hesap Bağlantısı & Canlı Müzik Senkronizasyonu
                 </h4>
                 <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
-                  Spotify, YouTube Music veya Apple Music için <strong>Hesabı Bağla</strong> tuşuna bastığınızda doğrudan ilgili platformun resmi giriş sayfasına yönlendirilirsiniz. Bağlandığınızda ne çalınıyorsa uygulama otomatik olarak şarkıyı, kapağı ve platform logosunu çeker.
+                  Spotify için hesap bağlantısı kullanılabilir. YouTube Music, Android APK'da <strong>Bildirim erişimi</strong> izniyle bu telefonda çalan parçayı ve desteklenen oynatma düğmelerini gösterir. Google şifresi istenmez; farklı cihazdaki parçalar okunmaz.
                 </p>
               </div>
             </div>
@@ -1361,7 +1403,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 color: meta.accentHex,
                               }}
                             >
-                              Bağlı · {info?.accountName || meta.name}
+                              {platform === 'youtube_music' ? 'Cihaz erişimi açık' : `Bağlı · ${info?.accountName || meta.name}`}
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-neutral-800 text-neutral-400">
@@ -1387,9 +1429,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               !currentPlatformTrack.id.endsWith('-awaiting') &&
                               currentPlatformTrack.id !== 'spotify-idle'
                               ? `Şu An Yansıyan: ${currentPlatformTrack.name} – ${currentPlatformTrack.artists.join(', ')}`
+                              : platform === 'youtube_music'
+                              ? 'İzin açık. Aynı telefonda YouTube Music’te şarkı başlatın.'
                               : `${meta.name} canlı senkronizasyonu hazır (${meta.name} üzerinden şarkı açtığınızda otomatik algılanır)`
                             : platform === 'youtube_music'
-                            ? 'YouTube Music hesabınızı bağlayarak açtığınız şarkıları otomatik algılatın ve yansıtın'
+                            ? 'Android APK’da Bildirim erişimini açıp bu telefonda YouTube Music’te şarkı başlatın'
                             : platform === 'spotify'
                             ? 'Spotify hesabınızı bağlayarak telefon/bilgisayarda çaldığınız şarkıları otomatik algılatın'
                             : 'Apple Music hesabınızı bağlayarak çaldığınız şarkıları anında yansıtın'}
@@ -1444,7 +1488,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }`}
                           style={{ backgroundColor: meta.accentHex }}
                         >
-                          {isConnecting ? 'Bağlanıyor...' : 'Hesabı Bağla'}
+                          {isConnecting ? 'Bağlanıyor...' : platform === 'youtube_music' ? 'Cihaz Erişimini Aç' : 'Hesabı Bağla'}
                         </button>
                       )}
                     </div>
@@ -1573,11 +1617,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <span className="text-xs font-bold text-[#FF0000] flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5" />
-                            <span>Doğrudan YouTube Music Çalar & Anında Senkronizasyon (Tokensız)</span>
+                            <span>İsteğe Bağlı Uygulama İçi Müzik Arama</span>
                           </span>
                         </div>
                         <p className="text-[11px] text-neutral-400 leading-relaxed">
-                          Hiçbir token veya izinle uğraşmadan doğrudan şarkı ya da sanatçı adını yazıp <strong>Hemen Çal</strong>&apos;a basın; parça tam sürüm olarak YouTube Music üzerinden başlar ve odak ekranına otomatik yansır:
+                          Aşağıdaki arama, NevoFocus içindeki YouTube oynatıcısını kullanır; Google hesabına bağlanmaz. Yukarıdaki gerçek YouTube Music uygulaması senkronizasyonu ise Android Bildirim erişimiyle çalışır. Bu izin Android'e diğer bildirimleri görme yetkisi de verir; NevoFocus yalnızca YouTube Music medya oturumunu okur.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-2">

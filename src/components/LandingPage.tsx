@@ -36,12 +36,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-black/60 border-b border-neutral-800/80 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#ff5500] to-[#ff7722] flex items-center justify-center shadow-lg shadow-[#ff5500]/30">
-            <span className="text-white font-black text-base tracking-wider">F</span>
-          </div>
+          <img src="/icons/nevofocus-premium-192.png" alt="" className="w-9 h-9 rounded-xl bg-white object-contain shrink-0" />
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-base font-extrabold text-white tracking-tight">FOKUS</span>
+              <span className="text-base font-extrabold text-white tracking-tight">NevoFocus</span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-[#ff5500]/20 text-[#ff5500] border border-[#ff5500]/40">
                 PRO
               </span>

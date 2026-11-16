@@ -16,16 +16,16 @@ const handlers = new Map<string, (event: any) => void>();
 };
 const { isTwaFocusPage, hasTwaFocusChannel, twaFocus } = await import('../src/services/twaFocusBridge');
 
-test('TWA bridge uses only the validated origin and native request IDs', async () => {
+test('real Chrome empty port transfer followed by HELLO on the port enables native requests', async () => {
   assert.equal(isTwaFocusPage, true);
-  // Query string alone must not disable the current PWA timer notifications.
+  // A URL marker alone cannot authorize Android commands.
   assert.equal(hasTwaFocusChannel(), false);
   const messageHandler = handlers.get('message');
   assert.ok(messageHandler);
 
   const evil = new MessageChannel();
   messageHandler!({
-    origin: 'https://unexpected.invalid',
+    origin: 'android-app://unexpected.invalid',
     ports: [evil.port1],
     data: JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }),
   });
@@ -58,10 +58,14 @@ test('TWA bridge uses only the validated origin and native request IDs', async (
   });
 
   messageHandler!({
-    origin: 'https://fokus.example.test',
+    origin: 'android-app://fokus.example.test',
     ports: [channel.port1],
-    data: JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }),
+    data: '',
   });
+  assert.equal(hasTwaFocusChannel(), false, 'An empty port transfer waits for the host HELLO');
+  const connected = new Promise<void>(resolve => handlers.set('nevofocus:twa-connected', () => resolve()));
+  channel.port2.postMessage(JSON.stringify({ type: 'NEVOFOCUS_TWA_HELLO', version: 1 }));
+  await connected;
   assert.equal(hasTwaFocusChannel(), true, 'Native TWA available only after verified hello');
   const sync = await twaFocus.sync({
     sessionKey: '1712345678',
@@ -87,3 +91,4 @@ test('TWA bridge uses only the validated origin and native request IDs', async (
   evil.port1.close();
   evil.port2.close();
 });
+

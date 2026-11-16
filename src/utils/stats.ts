@@ -1,8 +1,8 @@
-import { FocusSession, UserProfile } from '../types';
+import type { FocusSession, UserProfile } from '../types';
 
 /**
  * Checks if a specific date is a designated rest day (mola günü) according to user preferences.
- * Supports both weekly recurring rest days (0 = Sunday, 1 = Monday...) and custom week-specific dates.
+ * Only individually selected dates are active by default. Old recurring defaults are ignored.
  */
 export function isDateRestDay(dateInput: string | Date, profile?: UserProfile): boolean {
   if (!profile) return false;
@@ -40,11 +40,25 @@ export function isDateRestDay(dateInput: string | Date, profile?: UserProfile): 
   }
 
   // 3. Check weekly recurring rest days (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-  if (Array.isArray(profile.weeklyRestDays) && profile.weeklyRestDays.includes(dayOfWeek)) {
+  if (profile.restDaySelectionMode === 'weekly' && Array.isArray(profile.weeklyRestDays) && profile.weeklyRestDays.includes(dayOfWeek)) {
     return true;
   }
 
   return false;
+}
+
+/** Toggle one calendar date; never turn its weekday into a recurring rule. */
+export function toggleRestDate(dateStr: string, profile: UserProfile): Partial<UserProfile> {
+  const dates = new Set(profile.customRestDates || []);
+  const selected = dates.has(dateStr) && !(profile.excludedRestDates || []).includes(dateStr);
+  if (selected) dates.delete(dateStr);
+  else dates.add(dateStr);
+  return {
+    restDaySelectionMode: 'dates',
+    weeklyRestDays: [],
+    customRestDates: [...dates].sort(),
+    excludedRestDates: (profile.excludedRestDates || []).filter(date => date !== dateStr),
+  };
 }
 
 /**

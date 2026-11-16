@@ -7,6 +7,14 @@ on:
     paths:
       - '.github/workflows/android-twa.yml'
       - 'public/.well-known/assetlinks.json'
+      - 'public/sw.js'
+      - 'native/android/app/src/main/**'
+      - 'native/android-twa/**'
+      - 'src/services/nativeFocus.ts'
+      - 'src/services/twaFocusBridge.ts'
+      - 'src/utils/backgroundFocus.ts'
+      - 'src/components/ActiveFocusSession.tsx'
+      - 'src/components/NotificationPreviewModal.tsx'
   pull_request:
     paths:
       - 'native/android-twa/**'
@@ -17,6 +25,10 @@ on:
       - 'scripts/twaAssetLinksValidation.mjs'
       - 'src/services/nativeFocus.ts'
       - 'src/services/twaFocusBridge.ts'
+      - 'src/utils/backgroundFocus.ts'
+      - 'src/components/ActiveFocusSession.tsx'
+      - 'src/components/NotificationPreviewModal.tsx'
+      - 'public/sw.js'
       - 'src/utils/focusTimerTransitions.ts'
       - 'tests/**'
       - 'package.json'

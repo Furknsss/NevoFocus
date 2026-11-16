@@ -42,8 +42,8 @@ jobs:
           test -e /dev/kvm
       - name: Free unused runner disk space for Android 14 emulator
         run: |
-          # Hosted runners include large toolchains unrelated to this Android job.
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          # Full Google-APIs SystemUI is required for physical notification taps.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
           df -h / 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -55,14 +55,15 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
-          # ATD images are smaller/faster; these native tests do not use Google auth.
-          target: aosp_atd
+          # ATD has a reduced notification shade and cannot prove real SystemUI taps.
+          # Use actual Google-APIs SystemUI for Pause, Resume and Break controls.
+          target: google_apis
           arch: x86_64
           profile: pixel_7
           # GitHub runner has ~5 GB left after Gradle/Android SDK setup.
           # The Pixel 7 default userdata image needs >7 GB and cannot boot.
-          disk-size: 3072M
-          ram-size: 2048M
+          disk-size: 4096M
+          ram-size: 3072M
           disable-animations: true
           script: |
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk

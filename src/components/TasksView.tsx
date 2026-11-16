@@ -433,7 +433,7 @@ export const TasksView = React.memo<TasksViewProps>(({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Form: Create Task (5 Cols) */}
-        <div className="lg:col-span-5 rounded-3xl border border-neutral-800 bg-neutral-900/60 p-5 sm:p-6 backdrop-blur-sm shadow-xl">
+        <div className="lg:col-span-5 rounded-[28px] border border-white/[0.07] bg-[#090909] p-5 sm:p-6 backdrop-blur-sm shadow-xl">
           <h2 className="text-base font-bold text-white mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Plus className="w-4 h-4 text-[#ff5500]" />
@@ -689,7 +689,7 @@ export const TasksView = React.memo<TasksViewProps>(({
                   className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
                     task.isCompleted
                       ? 'border-neutral-800/60 bg-neutral-950/40 opacity-60'
-                      : 'border-neutral-800 bg-neutral-900/80 hover:border-neutral-700 shadow-sm'
+                      : 'border-neutral-800 bg-[#0b0b0b] hover:border-neutral-700 shadow-sm'
                   }`}
                 >
                   <div className="flex items-start gap-3 min-w-0">

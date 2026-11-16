@@ -17,18 +17,17 @@ import {
   BookOpen,
   CalendarDays,
   Tent,
-  CheckCircle2,
   ArrowUpRight,
   ArrowDownRight,
   Layers,
   Coffee,
+  Check,
   Activity,
-  X,
   Trash2,
 } from 'lucide-react';
 import { FocusSession, UserProfile, FocusTask } from '../types';
 import { soundEngine } from '../utils/audio';
-import { isDateRestDay, getLocalDateString, getValidCompletedSessions } from '../utils/stats';
+import { isDateRestDay, toggleRestDate, getLocalDateString, getValidCompletedSessions } from '../utils/stats';
 
 interface StatisticsViewProps {
   sessions: FocusSession[];
@@ -57,30 +56,16 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
 
   const [hoveredSession, setHoveredSession] = useState<FocusSession | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
-  const [isRestDayModalOpen, setIsRestDayModalOpen] = useState(false);
+  const [isSelectingRestDays, setIsSelectingRestDays] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
-  // Weekly rest day calculation
-  const currentRestDayNumber = useMemo(() => {
-    if (Array.isArray(profile.weeklyRestDays) && profile.weeklyRestDays.length > 0) {
-      return profile.weeklyRestDays[0];
+  const openRestDaySelection = () => {
+    soundEngine.playClick();
+    if (profile.restDaySelectionMode !== 'dates' || (profile.weeklyRestDays || []).length > 0) {
+      onUpdateProfile?.({ restDaySelectionMode: 'dates', weeklyRestDays: [] });
     }
-    return null;
-  }, [profile.weeklyRestDays]);
-
-  const currentRestDayLabel = useMemo(() => {
-    if (currentRestDayNumber === null) return 'Mola Günü Yok';
-    const dayNames: Record<number, string> = {
-      1: 'Pazartesi',
-      2: 'Salı',
-      3: 'Çarşamba',
-      4: 'Perşembe',
-      5: 'Cuma',
-      6: 'Cumartesi',
-      0: 'Pazar',
-    };
-    return dayNames[currentRestDayNumber] || 'Belirlendi';
-  }, [currentRestDayNumber]);
+    setIsSelectingRestDays(true);
+  };
 
   // --- 1. GÜNLÜK TAKİP (DAILY VIEW) ---
   const targetDate = useMemo(() => {
@@ -543,13 +528,13 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                 <span className="text-2xl sm:text-3xl">☕</span>
                 <div>
                   <h4 className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-2">
-                    <span>Haftalık Mola Günü</span>
+                    <span>Mola Günü</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-mono">
                       {targetDateStr}
                     </span>
                   </h4>
                   <p className="text-[11px] text-amber-200/80 mt-0.5">
-                    Bu gün programınızda dinlenme günü olarak işaretlidir. Mola günleri istikrar serinizi (streak) korur.
+                    Bu tarih dinlenme günü olarak seçilmiştir. Mola günleri istikrar serinizi (streak) korur.
                   </p>
                 </div>
               </div>
@@ -869,17 +854,15 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
             <button
               type="button"
               onClick={() => {
-                soundEngine.playClick();
-                setIsRestDayModalOpen(true);
+                setActiveTab('monthly');
+                openRestDaySelection();
               }}
               className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer active:scale-95 ml-auto sm:ml-0"
-              title="Haftalık mola gününü belirle veya kaldır"
+              title="Aylık takvimden mola günlerini seç"
+              disabled={!onUpdateProfile}
             >
               <Coffee className="w-4 h-4 text-amber-400" />
-              <span>Mola Günü:</span>
-              <span className="underline decoration-amber-400/50 underline-offset-2">
-                {currentRestDayLabel}
-              </span>
+              <span>Mola günü seç</span>
             </button>
           </div>
 
@@ -895,7 +878,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
               </span>
             </div>
 
-            <div className="grid grid-cols-7 gap-2 sm:gap-3 items-end h-48 pt-6 pb-2 border-b border-neutral-800">
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-3 items-end h-48 pt-6 pb-2 border-b border-neutral-800">
               {weekDaysData.map((d) => {
                 const maxHours = Math.max(8, ...weekDaysData.map((x) => parseFloat(x.totalHours)));
                 const hPercent = Math.min(100, Math.round((parseFloat(d.totalHours) / maxHours) * 100));
@@ -1082,7 +1065,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
           </div>
 
           {/* Gerçek Pazartesi-Pazar Aylık Takvim Izgarası */}
-          <div className="p-6 rounded-2xl bg-neutral-900/80 border border-neutral-800 shadow-xl">
+          <div className="p-3 sm:p-6 rounded-2xl bg-neutral-900/80 border border-neutral-800 shadow-xl">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1090,7 +1073,9 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                   <span>{selectedMonthTitle} Odaklanma Takvimi</span>
                 </h3>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  Pazartesi'den Pazar'a gerçek takvim. Günlere tıklayarak detayları inceleyebilir, mola günlerinizi takip edebilirsiniz.
+                  {isSelectingRestDays
+                    ? 'Mola yapmak istediğin tarihleri işaretle. Seçimler otomatik kaydedilir.'
+                    : 'Günlere dokunarak detayları incele. Mola günlerini kendin seçebilirsin.'}
                 </p>
               </div>
 
@@ -1105,27 +1090,31 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                   <span className="w-3 h-3 rounded-sm bg-[#ff5500]" />
                   <span>6s+</span>
                 </div>
-                <div className="flex items-center gap-1.5 pl-2 border-l border-neutral-800 text-amber-400 font-semibold text-[11px]">
-                  <span>☕</span>
-                  <span>mola günü</span>
-                </div>
+                {monthlyCalendarData.restDaysCount > 0 && (
+                  <div className="flex items-center gap-1.5 pl-2 border-l border-neutral-800 text-amber-400 font-semibold text-[11px]">
+                    <span>☕</span>
+                    <span>mola günü</span>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => {
-                    soundEngine.playClick();
-                    setIsRestDayModalOpen(true);
+                    if (isSelectingRestDays) setIsSelectingRestDays(false);
+                    else openRestDaySelection();
                   }}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-all cursor-pointer hover:border-amber-500/60 hover:text-amber-300"
-                  title="Haftalık mola gününü belirle veya kaldır"
+                  title="Takvimde mola günlerini seç"
+                  aria-pressed={isSelectingRestDays}
+                  disabled={!onUpdateProfile}
                 >
                   <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Mola Gününü Değiştir</span>
+                  <span>{isSelectingRestDays ? 'Bitti' : 'Mola günü seç'}</span>
                 </button>
               </div>
             </div>
 
             {/* Weekday Column Headers (Pzt to Paz) */}
-            <div className="grid grid-cols-7 gap-2 sm:gap-3 mb-2 text-center text-xs font-bold text-neutral-400 uppercase tracking-wider">
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-3 mb-2 text-center text-xs font-bold text-neutral-400 uppercase tracking-wider">
               <span>Pzt</span>
               <span>Sal</span>
               <span>Çar</span>
@@ -1136,7 +1125,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
             </div>
 
             {/* Calendar Cells Matrix */}
-            <div className="grid grid-cols-7 gap-2 sm:gap-3">
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-3">
               {monthlyCalendarData.days.map((item, index) => {
                 if (!item) {
                   return (
@@ -1167,8 +1156,17 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                 return (
                   <button
                     key={item.dateStr}
+                    type="button"
+                    data-date={item.dateStr}
+                    role={isSelectingRestDays ? 'checkbox' : undefined}
+                    aria-checked={isSelectingRestDays ? item.isRestDay : undefined}
+                    aria-label={`${item.dayNum} ${selectedMonthTitle}, ${isSelectingRestDays ? 'mola günü' : 'günlük istatistikleri aç'}`}
                     onClick={() => {
                       soundEngine.playClick();
+                      if (isSelectingRestDays) {
+                        onUpdateProfile?.(toggleRestDate(item.dateStr, profile));
+                        return;
+                      }
                       setSelectedCalendarDate(item.dateStr);
                       setActiveTab('daily');
                     }}
@@ -1185,7 +1183,12 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                         {item.isToday && (
                           <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
                         )}
-                        {item.isRestDay && (
+                        {isSelectingRestDays && (
+                          <span aria-hidden="true" className={`inline-flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded border-2 shrink-0 ${item.isRestDay ? 'bg-amber-400 border-amber-400 text-neutral-950' : 'bg-neutral-950/60 border-neutral-500'}`}>
+                            {item.isRestDay && <Check className="h-3 w-3 sm:h-4 sm:w-4" />}
+                          </span>
+                        )}
+                        {item.isRestDay && !isSelectingRestDays && (
                           <span className="inline-flex items-center gap-0.5 sm:gap-1 text-[7.5px] sm:text-[9.5px] font-bold text-amber-300 bg-amber-500/25 border border-amber-500/50 px-1 sm:px-1.5 py-0.5 rounded leading-none shadow-xs">
                             <span className="text-[9px] sm:text-[11px] leading-none">☕</span>
                             <span className="whitespace-nowrap font-medium">mola günü</span>
@@ -1202,7 +1205,7 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
                             Dinlenme
                           </span>
                           <span className="text-[8px] sm:text-[9px] text-amber-400/60 hidden sm:block">
-                            Haftalık Mola
+                            Seçilen Mola
                           </span>
                         </>
                       ) : (
@@ -1294,97 +1297,6 @@ export const StatisticsView = React.memo<StatisticsViewProps>(({
         </div>
       )}
 
-      {/* HAFTALIK MOLA GÜNÜ SEÇİM MODALI (KULLANICI TALEBİ) */}
-      {isRestDayModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-6 shadow-2xl text-white space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
-                  <Coffee className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">Haftalık Mola Günü</h3>
-                  <p className="text-xs text-neutral-400">Haftanın 1 gününü dinlenme günü olarak belirle</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsRestDayModalOpen(false)}
-                className="p-1.5 rounded-full text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-neutral-300 leading-relaxed">
-              Mola gününde çalışma yapmasan bile istikrar serin (streak) korunur ve aylık takvimde kahve emojisi ile dinlenme günü olarak işaretlenir.
-            </p>
-
-            {/* 7 Günlük Liste + Mola Günü Yok */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              {[
-                { id: 1, name: 'Pazartesi' },
-                { id: 2, name: 'Salı' },
-                { id: 3, name: 'Çarşamba' },
-                { id: 4, name: 'Perşembe' },
-                { id: 5, name: 'Cuma' },
-                { id: 6, name: 'Cumartesi' },
-                { id: 0, name: 'Pazar' },
-              ].map((day) => {
-                const isSelected = currentRestDayNumber === day.id;
-                return (
-                  <button
-                    key={day.id}
-                    type="button"
-                    onClick={() => {
-                      soundEngine.playClick();
-                      if (onUpdateProfile) {
-                        onUpdateProfile({ weeklyRestDays: [day.id] });
-                      }
-                      setIsRestDayModalOpen(false);
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      isSelected
-                        ? 'bg-amber-500/25 border-amber-500 text-amber-200 font-bold shadow-md shadow-amber-950/40 ring-1 ring-amber-400'
-                        : 'bg-neutral-950/70 border-neutral-800 hover:border-neutral-700 text-neutral-300'
-                    }`}
-                  >
-                    <span className="text-sm">{day.name}</span>
-                    {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />}
-                  </button>
-                );
-              })}
-
-              {/* Mola Günü Yok Seçeneği (Kullanıcı Talebi) */}
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  if (onUpdateProfile) {
-                    onUpdateProfile({ weeklyRestDays: [] });
-                  }
-                  setIsRestDayModalOpen(false);
-                }}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between col-span-2 ${
-                  currentRestDayNumber === null
-                    ? 'bg-rose-500/20 border-rose-500/60 text-rose-200 font-bold ring-1 ring-rose-400'
-                    : 'bg-neutral-950/70 border-neutral-800 hover:border-rose-900/60 text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base">🚫</span>
-                  <div>
-                    <span className="text-sm font-bold block">Mola Günü Yok</span>
-                    <span className="text-[10px] text-neutral-400 block">Haftalık mola günü belirleme, her gün çalışma hedefi</span>
-                  </div>
-                </div>
-                {currentRestDayNumber === null && <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 });

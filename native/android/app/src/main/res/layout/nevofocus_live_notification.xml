@@ -1,59 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- NevoFocus preview-matched floating capsule. The system still owns the outer notification card. -->
+<!-- Direct dimensions are required for RemoteViews inflation inside SystemUI. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/focus_capsule"
     android:layout_width="match_parent"
     android:layout_height="48dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="13dp"
-    android:paddingEnd="8dp"
+    android:paddingStart="20dp"
+    android:paddingEnd="12dp"
     android:background="@drawable/nevofocus_black_capsule">
 
-    <ImageView
-        android:id="@+id/focus_status_dot"
-        android:layout_width="8dp"
-        android:layout_height="8dp"
-        android:layout_marginEnd="9dp"
-        android:src="@drawable/nevofocus_status_white"
-        android:contentDescription="Odaklanma durumu"/>
-
-    <Chronometer
-        android:id="@+id/focus_chronometer"
-        android:layout_width="0dp"
+    <TextView
+        android:id="@+id/focus_main_time"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
-        android:layout_weight="1"
         android:gravity="center_vertical|start"
+        android:text="00:00"
         android:textColor="#FFFFFFFF"
-        android:textSize="23sp"
+        android:textSize="25sp"
         android:textStyle="bold"
         android:fontFamily="monospace"
         android:singleLine="true"
         android:includeFontPadding="false"
-        android:contentDescription="Canlı kronometre"/>
+        android:contentDescription="Çalışma süresi saat ve dakika" />
 
-    <View
-        android:layout_width="1dp"
-        android:layout_height="25dp"
-        android:layout_marginStart="4dp"
+    <TextView
+        android:id="@+id/focus_seconds"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:layout_marginStart="0dp"
         android:layout_marginEnd="8dp"
-        android:background="#333333"/>
+        android:text=":00"
+        android:textColor="#FFE5E5E7"
+        android:textSize="16sp"
+        android:textStyle="normal"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:includeFontPadding="false"
+        android:contentDescription="Saniye" />
 
-    <ImageView
-        android:id="@+id/focus_break"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:layout_marginEnd="6dp"
-        android:src="@drawable/nevofocus_action_break"
-        android:clickable="true"
-        android:focusable="true"
-        android:contentDescription="Mola ver veya molayı bitir"/>
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1"
+        android:text=""
+        android:includeFontPadding="false" />
 
     <ImageView
         android:id="@+id/focus_pause"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:importantForAccessibility="yes"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginEnd="8dp"
         android:src="@drawable/nevofocus_action_pause"
         android:clickable="true"
         android:focusable="true"
-        android:contentDescription="Kronometreyi duraklat veya devam ettir"/>
+        android:contentDescription="Durdur veya devam et" />
+
+    <ImageView
+        android:id="@+id/focus_break"
+        android:importantForAccessibility="yes"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:src="@drawable/nevofocus_action_break"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Mola veya molayı bitir" />
 </LinearLayout>
+

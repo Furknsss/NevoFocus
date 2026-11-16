@@ -52,6 +52,21 @@ public class NativeFocusPlugin extends Plugin {
             Number rest = call.getDouble("elapsedBreakSeconds", 0.0);
             intent.putExtra("focusMs", Math.max(0L, Math.round(focus.doubleValue() * 1000.0)));
             intent.putExtra("breakMs", Math.max(0L, Math.round(rest.doubleValue() * 1000.0)));
+            // Preserve timer kind in the foreground notification. Otherwise
+            // countdown sessions appear as an unrelated stopwatch in Android.
+            String timerType = call.getString("timerType", "stopwatch");
+            Double plannedMinutes = call.getDouble("plannedMinutes", 0.0);
+            if (!"stopwatch".equals(timerType) && !"countdown".equals(timerType)) {
+                call.reject("Invalid timerType");
+                return;
+            }
+            if (plannedMinutes == null || !Double.isFinite(plannedMinutes) ||
+                    plannedMinutes < 0 || plannedMinutes > 43200) {
+                call.reject("Invalid plannedMinutes");
+                return;
+            }
+            intent.putExtra("countdown", "countdown".equals(timerType));
+            intent.putExtra("plannedMs", Math.round(plannedMinutes * 60_000));
             if (Build.VERSION.SDK_INT >= 26) {
                 getContext().startForegroundService(intent);
             } else {

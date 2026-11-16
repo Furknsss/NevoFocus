@@ -1,3 +1,4 @@
+import { isTwaFocusPage } from '../services/twaFocusBridge';
 import { useState, useEffect, useCallback } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -17,7 +18,7 @@ export function usePWAInstall() {
 
   useEffect(() => {
     // Check if already running in standalone mode (installed)
-    const isStandalone =
+    const isStandalone = isTwaFocusPage ||
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true ||
       document.referrer.includes('android-app://');
