@@ -47,7 +47,9 @@ public class MainActivity extends BridgeActivity {
     private void applyImmersiveOledWindow() {
         getWindow().setStatusBarColor(android.graphics.Color.BLACK);
         getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
-        getWindow().setNavigationBarContrastEnforced(false);
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            getWindow().setNavigationBarContrastEnforced(false);
+        }
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             getWindow().setDecorFitsSystemWindows(false);
             android.view.WindowInsetsController controller = getWindow().getInsetsController();
