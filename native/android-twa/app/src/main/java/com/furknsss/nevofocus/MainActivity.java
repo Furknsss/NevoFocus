@@ -289,6 +289,36 @@ public final class MainActivity extends Activity {
             String requestId = message.optString("requestId", "");
             if (requestId.length() > 100) return;
 
+            // Only after verified Digital Asset Links and a validated Chrome
+            // MessagePort. Read *local* YouTube Music media metadata; never
+            // request OAuth credentials or send this data to a server.
+            if ("NEVOFOCUS_MUSIC_QUERY".equals(type)) {
+                sendResponse("NEVOFOCUS_MUSIC_STATE", requestId,
+                        NevoYouTubeMusic.status(this), null);
+                return;
+            }
+            if ("NEVOFOCUS_MUSIC_CONTROL".equals(type)) {
+                String action = message.optString("command", "");
+                if (!action.matches("play|pause|next|previous|seek")) {
+                    sendResponse("NEVOFOCUS_MUSIC_ERROR", requestId, null, "invalid media command");
+                    return;
+                }
+                long position = message.optLong("positionMs", 0);
+                if (position < 0 || position > 24 * 60 * 60 * 1000L) {
+                    sendResponse("NEVOFOCUS_MUSIC_ERROR", requestId, null, "invalid media position");
+                    return;
+                }
+                sendResponse("NEVOFOCUS_MUSIC_STATE", requestId,
+                        NevoYouTubeMusic.control(this, action, position), null);
+                return;
+            }
+            if ("NEVOFOCUS_MUSIC_OPEN_SETTINGS".equals(type)) {
+                startActivity(NevoYouTubeMusic.permissionSettings());
+                sendResponse("NEVOFOCUS_MUSIC_STATE", requestId,
+                        NevoYouTubeMusic.status(this), null);
+                return;
+            }
+
             if ("NEVOFOCUS_NATIVE_QUERY".equals(type)) {
                 sendResponse("NEVOFOCUS_NATIVE_STATE", requestId, readState(), null);
                 return;
@@ -359,7 +389,14 @@ public final class MainActivity extends Activity {
             }
         } catch (Exception error) {
             Log.e(TAG, "native command failed", error);
-            sendResponse("NEVOFOCUS_NATIVE_ERROR", "", null, error.getMessage());
+            // Preserve request identity and message family. Without this
+            // Chrome would wait 10 seconds for a response on permission denial.
+            String replyType = raw.contains("NEVOFOCUS_MUSIC_")
+                    ? "NEVOFOCUS_MUSIC_ERROR" : "NEVOFOCUS_NATIVE_ERROR";
+            String requestId = "";
+            try { requestId = new JSONObject(raw).optString("requestId", ""); }
+            catch (Exception ignored) {}
+            sendResponse(replyType, requestId, null, error.getMessage());
         }
     }
 
