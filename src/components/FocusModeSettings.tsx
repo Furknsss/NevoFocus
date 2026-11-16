@@ -29,7 +29,7 @@ export const FocusModeSettings: React.FC<FocusModeSettingsProps> = ({
 }) => {
   return (
     <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto pr-1">
-      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-[#242026] via-[#17171d] to-[#111116] border border-white/10 p-4 sm:p-5">
+      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-[#15100f] via-[#080808] to-black border border-white/[0.09] p-4 sm:p-5">
         <div className="absolute -right-8 -top-12 w-36 h-36 rounded-full bg-[#ff5500]/10 blur-3xl pointer-events-none" />
         <div className="relative flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#ff5500]/15 border border-[#ff5500]/25 text-[#ff682d] flex items-center justify-center shrink-0">
@@ -70,9 +70,9 @@ export const FocusModeSettings: React.FC<FocusModeSettingsProps> = ({
                 soundEngine.playClick();
                 onSelectMode(mode.id);
               }}
-              className={`w-full min-h-[80px] flex items-center gap-3.5 rounded-2xl border p-3.5 sm:p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff5500] disabled:opacity-60 disabled:cursor-not-allowed ${isSelected ? details.ring : 'border-neutral-800 bg-neutral-900/70 hover:border-neutral-600 hover:bg-neutral-800/80'}`}
+              className={`w-full min-h-[80px] flex items-center gap-3.5 rounded-2xl border p-3.5 sm:p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff5500] disabled:opacity-60 disabled:cursor-not-allowed ${isSelected ? details.ring : 'border-white/[0.09] bg-[#0d0d0d] hover:border-white/[0.16] hover:bg-[#141414]'}`}
             >
-              <span className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center border border-white/10 bg-neutral-800/80 ${details.color}`}>
+              <span className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center border border-white/[0.08] bg-[#181818] ${details.color}`}>
                 <Icon className="w-5 h-5" aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1">
