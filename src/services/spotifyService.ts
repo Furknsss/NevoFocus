@@ -1415,6 +1415,9 @@ class SpotifyService {
    * No manual "Aktif Et" needed: whichever platform is playing takes priority automatically.
    */
   public getDetectedPlatform(): MusicPlatform | null {
+    if (this.nativeYouTubeState?.sessionAvailable &&
+        !this.lastLiveTrack?.isPlaying && this.lastYouTubeLiveTrack)
+      return 'youtube_music';
     if (this.nativeYouTubeState?.sessionAvailable && this.lastYouTubeLiveTrack?.isPlaying)
       return 'youtube_music';
     // 1. If Spotify is actively playing right now, return Spotify
