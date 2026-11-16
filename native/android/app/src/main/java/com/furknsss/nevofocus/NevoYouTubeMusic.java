@@ -38,9 +38,11 @@ public final class NevoYouTubeMusic {
         String enabled = Settings.Secure.getString(ctx.getContentResolver(),
                 "enabled_notification_listeners");
         if (enabled == null || enabled.isEmpty()) return false;
-        String own = listener(ctx).flattenToString();
+        ComponentName own = listener(ctx);
         for (String item : enabled.split(":")) {
-            if (own.equals(item)) return true;
+            // Android builds may persist either flattened full or short names.
+            ComponentName granted = ComponentName.unflattenFromString(item);
+            if (own.equals(granted)) return true;
         }
         return false;
     }
