@@ -54,6 +54,7 @@ import {
   getLastSyncTime,
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
+import { twaYouTubeMusic } from '../services/twaFocusBridge';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 import { FocusModeSettings } from './FocusModeSettings';
 
@@ -163,17 +164,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (platform === 'youtube_music') {
       setConnectingPlatform('youtube_music');
       try {
-        const res = await spotifyService.connectYouTubeMusicDirect(
-          currentUser?.displayName || currentUser?.email || profile.name || 'YouTube Music Hesabım'
-        );
-        const updated = spotifyService.getConnectionsConfig();
-        persistMusicConnectionsToCloud(updated);
+        if (!twaYouTubeMusic.isAvailable()) {
+          setConnNotice({
+            type: 'error',
+            text: 'YouTube Music cihaz kontrolü Android APK içinden kullanılabilir; tarayıcı başka uygulamanın medya oturumuna erişemez.',
+          });
+          return;
+        }
+        await spotifyService.requestNativeYouTubePermission();
         setShowYouTubeAuthStep(true);
-        soundEngine.playCompletionBell();
         setConnNotice({
           type: 'success',
-          text: `YouTube Music (${res.accountName}) doğrudan bağlandı! Aşağıdan dilediğiniz parçayı anında başlatabilir veya canlı cihaz senkronizasyonu yapabilirsiniz.`,
+          text: "Android ayarlarında NevoFocus için Bildirim erişimini aç. Sonra uygulamaya dön ve YouTube Music'te bir şarkı başlat.",
         });
+      } catch (error) {
+        setConnNotice({ type: 'error', text: error instanceof Error ? error.message : 'İzin ekranı açılamadı.' });
       } finally {
         setConnectingPlatform(null);
       }
@@ -1317,7 +1322,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Doğrudan Hesap Bağlantısı & Canlı Müzik Senkronizasyonu
                 </h4>
                 <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
-                  Spotify, YouTube Music veya Apple Music için <strong>Hesabı Bağla</strong> tuşuna bastığınızda doğrudan ilgili platformun resmi giriş sayfasına yönlendirilirsiniz. Bağlandığınızda ne çalınıyorsa uygulama otomatik olarak şarkıyı, kapağı ve platform logosunu çeker.
+                  Spotify için hesap bağlantısı kullanılabilir. YouTube Music, Android APK'da <strong>Bildirim erişimi</strong> izniyle bu telefonda çalan parçayı ve desteklenen oynatma düğmelerini gösterir. Google şifresi istenmez; farklı cihazdaki parçalar okunmaz.
                 </p>
               </div>
             </div>
@@ -1415,9 +1420,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               !currentPlatformTrack.id.endsWith('-awaiting') &&
                               currentPlatformTrack.id !== 'spotify-idle'
                               ? `Şu An Yansıyan: ${currentPlatformTrack.name} – ${currentPlatformTrack.artists.join(', ')}`
+                              : platform === 'youtube_music'
+                              ? 'İzin açık. Aynı telefonda YouTube Music’te şarkı başlatın.'
                               : `${meta.name} canlı senkronizasyonu hazır (${meta.name} üzerinden şarkı açtığınızda otomatik algılanır)`
                             : platform === 'youtube_music'
-                            ? 'YouTube Music hesabınızı bağlayarak açtığınız şarkıları otomatik algılatın ve yansıtın'
+                            ? 'Android APK’da Bildirim erişimini açıp bu telefonda YouTube Music’te şarkı başlatın'
                             : platform === 'spotify'
                             ? 'Spotify hesabınızı bağlayarak telefon/bilgisayarda çaldığınız şarkıları otomatik algılatın'
                             : 'Apple Music hesabınızı bağlayarak çaldığınız şarkıları anında yansıtın'}
@@ -1472,7 +1479,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }`}
                           style={{ backgroundColor: meta.accentHex }}
                         >
-                          {isConnecting ? 'Bağlanıyor...' : 'Hesabı Bağla'}
+                          {isConnecting ? 'Bağlanıyor...' : platform === 'youtube_music' ? 'Cihaz Erişimini Aç' : 'Hesabı Bağla'}
                         </button>
                       )}
                     </div>
