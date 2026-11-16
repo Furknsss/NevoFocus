@@ -1027,7 +1027,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       </div>
 
       {/* Top Floating Info Bar (Clean Non-Overlapping Header) */}
-      <div className="relative z-30 w-full px-4 sm:px-8 pt-4 sm:pt-6 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+      <div className="relative z-30 w-full px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:pt-[max(1.5rem,env(safe-area-inset-top,0px))] flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
         {/* Left: Mode Title & Subject Badge OR Clean Date for Clock Mode */}
         <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${mode === 'clock' ? 'pl-14 sm:pl-16' : ''}`}>
           {mode === 'clock' ? (
