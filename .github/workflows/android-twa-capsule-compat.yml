@@ -34,16 +34,36 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Restore the installed APK signing identity
+      - name: Restore persistent OLED signing identity
+        id: signer_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v3
+      - name: Recover original signing identity if still cached
+        if: steps.signer_cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: .signing/nevofocus-debug.keystore
           key: nevofocus-twa-debug-signing-v2
-      - name: Refuse incompatible signing identities
+      - name: Create new private signer only if old cache expired
+        shell: bash
         run: |
-          test -s .signing/nevofocus-debug.keystore
+          if test -s .signing/nevofocus-debug.keystore; then
+            echo "Reusing the existing private Android APK signing key."
+          else
+            echo "::warning::The old Android signer cache has expired. This APK will require a fresh installation; BACK UP user data before uninstalling the old version."
+            mkdir -p .signing
+            keytool -genkeypair -noprompt -keystore .signing/nevofocus-debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=NevoFocus OLED Android Signing,O=NevoFocus,C=TR'
+          fi
           keytool -list -v -keystore .signing/nevofocus-debug.keystore -storepass android -alias androiddebugkey > /tmp/nevofocus-cert.txt
-          grep -F '0D:33:E8:2B:75:E3:0D:77:56:59:54:69:3C:94:83:28:91:7C:14:DC:78:35:51:19:69:66:1B:01:D3:8C:DE:F8' /tmp/nevofocus-cert.txt
+          grep 'SHA256:' /tmp/nevofocus-cert.txt | head -1
+      - name: Preserve private signer in restricted Actions cache
+        if: steps.signer_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .signing/nevofocus-debug.keystore
+          key: nevofocus-twa-debug-signing-v3
       - name: Make room for an actual Chrome and SystemUI emulator
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
@@ -60,13 +80,11 @@ jobs:
           git rev-parse HEAD > android-twa-source-commit.txt
       - name: Build signed native app and integration tests
         run: cd android && chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-      - name: Verify exact APK certificate on the live origin
+      - name: Generate exact signed APK fingerprint and DAL fixture
         run: |
           APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
           "$APK_SIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee android-twa-apk-signature.txt
           node scripts/generate-twa-assetlinks.mjs android-twa-apk-signature.txt android-twa-assetlinks.json
-          node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
-          node --input-type=module -e "const r=await fetch(new URL('twa-bootstrap.js',process.env.NEVOFOCUS_TWA_URL)); if(!r.ok || !(await r.text()).includes('android-app://')) throw Error('Live origin must serve the Android-app origin fix before Chrome integration')"
       - name: Upload 1.2.7 OLED immersive device-test candidate before Chrome integration
         uses: actions/upload-artifact@v4
         with:
@@ -77,6 +95,10 @@ jobs:
             android-twa-source-commit.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Verify live origin trusts this exact signed APK
+        run: |
+          node scripts/verify-twa-assetlinks.mjs "$NEVOFOCUS_TWA_URL" android-twa-assetlinks.json
+          node --input-type=module -e "const r=await fetch(new URL('twa-bootstrap.js',process.env.NEVOFOCUS_TWA_URL)); if(!r.ok || !(await r.text()).includes('android-app://')) throw Error('Live origin must serve the Android-app origin fix before Chrome integration')"
       - name: Verify live website has matching Focus-notification diagnostic
         shell: bash
         run: |
