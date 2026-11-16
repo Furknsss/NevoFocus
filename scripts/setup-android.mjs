@@ -66,6 +66,24 @@ if (!manifest.includes('android:name=".FocusTimerService"')) {
   }
   manifest = manifest.replace('</application>', service + '    </application>');
 }
+// Opt-in only: Android media session access for the installed YouTube Music app.
+// BIND_NOTIFICATION_LISTENER_SERVICE belongs on the service declaration, not
+// the application's general permission list. No notification text is stored.
+if (!manifest.includes('android:name=".NevoMusicNotificationListener"')) {
+  const musicListener = `
+        <service
+            android:name=".NevoMusicNotificationListener"
+            android:label="NevoFocus müzik kontrolü"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+`;
+  if (!manifest.includes('</application>')) throw new Error('Android application element missing');
+  manifest = manifest.replace('</application>', musicListener + '    </application>');
+}
 // Use the same clock identity in the launcher, recents, splash and notification.
 const brandIcon = path.join(root, 'public', 'icons', 'nevofocus-premium-512.png');
 const drawableDir = path.join(destinationMain, 'res', 'drawable-nodpi');
