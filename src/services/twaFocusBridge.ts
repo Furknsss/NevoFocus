@@ -19,11 +19,25 @@ interface TwaWindow extends Window {
   __nevoTwaBootstrap?: { channels: BootstrapChannel[]; status?: string; nativeMessage?: string };
 }
 type RequestType = 'NEVOFOCUS_NATIVE_SYNC' | 'NEVOFOCUS_NATIVE_QUERY' | 'NEVOFOCUS_NATIVE_STOP';
+
+export interface NativeYouTubeMusicState {
+  permissionGranted: boolean;
+  sessionAvailable: boolean;
+  source: 'youtube_music';
+  isPlaying?: boolean;
+  title?: string;
+  artist?: string;
+  album?: string;
+  durationMs?: number;
+  positionMs?: number;
+  art?: string;
+  actions?: number;
+}
 interface NativeReply {
   type: string;
   version?: number;
   requestId?: string;
-  state?: NativeFocusState;
+  state?: NativeFocusState | NativeYouTubeMusicState;
   error?: string;
 }
 
@@ -33,6 +47,11 @@ export const hasTwaFocusChannel = (): boolean => Boolean(port);
 let nextRequestId = 0;
 const pending = new Map<string, {
   resolve: (state: NativeFocusState) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}>();
+const musicPending = new Map<string, {
+  resolve: (state: NativeYouTubeMusicState) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 }>();
@@ -72,6 +91,20 @@ function receive(source: MessagePort, raw: unknown) {
     bridgeWaiters.clear();
     return;
   }
+  if (source === port &&
+      (reply.type === 'NEVOFOCUS_MUSIC_STATE' || reply.type === 'NEVOFOCUS_MUSIC_ERROR') &&
+      reply.requestId) {
+    const waiting = musicPending.get(reply.requestId);
+    if (!waiting) return;
+    musicPending.delete(reply.requestId);
+    clearTimeout(waiting.timeout);
+    if (reply.type === 'NEVOFOCUS_MUSIC_ERROR' || !reply.state) {
+      waiting.reject(new Error(reply.error || 'Android müzik bağlantısı başarısız'));
+    } else {
+      waiting.resolve(reply.state as NativeYouTubeMusicState);
+    }
+    return;
+  }
   if (source !== port || (reply.type !== 'NEVOFOCUS_NATIVE_STATE' &&
       reply.type !== 'NEVOFOCUS_NATIVE_ERROR') || !reply.requestId) return;
   const waiting = pending.get(reply.requestId);
@@ -80,7 +113,7 @@ function receive(source: MessagePort, raw: unknown) {
   clearTimeout(waiting.timeout);
   if (reply.type === 'NEVOFOCUS_NATIVE_ERROR' || !reply.state) {
     waiting.reject(new Error(reply.error || 'Android native focus request failed'));
-  } else waiting.resolve(reply.state);
+  } else waiting.resolve(reply.state as NativeFocusState);
 }
 
 function adopt(next: MessagePort, initial?: unknown, queued: unknown[] = []) {
@@ -97,6 +130,11 @@ function adopt(next: MessagePort, initial?: unknown, queued: unknown[] = []) {
       waiting.reject(new Error('Android message channel disconnected'));
     }
     pending.clear();
+    for (const waiting of musicPending.values()) {
+      clearTimeout(waiting.timeout);
+      waiting.reject(new Error('Android music channel disconnected'));
+    }
+    musicPending.clear();
     window.dispatchEvent(new Event('nevofocus:twa-disconnected'));
   };
   next.start();
@@ -169,3 +207,37 @@ export const twaFocus = {
   async stop() { await send('NEVOFOCUS_NATIVE_STOP'); },
 };
 
+
+/**
+ * Optional Android local media integration, independent of YouTube/Google login.
+ * Only works inside the verified Chrome-backed Android app. The response is
+ * held in memory and never persisted to a user profile or cloud database.
+ */
+async function sendMusic(command: string, extra: object = {}): Promise<NativeYouTubeMusicState> {
+  await awaitPort();
+  if (!port) throw new Error('Android music channel disconnected');
+  const activePort = port;
+  const requestId = String(++nextRequestId);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      musicPending.delete(requestId);
+      reject(new Error('YouTube Music bağlantısı yanıt vermedi.'));
+    }, 10000);
+    musicPending.set(requestId, { resolve, reject, timeout });
+    try {
+      activePort.postMessage(JSON.stringify({ type: command, requestId, ...extra }));
+    } catch (error) {
+      clearTimeout(timeout);
+      musicPending.delete(requestId);
+      reject(error instanceof Error ? error : new Error('Android müzik komutu gönderilemedi.'));
+    }
+  });
+}
+
+export const twaYouTubeMusic = {
+  isAvailable: () => isTwaFocusPage,
+  getState: () => sendMusic('NEVOFOCUS_MUSIC_QUERY'),
+  openPermissionSettings: () => sendMusic('NEVOFOCUS_MUSIC_OPEN_SETTINGS'),
+  control: (command: 'play' | 'pause' | 'next' | 'previous' | 'seek', positionMs = 0) =>
+    sendMusic('NEVOFOCUS_MUSIC_CONTROL', { command, positionMs }),
+};
