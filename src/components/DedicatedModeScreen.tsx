@@ -127,7 +127,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
   // Reusable unified control bar (Görev Seçimi + Sayaç Tipi + Başlat)
   const renderUnifiedTaskTimerBar = (actionText: string, accentGradient: string) => {
     return (
-      <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-neutral-900/90 to-neutral-950 p-5 sm:p-6 shadow-2xl space-y-4">
+      <div className="rounded-[28px] border border-white/[0.08] bg-[#080808] p-5 sm:p-7 lg:p-8 shadow-[0_20px_70px_rgba(0,0,0,0.45)] space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
           {/* 1. GÖREV SEÇİMİ (Sadece Bugünün Görevleri) */}
           <div className="md:col-span-7 space-y-1.5">
@@ -200,7 +200,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
               <span>Sayaç Tipi</span>
             </label>
 
-            <div className="grid grid-cols-2 p-1 rounded-2xl bg-neutral-900 border border-neutral-800">
+            <div className="grid grid-cols-2 p-1 rounded-2xl bg-[#111111] border border-white/[0.07]">
               <button
                 type="button"
                 onClick={() => {
@@ -309,7 +309,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 animate-in fade-in duration-300">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-7 lg:px-10 py-6 sm:py-8 lg:py-10 animate-in fade-in duration-300">
       {/* Focus page has no mode picker. All alternatives are managed in Settings > Modlar. */}
       {mode !== 'clock' && (
         <div className="flex items-center justify-between gap-3 pb-5 border-b border-neutral-800/80 mb-6">
@@ -574,7 +574,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 
       {/* Focus is a calm single-purpose digital clock; no mode marketplace. */}
       {mode === 'clock' && (
-        <div className="mx-auto max-w-4xl space-y-5 sm:space-y-6">
+        <div className="mx-auto max-w-5xl space-y-5 sm:space-y-7">
           <header className="text-center pt-2 sm:pt-4">
             <span className="inline-flex items-center gap-2 rounded-full border border-[#ff5500]/20 bg-[#ff5500]/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#ff956c]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#ff5500]" aria-hidden="true" />
@@ -591,9 +591,9 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
           {/* Quiet timer preview: the actual live timer is ActiveClockCanvas during a session. */}
           <section
             aria-label="Odaklanma sayacı önizlemesi"
-            className="relative isolate overflow-hidden rounded-[28px] sm:rounded-[32px] border border-white/10 bg-black px-4 py-9 sm:px-8 sm:py-12 text-center shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+            className="relative isolate overflow-hidden rounded-[30px] sm:rounded-[36px] border border-white/[0.075] bg-[#030303] px-4 py-9 sm:px-10 sm:py-12 lg:py-14 text-center shadow-[0_30px_90px_rgba(0,0,0,0.48)]"
           >
-            <div className="absolute inset-x-1/4 -top-28 h-44 bg-[#ff5500]/10 blur-[90px] pointer-events-none" aria-hidden="true" />
+            <div className="absolute inset-x-1/4 -top-28 h-44 bg-[#ff5500]/[0.035] blur-[90px] pointer-events-none" aria-hidden="true" />
             <div className="relative mx-auto flex max-w-xl items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
               <span>Digital Focus</span>
               <span>Önizleme</span>
@@ -615,7 +615,7 @@ export const DedicatedModeScreen: React.FC<DedicatedModeScreenProps> = ({
 
           {renderUnifiedTaskTimerBar(
             'Odaklanmaya Başla',
-            'bg-[#ff5500] hover:bg-[#ff6a25] border border-[#ff7c43]/30 shadow-lg shadow-[#ff5500]/15'
+            'bg-[#ff5500] hover:bg-[#ff6728] border border-[#ff7c43]/25 shadow-[0_8px_30px_rgba(255,85,0,0.14)]'
           )}
           <p className="text-center text-[11px] text-neutral-500 pb-2">
             Çalışırken süre, mola ve duraklatma kontrolleri tek ekranda kalır.
