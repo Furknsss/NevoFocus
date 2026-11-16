@@ -63,6 +63,17 @@ try {
   assert.equal(await page.getByRole('radio', { name: /Orman/ }).getAttribute('aria-checked'), 'true');
   await page.getByRole('radio', { name: /Dijital Saat/ }).click();
   await clockTitle.waitFor();
+  // OLED default must be actual #000, not a dark navy near-black.
+  const oledColors = await page.evaluate(() => ({
+    html: getComputedStyle(document.documentElement).backgroundColor,
+    body: getComputedStyle(document.body).backgroundColor,
+    app: getComputedStyle(document.querySelector('#root > div')).backgroundColor,
+    preview: getComputedStyle(document.querySelector('[aria-label="Odaklanma sayacı önizlemesi"]')).backgroundColor,
+  }));
+  assert.equal(oledColors.html, 'rgb(0, 0, 0)');
+  assert.equal(oledColors.body, 'rgb(0, 0, 0)');
+  assert.equal(oledColors.app, 'rgb(0, 0, 0)');
+  assert.equal(oledColors.preview, 'rgb(3, 3, 3)');
   await page.screenshot({ path: 'focus-settings-mobile.png', fullPage: true });
 
   await page.setViewportSize({ width: 1280, height: 900 });
