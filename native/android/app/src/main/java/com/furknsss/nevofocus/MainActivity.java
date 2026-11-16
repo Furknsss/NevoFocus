@@ -41,9 +41,43 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // The Capacitor/WebView variant must match the Chrome-backed TWA.
+    // Sticky immersive mode hides the grey status strip and bottom navigation
+    // bar while preserving Android's edge-swipe gesture to reveal controls.
+    private void applyImmersiveOledWindow() {
+        getWindow().setStatusBarColor(android.graphics.Color.BLACK);
+        getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
+        getWindow().setNavigationBarContrastEnforced(false);
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(android.view.WindowInsets.Type.statusBars() |
+                        android.view.WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                    android.view.View.SYSTEM_UI_FLAG_FULLSCREEN |
+                    android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyImmersiveOledWindow();
+    }
+
     @Override
     public void onResume() {
         super.onResume();
+        applyImmersiveOledWindow();
         if (isFocusNotificationIntent(getIntent())) {
             focusOpenRequested = true;
         }
