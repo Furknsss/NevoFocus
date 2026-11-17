@@ -69,7 +69,12 @@ if (!manifest.includes('android:name=".FocusTimerService"')) {
 // Opt-in only: Android media session access for the installed YouTube Music app.
 // BIND_NOTIFICATION_LISTENER_SERVICE belongs on the service declaration, not
 // the application's general permission list. No notification text is stored.
-if (!manifest.includes('android:name=".NevoMusicNotificationListener"')) {
+// The direct-install Capacitor APK has no native music bridge. Do not declare
+// high-risk notification access in its manifest: Play Protect blocks
+// sideloaded APKs with notification listener services in some regions.
+// Only the verified TWA distribution opts in to on-device media controls.
+const enableMusicListener = process.env.NEVOFOCUS_ENABLE_NOTIFICATION_LISTENER === '1';
+if (enableMusicListener && !manifest.includes('android:name=".NevoMusicNotificationListener"')) {
   const musicListener = `
         <service
             android:name=".NevoMusicNotificationListener"
@@ -83,6 +88,14 @@ if (!manifest.includes('android:name=".NevoMusicNotificationListener"')) {
 `;
   if (!manifest.includes('</application>')) throw new Error('Android application element missing');
   manifest = manifest.replace('</application>', musicListener + '    </application>');
+}
+// Also remove a listener left by a previous local build when preparing
+// the direct-install variant from an existing generated Android project.
+if (!enableMusicListener) {
+  manifest = manifest.replace(
+    /\s*<service\b(?=[^>]*android:name="\.NevoMusicNotificationListener")[\s\S]*?<\/service>/g,
+    ''
+  );
 }
 // Use the same clock identity in the launcher, recents, splash and notification.
 const brandIcon = path.join(root, 'public', 'icons', 'nevofocus-premium-512.png');
