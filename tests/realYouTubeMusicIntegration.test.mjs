@@ -38,3 +38,12 @@ test('Focus player shows the real on-device track and sends controls to Android'
   assert.match(settings, /requestNativeYouTubePermission\(\)/);
   assert.doesNotMatch(settings, /YouTube Music \([^)]*\) doğrudan bağlandı!/);
 });
+
+// Direct-install builds should not request unused sensitive notification access.
+test('direct-install Capacitor APK excludes notification listener; trusted TWA opts in', () => {
+  const directSetup = read('scripts/setup-android.mjs');
+  const twaSetup = read('scripts/setup-twa-android.mjs');
+  assert.match(directSetup, /NEVOFOCUS_ENABLE_NOTIFICATION_LISTENER === '1'/);
+  assert.match(directSetup, /if \(!enableMusicListener\)/);
+  assert.match(twaSetup, /NEVOFOCUS_ENABLE_NOTIFICATION_LISTENER: '1'/);
+});

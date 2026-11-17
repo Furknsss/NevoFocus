@@ -34,7 +34,7 @@ const manifestPath = path.join(androidMain, 'AndroidManifest.xml');
 const appGradlePath = path.join(root, 'android', 'app', 'build.gradle');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-execFileSync(npm, ['run', 'android:setup'], { cwd: root, stdio: 'inherit' });
+execFileSync(npm, ['run', 'android:setup'], { cwd: root, stdio: 'inherit', env: { ...process.env, NEVOFOCUS_ENABLE_NOTIFICATION_LISTENER: '1' } });
 fs.cpSync(nativeMain, androidMain, { recursive: true, force: true });
 const nativeTest = path.join(root, 'native', 'android-twa', 'app', 'src', 'test');
 if (fs.existsSync(nativeTest)) {
