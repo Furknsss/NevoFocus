@@ -11,7 +11,7 @@ test('tapping the full custom notification opens a Focus-specific TWA route', ()
   assert.ok(service.includes('ACTION_OPEN_FOCUS = "com.furknsss.nevofocus.OPEN_FOCUS"'));
   assert.match(service, /Intent\.FLAG_ACTIVITY_CLEAR_TOP \| Intent\.FLAG_ACTIVITY_SINGLE_TOP/);
   assert.match(service, /setContentIntent\(openApp\)/);
-  assert.match(service, /setOnClickPendingIntent\(R\.id\.focus_main_time, openApp\)/);
+  assert.match(service, /setOnClickPendingIntent\(R\.id\.focus_chronometer, openApp\)/);
   assert.match(activity, /protected void onNewIntent\(Intent intent\)/);
   assert.match(activity, /urlBuilder\.appendQueryParameter\("nevofocus_focus", "1"\)/);
   assert.match(activity, /ACTION_OPEN_FOCUS\.equals\(getIntent\(\)\.getAction\(\)\)/);
@@ -60,15 +60,14 @@ test('notification route resumes persisted session without wiping clock, mode or
   assert.match(active, /setIsCampActive\(state\.isBreakActive\)/);
 });
 
-test('foreground capsule reuses stable PendingIntents and cached clock state', () => {
+test('foreground capsule reuses stable click actions; SystemUI ticks while paused app sleeps', () => {
   const service = read('native/android/app/src/main/java/com/furknsss/nevofocus/FocusTimerService.java');
-  assert.match(service, /private State clockState;/);
-  assert.match(service, /State current = clockState != null \? clockState : read\(FocusTimerService\.this\)/);
-  assert.match(service, /clockState = state;/);
+  assert.match(service, /setChronometer\(R\.id\.focus_chronometer/);
+  assert.match(service, /setChronometerCountDown\(R\.id\.focus_chronometer/);
   assert.match(service, /if \(ACTION_PAUSE\.equals\(action\) && pauseActionIntent != null\) return pauseActionIntent;/);
   assert.match(service, /if \(ACTION_BREAK\.equals\(action\) && breakActionIntent != null\) return breakActionIntent;/);
   assert.match(service, /if \(openFocusIntent != null\) return openFocusIntent;/);
-  assert.match(service, /clockState = null;/);
+  assert.doesNotMatch(service, /clockHandler|updateClock/);
 });
 
 test('Focus page checks notification controls promptly without polling in background', () => {

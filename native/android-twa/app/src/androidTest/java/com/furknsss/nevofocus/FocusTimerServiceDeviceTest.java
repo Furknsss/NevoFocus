@@ -367,11 +367,11 @@ public class FocusTimerServiceDeviceTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
             android.view.View view = notification.getNotification().contentView.apply(
                     context, new android.widget.FrameLayout(context));
-            String main = ((android.widget.TextView) view.findViewById(R.id.focus_main_time)).getText().toString();
-            String seconds = ((android.widget.TextView) view.findViewById(R.id.focus_seconds)).getText().toString();
-            String[] hm = main.split(":");
-            rendered.set((Long.parseLong(hm[0]) * 3600L + Long.parseLong(hm[1]) * 60L
-                    + Long.parseLong(seconds.substring(1))) * 1000L);
+            android.widget.Chronometer clock = view.findViewById(R.id.focus_chronometer);
+            assertNotNull("SystemUI chronometer must exist", clock);
+            long now = SystemClock.elapsedRealtime();
+            rendered.set(Math.max(0L, clock.isCountDown()
+                    ? clock.getBase() - now : now - clock.getBase()));
         });
         return rendered.get();
     }

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { splitClockDisplaySeconds } from '../../utils/clockDisplay';
 import { Play, Pause, CheckCircle2, X } from 'lucide-react';
 import { soundEngine } from '../../utils/audio';
 
@@ -38,85 +39,41 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
   remainingSeconds = 0,
   clockStyle = 'ipad',
 }) => {
-  const [breaks, setBreaks] = useState<BreakRecord[]>([]);
-  const [isBreakRunning, setIsBreakRunning] = useState<boolean>(false);
+  const [breaks, setBreaks] = useState<(BreakRecord & { startTotalSeconds: number })[]>([]);
+  const wasBreakActive = useRef(parentBreakActive);
+  const isBreakRunning = parentBreakActive;
 
-  // Time calculation: keeps running smoothly without stopping when switching clock styles
-  const displaySeconds = timerType === 'countdown' ? Math.max(0, remainingSeconds) : elapsedSeconds;
-  const hours = Math.floor(displaySeconds / 3600);
-  const minutes = Math.floor((displaySeconds % 3600) / 60);
-  const seconds = displaySeconds % 60;
-
-  const pad = (n: number) => String(n).padStart(2, '0');
-
-  // Break live counter ticker
+  // One authoritative source: the parent clock. No second interval that
+  // advances breaks while Android has paused/ended the timer.
   useEffect(() => {
-    if (!isBreakRunning) return;
-
-    const interval = setInterval(() => {
-      setBreaks((prev) =>
-        prev.map((b) => (b.isActive ? { ...b, seconds: b.seconds + 1 } : b))
-      );
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isBreakRunning]);
-
-  // Sync if parent break active changes
-  useEffect(() => {
-    if (parentBreakActive && !isBreakRunning) {
-      setIsBreakRunning(true);
-      setBreaks((prev) => {
-        const hasActive = prev.some((b) => b.isActive);
-        if (hasActive) return prev;
-        return [...prev, { id: prev.length + 1, seconds: parentBreakSeconds || 0, isActive: true }];
+    const wasActive = wasBreakActive.current;
+    if (parentBreakActive && (!wasActive || breaks.length === 0)) {
+      setBreaks(prev => {
+        if (prev.some(b => b.isActive)) return prev;
+        return [...prev, {
+          id: prev.length + 1, seconds: 0, isActive: true,
+          startTotalSeconds: wasActive ? 0 : Math.max(0, parentBreakSeconds),
+        }];
       });
-    } else if (!parentBreakActive && isBreakRunning) {
-      setIsBreakRunning(false);
-      setBreaks((prev) => prev.map((b) => (b.isActive ? { ...b, isActive: false } : b)));
+    } else if (!parentBreakActive && wasActive) {
+      setBreaks(prev => prev.map(b => b.isActive
+        ? { ...b, seconds: Math.max(0, Math.floor(parentBreakSeconds - b.startTotalSeconds)), isActive: false }
+        : b));
     }
-  }, [parentBreakActive]);
+    wasBreakActive.current = parentBreakActive;
+  }, [parentBreakActive, parentBreakSeconds, breaks.length]);
 
-  // Handle Mola toggle (Kullanıcı talebi: Molaya basınca ses ÇALMAZ; sadece sağ üst ses menüsünden seçilince çalar)
-  const handleToggleMola = () => {
-
-    if (!isBreakRunning) {
-      if (onTakeBreak && !parentBreakActive) {
-        onTakeBreak();
-      }
-
-      setIsBreakRunning(true);
-      setBreaks((prev) => {
-        const closed = prev.map((b) => ({ ...b, isActive: false }));
-        return [...closed, { id: closed.length + 1, seconds: 0, isActive: true }];
-      });
-    } else {
-      setIsBreakRunning(false);
-      setBreaks((prev) => prev.map((b) => (b.isActive ? { ...b, isActive: false } : b)));
-
-      if (onTakeBreak && parentBreakActive) {
-        onTakeBreak();
-      }
-    }
-  };
-
-  // Handle Play/Pause
+  const handleToggleMola = () => onTakeBreak?.();
   const handleTogglePlayPause = () => {
     soundEngine.playClick();
-    if (isBreakRunning) {
-      setIsBreakRunning(false);
-      setBreaks((prev) => prev.map((b) => (b.isActive ? { ...b, isActive: false } : b)));
-      if (onTakeBreak && parentBreakActive) {
-        onTakeBreak();
-      }
-    } else {
-      onTogglePause();
-    }
+    onTogglePause();
   };
 
-  const minutesPadded = pad(minutes);
-  const secondsPadded = pad(seconds);
-  const hoursPadded = pad(hours);
+  // Never subscript a fractional string (e.g. '38.472'): digits must be
+  // stable whole seconds even while native reconciling subsecond anchors.
+  const displaySeconds = timerType === 'countdown' ? remainingSeconds : elapsedSeconds;
+  const { hours, minutesPadded, secondsPadded, hoursPadded } =
+    splitClockDisplaySeconds(displaySeconds, timerType === 'countdown');
 
   return (
     <div className="nevo-clock-screen relative w-full h-full min-h-0 bg-[#000000] text-white flex flex-col justify-between select-none overflow-hidden font-sans">
@@ -192,7 +149,7 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
                           brk.isActive ? 'text-amber-400 font-bold' : 'text-neutral-300'
                         }`}
                       >
-                        {pad(Math.floor(brk.seconds / 60))}:{pad(brk.seconds % 60)}
+                        {String(Math.floor((brk.isActive ? Math.max(0, parentBreakSeconds - brk.startTotalSeconds) : brk.seconds) / 60)).padStart(2, '0')}:{String(Math.floor(brk.isActive ? Math.max(0, parentBreakSeconds - brk.startTotalSeconds) : brk.seconds) % 60).padStart(2, '0')}
                       </span>
                     </div>
                   </div>
@@ -224,7 +181,7 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
                   >
                     <span className="text-neutral-400 font-mono">{brk.id}. Mola :</span>
                     <span className={brk.isActive ? 'text-amber-400 font-bold' : 'text-neutral-300'}>
-                      {pad(Math.floor(brk.seconds / 60))}:{pad(brk.seconds % 60)}
+                      {String(Math.floor((brk.isActive ? Math.max(0, parentBreakSeconds - brk.startTotalSeconds) : brk.seconds) / 60)).padStart(2, '0')}:{String(Math.floor(brk.isActive ? Math.max(0, parentBreakSeconds - brk.startTotalSeconds) : brk.seconds) % 60).padStart(2, '0')}
                     </span>
                   </div>
                 ))}
@@ -293,13 +250,13 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
               type="button"
               onClick={handleTogglePlayPause}
               className={`nevo-clock-circle w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer shadow-lg shadow-black ${
-                isPaused || isBreakRunning
+                isPaused
                   ? 'bg-[#122b17] border-[#30d158] text-[#30d158] hover:bg-[#193a20]'
                   : 'bg-[#301616] border-[#ff453a] text-[#ff453a] hover:bg-[#421f1f]'
               }`}
             >
               <div className="flex flex-col items-center justify-center leading-tight">
-                {isPaused || isBreakRunning ? (
+                {isPaused ? (
                   <>
                     <Play className="w-5 h-5 fill-current mb-0.5 ml-0.5" />
                     <span className="text-[10px] sm:text-xs">Başlat</span>

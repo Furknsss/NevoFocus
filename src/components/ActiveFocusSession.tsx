@@ -25,7 +25,7 @@ import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
 import { enterImmersiveFocusDisplay } from '../services/displayPreferences';
 import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
 import { isTwaFocusPage } from '../services/twaFocusBridge';
-import { elapsedSecondsAtTransition } from '../utils/focusTimerTransitions';
+import { elapsedPreciseSecondsAtTransition } from '../utils/focusTimerTransitions';
 import { SpotifyFocusWidget } from './visuals/SpotifyFocusWidget';
 import { NotificationPreviewModal } from './NotificationPreviewModal';
 import { soundEngine } from '../utils/audio';
@@ -177,7 +177,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     if (isPausedRef.current || isCampActiveRef.current) {
       return accumulatedFocusSecondsRef.current;
     }
-    const delta = Math.max(0, Math.floor((Date.now() - anchorTimestampRef.current) / 1000));
+    const delta = Math.max(0, (Date.now() - anchorTimestampRef.current) / 1000);
     return accumulatedFocusSecondsRef.current + delta;
   }, []);
 
@@ -185,15 +185,15 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     if (!isCampActiveRef.current || isPausedRef.current) {
       return accumulatedBreakSecondsRef.current;
     }
-    const delta = Math.max(0, Math.floor((Date.now() - breakAnchorTimestampRef.current) / 1000));
+    const delta = Math.max(0, (Date.now() - breakAnchorTimestampRef.current) / 1000);
     return accumulatedBreakSecondsRef.current + delta;
   }, []);
 
-  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => computeCurrentFocusSeconds());
+  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => Math.floor(computeCurrentFocusSeconds()));
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() =>
-    Math.max(0, totalSeconds - computeCurrentFocusSeconds())
+    Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds()))
   );
-  const [breakSeconds, setBreakSeconds] = useState<number>(() => computeCurrentBreakSeconds());
+  const [breakSeconds, setBreakSeconds] = useState<number>(() => Math.floor(computeCurrentBreakSeconds()));
 
   // Today's formatted local date (YYYY-MM-DD)
   const todayStr = useMemo(() => getLocalDateString(new Date()), []);
@@ -447,6 +447,17 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         const controlsChanged =
           isPausedRef.current !== state.isPaused ||
           isCampActiveRef.current !== state.isBreakActive;
+        // Native reports subsecond precision. Replacing the JS anchor on
+        // EVERY 650ms poll makes floor(delta) restart at zero continuously:
+        // the display stalls, then jumps. Only correct actual state changes
+        // or meaningful drift (e.g. after Android sleep / page suspension).
+        const localFocus = computeCurrentFocusSeconds();
+        const localBreak = computeCurrentBreakSeconds();
+        const clockDrifted =
+          Math.abs(localFocus - state.elapsedFocusSeconds) > 1.25 ||
+          Math.abs(localBreak - state.elapsedBreakSeconds) > 1.25;
+        if (!controlsChanged && !clockDrifted) return;
+
         accumulatedFocusSecondsRef.current = Math.max(0, state.elapsedFocusSeconds);
         accumulatedBreakSecondsRef.current = Math.max(0, state.elapsedBreakSeconds);
         anchorTimestampRef.current = now;
@@ -456,11 +467,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         setIsPaused(state.isPaused);
         setIsCampActive(state.isBreakActive);
         const focus = computeCurrentFocusSeconds();
-        setElapsedCountUp(focus);
-        setSecondsRemaining(Math.max(0, totalSeconds - focus));
-        setBreakSeconds(computeCurrentBreakSeconds());
-        // Don't spam remote Firestore writes when the only change is the
-        // ticking Android clock. Persist immediately for notification controls.
+        setElapsedCountUp(Math.floor(focus));
+        setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - focus)));
+        setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
+        // Persist only control changes, not a normal running second.
         if (controlsChanged) persistSessionState(true);
       } catch (error) {
         console.warn('[NevoFocus] native restore:', error);
@@ -528,10 +538,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     if (!isPausedRef.current) {
       // Going into pause: lock in elapsed time up to right now
       if (!isCampActiveRef.current) {
-        const delta = Math.max(0, Math.floor((now - anchorTimestampRef.current) / 1000));
+        const delta = Math.max(0, (now - anchorTimestampRef.current) / 1000);
         accumulatedFocusSecondsRef.current += delta;
       } else {
-        const bDelta = Math.max(0, Math.floor((now - breakAnchorTimestampRef.current) / 1000));
+        const bDelta = Math.max(0, (now - breakAnchorTimestampRef.current) / 1000);
         accumulatedBreakSecondsRef.current += bDelta;
       }
       anchorTimestampRef.current = now;
@@ -547,9 +557,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       backgroundFocus.startKeepAlive();
     }
 
-    setElapsedCountUp(computeCurrentFocusSeconds());
-    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
-    setBreakSeconds(computeCurrentBreakSeconds());
+    setElapsedCountUp(Math.floor(computeCurrentFocusSeconds()));
+    setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds())));
+    setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
     persistSessionState(true);
     syncNativeState();
   }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
@@ -565,7 +575,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setIsPaused(false);
     }
     if (!isCampActiveRef.current) {
-      accumulatedFocusSecondsRef.current += elapsedSecondsAtTransition(
+      accumulatedFocusSecondsRef.current += elapsedPreciseSecondsAtTransition(
         anchorTimestampRef.current, now, wasPaused
       );
       breakAnchorTimestampRef.current = now;
@@ -573,7 +583,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setIsCampActive(true);
       setBreakCount((prev) => prev + 1);
     } else {
-      accumulatedBreakSecondsRef.current += elapsedSecondsAtTransition(
+      accumulatedBreakSecondsRef.current += elapsedPreciseSecondsAtTransition(
         breakAnchorTimestampRef.current, now, wasPaused
       );
       anchorTimestampRef.current = now;
@@ -581,9 +591,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setIsCampActive(false);
     }
 
-    setElapsedCountUp(computeCurrentFocusSeconds());
-    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
-    setBreakSeconds(computeCurrentBreakSeconds());
+    setElapsedCountUp(Math.floor(computeCurrentFocusSeconds()));
+    setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds())));
+    setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
     persistSessionState(true);
     syncNativeState();
   }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
@@ -684,9 +694,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           }
 
           const fSecs = computeCurrentFocusSeconds();
-          setElapsedCountUp(fSecs);
-          setSecondsRemaining(Math.max(0, totalSeconds - fSecs));
-          setBreakSeconds(computeCurrentBreakSeconds());
+          setElapsedCountUp(Math.floor(fSecs));
+          setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - fSecs)));
+          setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
         }
       },
       () => {
@@ -700,7 +710,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   const elapsedSeconds = currentTimerType === 'stopwatch' ? elapsedCountUp : Math.max(0, totalSeconds - secondsRemaining);
   const progress = Math.min(1, Math.max(0, elapsedSeconds / Math.max(1, totalSeconds)));
   const displayRawSecs = currentTimerType === 'stopwatch' ? elapsedCountUp : secondsRemaining;
-  const timeFormatted = formatTimerDisplay(displayRawSecs);
+  const timeFormatted = formatTimerDisplay(currentTimerType === 'countdown' ? Math.ceil(displayRawSecs) : Math.floor(displayRawSecs));
 
   // Page Title Live Sync for Background Tab Viewing
   useEffect(() => {
@@ -721,14 +731,14 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       const currentBreak = computeCurrentBreakSeconds();
       const currentRem = Math.max(0, totalSeconds - currentFocus);
 
-      setElapsedCountUp(currentFocus);
-      setSecondsRemaining(currentRem);
-      setBreakSeconds(currentBreak);
+      setElapsedCountUp(Math.floor(currentFocus));
+      setSecondsRemaining(Math.ceil(currentRem));
+      setBreakSeconds(Math.floor(currentBreak));
 
       // Update MediaSession & Service Worker notification
       if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
-      if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
+      if (currentTimerType === 'countdown' && currentRem <= 0 && !isCampActiveRef.current) {
         handleFinish(true);
         return;
       }
@@ -792,7 +802,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     backgroundFocus.stopAll();
     if (isNativeFocusAvailable) void nativeFocus.stop();
 
-    const finalFocusSecs = computeCurrentFocusSeconds();
+    // A countdown must record no more than its planned focus time even if
+    // the WebView slept for hours before observing native 00:00 completion.
+    const uncappedFocusSecs = computeCurrentFocusSeconds();
+    const finalFocusSecs = currentTimerType === 'countdown'
+      ? Math.min(totalSeconds, uncappedFocusSecs)
+      : uncappedFocusSecs;
     const finalBreakSecs = computeCurrentBreakSeconds();
 
     // Clear background running session state locally and in cloud
