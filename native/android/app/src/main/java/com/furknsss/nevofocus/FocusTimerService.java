@@ -12,6 +12,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
 
@@ -35,6 +37,39 @@ public final class FocusTimerService extends Service {
     private PendingIntent pauseActionIntent;
     private PendingIntent breakActionIntent;
     private PendingIntent openFocusIntent;
+
+    // Only one scheduled event is needed: stop countdown precisely at 00:00.
+    // All intermediate seconds are rendered by SystemUI, without app callbacks.
+    private final Handler deadlineHandler = new Handler(Looper.getMainLooper());
+    private final Runnable countdownDeadline = new Runnable() {
+        @Override public void run() {
+            State current = read(FocusTimerService.this);
+            if (!current.active || current.paused || current.onBreak || !current.countdown) return;
+            long remaining = current.plannedMs - current.elapsedFocusMs();
+            if (remaining > 0L) {
+                deadlineHandler.postDelayed(this, remaining);
+                return;
+            }
+            current.freeze();
+            current.focusMs = Math.max(0L, current.plannedMs);
+            current.paused = true;
+            current.resetAnchor();
+            store(FocusTimerService.this, current);
+            try {
+                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                        .notify(NOTIFICATION_ID, buildNotification(current));
+            } catch (SecurityException ignored) {
+                // Permission might be revoked after the timer started.
+            }
+        }
+    };
+
+    private void scheduleCountdownDeadline(State state) {
+        deadlineHandler.removeCallbacks(countdownDeadline);
+        if (!state.active || state.paused || state.onBreak || !state.countdown) return;
+        deadlineHandler.postDelayed(countdownDeadline,
+                Math.max(1L, state.plannedMs - state.elapsedFocusMs()));
+    }
 
     static final class State {
         boolean active;
@@ -188,6 +223,7 @@ public final class FocusTimerService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(START_NOTIFICATION_ID);
+            scheduleCountdownDeadline(state);
             return START_STICKY;
         } catch (RuntimeException error) {
             // TWA runs inside Chrome: Android can regard our app as background.
@@ -379,6 +415,7 @@ public final class FocusTimerService extends Service {
     @Override
     public void onDestroy() {
         // SystemUI owns the live clock and stops ticking when the service ends.
+        deadlineHandler.removeCallbacksAndMessages(null);
         pauseActionIntent = null;
         breakActionIntent = null;
         openFocusIntent = null;
