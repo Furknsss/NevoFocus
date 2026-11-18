@@ -52,6 +52,7 @@ import {
   exportLocalBackup,
   importLocalBackup,
   getLastSyncTime,
+  safeMusicPreferences,
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
 import { twaYouTubeMusic } from '../services/twaFocusBridge';
@@ -149,7 +150,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       safeSetDoc(
         doc(db, 'users', currentUser.uid),
         {
-          musicConnections: updatedConfig,
+          musicConnections: safeMusicPreferences(updatedConfig),
           updatedAt: Date.now(),
         },
         { merge: true }
