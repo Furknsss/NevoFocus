@@ -6,16 +6,12 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
-import android.content.BroadcastReceiver;
-import android.content.IntentFilter;
 import android.provider.Settings;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
 
@@ -33,41 +29,12 @@ public final class FocusTimerService extends Service {
     private static final String PREFS = "nevofocus_native_focus_v1";
     private static final int NOTIFICATION_ID = 31415;
     private static final int START_NOTIFICATION_ID = 31416;
-    private boolean destroyed;
-    // Native timer state stays in memory while the foreground service is
-    // alive. The persistent snapshot is still authoritative after a restart.
-    // Avoid re-reading SharedPreferences and Settings.Global on every second.
-    private State clockState;
-    // PendingIntents are immutable: creating them on every one-second repaint
-    // added unnecessary binder traffic between our process and SystemUI.
+    // Android SystemUI's Chronometer renders its own second boundaries.
+    // Re-notifying every second was throttled by some Android versions and
+    // caused intermittent freezes/jumps in the notification.
     private PendingIntent pauseActionIntent;
     private PendingIntent breakActionIntent;
     private PendingIntent openFocusIntent;
-    private final Handler clockHandler = new Handler(Looper.getMainLooper());
-    private final Runnable updateClock = new Runnable() {
-        @Override public void run() {
-            if (destroyed) return;
-            State current = clockState != null ? clockState : read(FocusTimerService.this);
-            if (!current.active || current.paused) return;
-            try {
-                NotificationManager manager = (NotificationManager)
-                        getSystemService(Context.NOTIFICATION_SERVICE);
-                manager.notify(NOTIFICATION_ID, buildNotification(current));
-            } catch (SecurityException ignored) {
-                // Notification permission might have been revoked after the session started.
-            }
-            // Repaint at the timer's next second boundary, rather than at an unrelated uptime phase.
-            clockHandler.postDelayed(this, current.nextDisplayDelayMs());
-        }
-    };
-
-    private void refreshClockUpdates(State state) {
-        clockState = state;
-        clockHandler.removeCallbacks(updateClock);
-        if (state.active && !state.paused) {
-            clockHandler.postDelayed(updateClock, state.nextDisplayDelayMs());
-        }
-    }
 
     static final class State {
         boolean active;
@@ -221,7 +188,6 @@ public final class FocusTimerService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(START_NOTIFICATION_ID);
-            refreshClockUpdates(state);
             return START_STICKY;
         } catch (RuntimeException error) {
             // TWA runs inside Chrome: Android can regard our app as background.
@@ -325,8 +291,7 @@ public final class FocusTimerService extends Service {
         // Android SystemUI may make the parent an accessibility focus target
         // and swallow taps on the pause/break child ImageViews. The native
         // notification's setContentIntent still opens Focus from its body.
-        compact.setOnClickPendingIntent(R.id.focus_main_time, openApp);
-        compact.setOnClickPendingIntent(R.id.focus_seconds, openApp);
+        compact.setOnClickPendingIntent(R.id.focus_chronometer, openApp);
 
         Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.nevofocus_notification_icon)
@@ -373,11 +338,14 @@ public final class FocusTimerService extends Service {
     }
 
     private void prepareViews(RemoteViews views, State state) {
+        // SystemUI uses elapsedRealtime to update every visible second
+        // without waking our app or rebuilding a whole notification.
         long shownMs = state.displayedMs();
-        FocusTimerClockText.Parts time = FocusTimerClockText.format(shownMs);
-        // The native foreground service drives text sizes independently.
-        views.setTextViewText(R.id.focus_main_time, time.hoursMinutes);
-        views.setTextViewText(R.id.focus_seconds, time.seconds);
+        long now = SystemClock.elapsedRealtime();
+        boolean countDown = !state.onBreak && state.countdown;
+        long base = countDown ? now + shownMs : now - shownMs;
+        views.setChronometerCountDown(R.id.focus_chronometer, countDown);
+        views.setChronometer(R.id.focus_chronometer, base, null, state.active && !state.paused);
         views.setImageViewResource(R.id.focus_pause,
                 state.paused ? R.drawable.nevofocus_action_play
                     : R.drawable.nevofocus_action_pause);
@@ -403,25 +371,6 @@ public final class FocusTimerService extends Service {
         }
     }
 
-    private boolean screenReceiverRegistered;
-    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) {
-            // Handler callbacks pause during deep sleep. Show the actual elapsed time as soon as
-            // the screen wakes, without keeping a wake lock or depending on Chrome's JS timers.
-            clockHandler.removeCallbacks(updateClock);
-            updateClock.run();
-        }
-    };
-
-    @Override public void onCreate() {
-        super.onCreate();
-        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
-        filter.addAction(Intent.ACTION_USER_PRESENT);
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        else registerReceiver(screenReceiver, filter);
-        screenReceiverRegistered = true;
-    }
-
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -429,14 +378,10 @@ public final class FocusTimerService extends Service {
 
     @Override
     public void onDestroy() {
-        // A queued screen-wake callback must not publish again after this instance is stopped.
-        destroyed = true;
-        clockHandler.removeCallbacksAndMessages(null);
-        clockState = null;
+        // SystemUI owns the live clock and stops ticking when the service ends.
         pauseActionIntent = null;
         breakActionIntent = null;
         openFocusIntent = null;
-        if (screenReceiverRegistered) unregisterReceiver(screenReceiver);
         stopForeground(STOP_FOREGROUND_REMOVE);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
         super.onDestroy();
