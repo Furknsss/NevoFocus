@@ -5,6 +5,7 @@ import {
   applySavedDisplayPreferences,
   readDisplayPreferences,
   saveDisplayPreferences,
+  enterImmersiveFocusDisplay,
 } from '../src/services/displayPreferences.ts';
 
 const cache = new Map();
@@ -57,4 +58,39 @@ test('tablet settings include live sliders and honest music permission state', (
   assert.match(settings, /Bildirim erişimi listesinde NevoFocus görünmez/);
   assert.match(settings, /setYoutubeAccessNotice\(message\)/);
   assert.match(settings, /twaYouTubeMusic\.isAvailable\(\)/);
+});
+
+test('immersive focus always occupies the real viewport, then restores saved zoom', () => {
+  saveDisplayPreferences({ uiScale: 70, textScale: 145 });
+  assert.equal(style.zoom, '70%');
+  assert.equal(style.fontSize, '23.2px');
+  const leave = enterImmersiveFocusDisplay();
+  assert.equal(style.zoom, '100%');
+  assert.equal(style.fontSize, '16px');
+  // A slider event or preference save must not disturb an active focus screen.
+  saveDisplayPreferences({ uiScale: 140, textScale: 80 });
+  assert.equal(style.zoom, '100%');
+  assert.equal(style.fontSize, '16px');
+  // User preference is still saved for other screens.
+  assert.deepEqual(readDisplayPreferences(), { uiScale: 140, textScale: 80 });
+  leave();
+  assert.equal(style.zoom, '140%');
+  assert.equal(style.fontSize, '12.8px');
+  leave(); // StrictMode-safe cleanup is idempotent.
+  assert.equal(style.zoom, '140%');
+  saveDisplayPreferences({ uiScale: 100, textScale: 100 });
+});
+
+test('portrait and landscape clock use one real-height layout and footer', () => {
+  const clock = readFileSync('src/components/visuals/ActiveClockCanvas.tsx', 'utf8');
+  const wrapper = readFileSync('src/components/ActiveFocusSession.tsx', 'utf8');
+  const css = readFileSync('src/index.css', 'utf8');
+  assert.doesNotMatch(clock, /min-h-screen/);
+  assert.match(clock, /nevo-clock-stage[^"]*flex-1 min-h-0/);
+  assert.match(clock, /nevo-clock-actions/);
+  assert.match(clock, /nevo-clock-has-hours/);
+  assert.match(wrapper, /useLayoutEffect\(\(\) => enterImmersiveFocusDisplay\(\), \[\]\)/);
+  assert.match(css, /@media \(orientation: landscape\) and \(max-height: 580px\)/);
+  assert.match(css, /nevo-clock-actions \{/);
+  assert.match(css, /padding-bottom: max\(1\.5rem, env\(safe-area-inset-bottom, 0px\)\)/);
 });
