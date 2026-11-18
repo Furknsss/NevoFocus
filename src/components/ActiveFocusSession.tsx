@@ -802,7 +802,12 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     backgroundFocus.stopAll();
     if (isNativeFocusAvailable) void nativeFocus.stop();
 
-    const finalFocusSecs = computeCurrentFocusSeconds();
+    // A countdown must record no more than its planned focus time even if
+    // the WebView slept for hours before observing native 00:00 completion.
+    const uncappedFocusSecs = computeCurrentFocusSeconds();
+    const finalFocusSecs = currentTimerType === 'countdown'
+      ? Math.min(totalSeconds, uncappedFocusSecs)
+      : uncappedFocusSecs;
     const finalBreakSecs = computeCurrentBreakSeconds();
 
     // Clear background running session state locally and in cloud
