@@ -47,6 +47,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Check TypeScript
         run: npm run lint
+      - name: Test tablet display preferences and permission UX
+        run: node --import tsx --test tests/displayPreferences.test.mjs
       - name: Generate Android project and native focus service
         run: npm run android:setup
       - name: Compile installable debug APK
