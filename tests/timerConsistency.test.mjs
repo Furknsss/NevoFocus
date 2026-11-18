@@ -85,3 +85,15 @@ test('Android notification time uses SystemUI chronometer, not jittery app notif
   assert.match(src, /state\.paused = !state\.paused/);
   assert.match(src, /state\.onBreak = !state\.onBreak/);
 });
+
+test('countdown stops at zero on deep-sleep wake without overcounting study records', () => {
+  const native=readFileSync('native/android/app/src/main/java/com/furknsss/nevofocus/FocusTimerService.java','utf8');
+  const web=readFileSync('src/components/ActiveFocusSession.tsx','utf8');
+  assert.match(native, /Intent\.ACTION_SCREEN_ON/);
+  assert.match(native, /deadlineHandler\.post\(countdownDeadline\)/);
+  assert.match(native, /current\.focusMs = Math\.max\(0L, current\.plannedMs\)/);
+  assert.match(native, /current\.paused = true/);
+  assert.match(native, /setChronometerCountDown/);
+  assert.match(web, /Math\.min\(totalSeconds, uncappedFocusSecs\)/);
+  assert.match(web, /currentRem <= 0 && !isCampActiveRef\.current/);
+});
