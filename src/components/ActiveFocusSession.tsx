@@ -189,11 +189,11 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     return accumulatedBreakSecondsRef.current + delta;
   }, []);
 
-  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => computeCurrentFocusSeconds());
+  const [elapsedCountUp, setElapsedCountUp] = useState<number>(() => Math.floor(computeCurrentFocusSeconds()));
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() =>
-    Math.max(0, totalSeconds - computeCurrentFocusSeconds())
+    Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds()))
   );
-  const [breakSeconds, setBreakSeconds] = useState<number>(() => computeCurrentBreakSeconds());
+  const [breakSeconds, setBreakSeconds] = useState<number>(() => Math.floor(computeCurrentBreakSeconds()));
 
   // Today's formatted local date (YYYY-MM-DD)
   const todayStr = useMemo(() => getLocalDateString(new Date()), []);
@@ -467,9 +467,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         setIsPaused(state.isPaused);
         setIsCampActive(state.isBreakActive);
         const focus = computeCurrentFocusSeconds();
-        setElapsedCountUp(focus);
-        setSecondsRemaining(Math.max(0, totalSeconds - focus));
-        setBreakSeconds(computeCurrentBreakSeconds());
+        setElapsedCountUp(Math.floor(focus));
+        setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - focus)));
+        setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
         // Persist only control changes, not a normal running second.
         if (controlsChanged) persistSessionState(true);
       } catch (error) {
@@ -557,9 +557,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       backgroundFocus.startKeepAlive();
     }
 
-    setElapsedCountUp(computeCurrentFocusSeconds());
-    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
-    setBreakSeconds(computeCurrentBreakSeconds());
+    setElapsedCountUp(Math.floor(computeCurrentFocusSeconds()));
+    setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds())));
+    setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
     persistSessionState(true);
     syncNativeState();
   }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
@@ -591,9 +591,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       setIsCampActive(false);
     }
 
-    setElapsedCountUp(computeCurrentFocusSeconds());
-    setSecondsRemaining(Math.max(0, totalSeconds - computeCurrentFocusSeconds()));
-    setBreakSeconds(computeCurrentBreakSeconds());
+    setElapsedCountUp(Math.floor(computeCurrentFocusSeconds()));
+    setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - computeCurrentFocusSeconds())));
+    setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
     persistSessionState(true);
     syncNativeState();
   }, [computeCurrentFocusSeconds, computeCurrentBreakSeconds, totalSeconds, persistSessionState, syncNativeState]);
@@ -694,9 +694,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
           }
 
           const fSecs = computeCurrentFocusSeconds();
-          setElapsedCountUp(fSecs);
-          setSecondsRemaining(Math.max(0, totalSeconds - fSecs));
-          setBreakSeconds(computeCurrentBreakSeconds());
+          setElapsedCountUp(Math.floor(fSecs));
+          setSecondsRemaining(Math.max(0, Math.ceil(totalSeconds - fSecs)));
+          setBreakSeconds(Math.floor(computeCurrentBreakSeconds()));
         }
       },
       () => {
@@ -731,9 +731,9 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       const currentBreak = computeCurrentBreakSeconds();
       const currentRem = Math.max(0, totalSeconds - currentFocus);
 
-      setElapsedCountUp(currentFocus);
-      setSecondsRemaining(currentRem);
-      setBreakSeconds(currentBreak);
+      setElapsedCountUp(Math.floor(currentFocus));
+      setSecondsRemaining(Math.ceil(currentRem));
+      setBreakSeconds(Math.floor(currentBreak));
 
       // Update MediaSession & Service Worker notification
       if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
