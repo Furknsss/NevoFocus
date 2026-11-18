@@ -98,7 +98,7 @@ function sanitizeEmailKey(email: string): string {
 }
 
 /** Cloud backups must never include OAuth access/refresh tokens or client credentials. */
-function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
+export function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
   if (!raw) return undefined;
   const platform = (id: 'spotify' | 'youtube_music' | 'apple_music') => ({
     connected: false,
