@@ -10,8 +10,11 @@
     android:paddingEnd="12dp"
     android:background="@drawable/nevofocus_black_capsule">
 
-    <TextView
-        android:id="@+id/focus_main_time"
+    <!-- SystemUI Chronometer updates the digits automatically once per second,
+         including with screen off, app backgrounded and after lock-screen wake.
+         Unlike per-second NotificationManager.notify this avoids OEM throttling. -->
+    <Chronometer
+        android:id="@+id/focus_chronometer"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:gravity="center_vertical|start"
@@ -22,23 +25,7 @@
         android:fontFamily="monospace"
         android:singleLine="true"
         android:includeFontPadding="false"
-        android:contentDescription="Çalışma süresi saat ve dakika" />
-
-    <TextView
-        android:id="@+id/focus_seconds"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:gravity="center_vertical"
-        android:layout_marginStart="0dp"
-        android:layout_marginEnd="8dp"
-        android:text=":00"
-        android:textColor="#FFE5E5E7"
-        android:textSize="16sp"
-        android:textStyle="normal"
-        android:fontFamily="monospace"
-        android:singleLine="true"
-        android:includeFontPadding="false"
-        android:contentDescription="Saniye" />
+        android:contentDescription="Çalışma kronometresi" />
 
     <TextView
         android:layout_width="0dp"
