@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { applySavedDisplayPreferences } from './services/displayPreferences';
 
 // Suppress WebSocket and HMR errors in AI Studio iframe environment (HMR is disabled in this environment)
 if (typeof window !== 'undefined') {
@@ -33,4 +34,5 @@ if (typeof window !== 'undefined') {
   });
 }
 
+applySavedDisplayPreferences();
 createRoot(document.getElementById('root')!).render(<App />);
