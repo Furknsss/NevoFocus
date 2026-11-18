@@ -187,7 +187,7 @@ public class ChromeNativeBridgeDeviceTest {
         assertTrue(device.wait(Until.hasObject(By.desc("Durdur")), 10000));
         if (context.getApplicationInfo().targetSdkVersion < 31) {
             UiObject2 capsule = device.findObject(By.res(context.getPackageName(), "focus_capsule"));
-            UiObject2 clock = device.findObject(By.res(context.getPackageName(), "focus_main_time"));
+            UiObject2 clock = device.findObject(By.res(context.getPackageName(), "focus_chronometer"));
             UiObject2 pause = device.findObject(By.res(context.getPackageName(), "focus_pause"));
             UiObject2 rest = device.findObject(By.res(context.getPackageName(), "focus_break"));
             assertNotNull("Actual capsule must be present in SystemUI", capsule);
@@ -242,7 +242,7 @@ public class ChromeNativeBridgeDeviceTest {
         // launcher intent. It must reopen the same working Focus session in Chrome.
         openShade();
         UiObject2 clockForOpen = device.wait(Until.findObject(
-                By.res(context.getPackageName(), "focus_main_time")), 10000);
+                By.res(context.getPackageName(), "focus_chronometer")), 10000);
         assertNotNull("The notification clock must be tappable", clockForOpen);
         clockForOpen.click();
         assertTrue("Notification clock must reopen the running Focus screen",
