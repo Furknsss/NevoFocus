@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import {
   RotateCcw,
@@ -22,6 +22,7 @@ import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
+import { enterImmersiveFocusDisplay } from '../services/displayPreferences';
 import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
 import { isTwaFocusPage } from '../services/twaFocusBridge';
 import { elapsedSecondsAtTransition } from '../utils/focusTimerTransitions';
@@ -110,6 +111,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
   selectedTreeSpecies = 'Meşe Ağacı',
   onOpenSettingsConnections,
 }) => {
+  // Before paint, undo dashboard zoom for this fullscreen experience.
+  // Return to the user's saved scale when focus is minimized or ended.
+  useLayoutEffect(() => enterImmersiveFocusDisplay(), []);
+
   const myDeviceId = useMemo(() => getDeviceId(), []);
   const myDeviceName = useMemo(() => getDeviceName(), []);
 
