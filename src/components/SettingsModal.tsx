@@ -58,6 +58,8 @@ import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '
 import { twaYouTubeMusic } from '../services/twaFocusBridge';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 import { FocusModeSettings } from './FocusModeSettings';
+import { DEFAULT_DISPLAY_PREFERENCES, DISPLAY_LIMITS, readDisplayPreferences, saveDisplayPreferences } from '../services/displayPreferences';
+import type { DisplayPreferences } from '../services/displayPreferences';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -114,6 +116,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     spotifyService.getConnectionsConfig()
   );
   const [liveTrack, setLiveTrack] = useState(() => spotifyService.getCurrentTrack());
+  const [displayPrefs, setDisplayPrefs] = useState<DisplayPreferences>(() => readDisplayPreferences());
+  const [youtubeAccessNotice, setYoutubeAccessNotice] = useState<string | null>(null);
+  const updateDisplay = (update: Partial<DisplayPreferences>) => {
+    setDisplayPrefs(saveDisplayPreferences(update));
+  };
   const [connectingPlatform, setConnectingPlatform] = useState<MusicPlatform | null>(null);
   const [showSpotifyAuthStep, setShowSpotifyAuthStep] = useState(false);
   const [showYouTubeAuthStep, setShowYouTubeAuthStep] = useState(false);
@@ -163,23 +170,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setConnNotice(null);
 
     if (platform === 'youtube_music') {
+      setYoutubeAccessNotice(null);
       setConnectingPlatform('youtube_music');
       try {
         if (!twaYouTubeMusic.isAvailable()) {
-          setConnNotice({
-            type: 'error',
-            text: 'YouTube Music cihaz kontrolü Android APK içinden kullanılabilir; tarayıcı başka uygulamanın medya oturumuna erişemez.',
-          });
+          const message = 'Bu NevoFocus APK sürümü, Play Protect engellemesini önlemek için Android bildirim dinleyicisi içermiyor. Bu nedenle cihazın Bildirim erişimi listesinde NevoFocus görünmez. YouTube Music uygulamasını ayrı açabilir veya NevoFocus içi oynatıcıyı kullanabilirsin; diğer uygulamadaki parçaları kontrol etmek için bildirim erişimi destekleyen ayrı bir dağıtım gerekiyor.';
+          setYoutubeAccessNotice(message);
+          setConnNotice({ type: 'error', text: 'Bu APK üzerinde YouTube Music cihaz erişimi etkinleştirilemez. Ayrıntı aşağıdaki YouTube Music kartında.' });
           return;
         }
-        await spotifyService.requestNativeYouTubePermission();
+        const state = await spotifyService.requestNativeYouTubePermission();
+        const message = state.permissionGranted
+          ? 'Bildirim erişimi açık. YouTube Music uygulamasında bir şarkı başlatıp NevoFocus uygulamasına dön.'
+          : 'Android ayarlarında Özel uygulama erişimi → Bildirim erişimi → NevoFocus bölümünü açıp izin ver. Bu izin diğer bildirimleri de okuma yetkisi sağlar; NevoFocus yalnızca YouTube Music medya oturumunu kullanır.';
         setShowYouTubeAuthStep(true);
-        setConnNotice({
-          type: 'success',
-          text: "Android ayarlarında NevoFocus için Bildirim erişimini aç. Sonra uygulamaya dön ve YouTube Music'te bir şarkı başlat.",
-        });
+        setYoutubeAccessNotice(message);
+        setConnNotice({ type: 'success', text: message });
       } catch (error) {
-        setConnNotice({ type: 'error', text: error instanceof Error ? error.message : 'İzin ekranı açılamadı.' });
+        const message = error instanceof Error ? error.message : 'İzin ekranı açılamadı.';
+        setYoutubeAccessNotice(message);
+        setConnNotice({ type: 'error', text: message });
       } finally {
         setConnectingPlatform(null);
       }
@@ -1489,11 +1499,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }`}
                           style={{ backgroundColor: meta.accentHex }}
                         >
-                          {isConnecting ? 'Bağlanıyor...' : platform === 'youtube_music' ? 'Cihaz Erişimini Aç' : 'Hesabı Bağla'}
+                          {isConnecting ? 'Bağlanıyor...' : platform === 'youtube_music' ? (twaYouTubeMusic.isAvailable() ? 'Cihaz Erişimini Aç' : 'Cihaz Erişimi Bilgisi') : 'Hesabı Bağla'}
                         </button>
                       )}
                     </div>
                   </div>
+
+                  {platform === 'youtube_music' && (youtubeAccessNotice || !twaYouTubeMusic.isAvailable()) && (
+                    <div role="status" aria-live="polite" className="p-3 rounded-xl bg-neutral-950 border border-amber-700/40 space-y-2">
+                      <p className="text-xs font-semibold text-amber-200">
+                        {youtubeAccessNotice || 'Bu normal APK, Android bildirim dinleyicisi içermediğinden başka uygulamanın müzik oturumunu okuyamaz. Cihaz erişimi düğmesi bu sürümde izin ekranını açamaz.'}
+                      </p>
+                      <a
+                        href="https://music.youtube.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-bold text-white underline underline-offset-4"
+                      >
+                        <ExternalLink className="w-3 h-3" /> YouTube Music'i aç
+                      </a>
+                    </div>
+                  )}
 
                   {/* SPOTIFY CONNECTION PANEL */}
                   {platform === 'spotify' && (showSpotifyAuthStep || !isConnected || !hasLiveToken) && (
@@ -1710,6 +1736,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* TAB 2: THEME & DEVICE */}
         {activeTab === 'theme' && (
           <div className="space-y-4 py-2">
+            {/* Persistent zoom and text scaling - independent for each device. */}
+            <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-white flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-sky-400" /> Ekran Ölçeği ve Yazı Boyutu
+                  </p>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Tarayıcı yakınlaştırması gibi tüm arayüzü veya yalnızca yazıları ayarla.
+                    Değişiklikler hemen uygulanır ve bu cihazda saklanır.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateDisplay(DEFAULT_DISPLAY_PREFERENCES)}
+                  className="rounded-lg px-3 py-2 text-[11px] font-bold text-neutral-200 bg-neutral-800 border border-neutral-700 shrink-0"
+                >
+                  Sıfırla
+                </button>
+              </div>
+              {([
+                { key: 'uiScale' as const, title: 'Arayüz yakınlaştırma', hint: 'Butonlar, kartlar ve tüm ekran', minLabel: 'Küçük', maxLabel: 'Büyük' },
+                { key: 'textScale' as const, title: 'Yazı boyutu', hint: 'Çoğu metin ve başlık', minLabel: 'Küçük yazı', maxLabel: 'Büyük yazı' },
+              ]).map(item => (
+                <div key={item.key} className="space-y-2">
+                  <div className="flex justify-between items-center gap-3">
+                    <label htmlFor={`nevo-display-${item.key}`} className="text-xs font-semibold text-white">
+                      {item.title} <span className="text-neutral-500 font-normal">· {item.hint}</span>
+                    </label>
+                    <span className="text-sm font-mono font-bold text-white tabular-nums">{displayPrefs[item.key]}%</span>
+                  </div>
+                  <input
+                    id={`nevo-display-${item.key}`}
+                    type="range"
+                    min={DISPLAY_LIMITS[item.key].min}
+                    max={DISPLAY_LIMITS[item.key].max}
+                    step={DISPLAY_LIMITS[item.key].step}
+                    value={displayPrefs[item.key]}
+                    onChange={event => updateDisplay(item.key === 'uiScale'
+                      ? { uiScale: Number(event.target.value) }
+                      : { textScale: Number(event.target.value) })}
+                    className="w-full h-2 accent-[#ff5500] cursor-pointer touch-pan-x"
+                    aria-label={item.title}
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-500">
+                    <span>{item.minLabel} · {DISPLAY_LIMITS[item.key].min}%</span>
+                    <span>{item.maxLabel} · {DISPLAY_LIMITS[item.key].max}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {/* Device Mode Selector */}
             <div className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 space-y-3">
               <div>
