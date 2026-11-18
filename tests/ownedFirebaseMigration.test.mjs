@@ -28,3 +28,12 @@ test('focus sync no longer uses shared cross-account backups or stores music OAu
   assert.match(sync, /musicConnections: safeMusicPreferences\(profile\.musicConnections\)/);
   assert.match(sync, /userId: activeUser\.uid/);
 });
+
+test('all direct profile and music settings writes redact OAuth tokens', () => {
+  const app = src('src/App.tsx');
+  const settings = src('src/components/SettingsModal.tsx');
+  assert.doesNotMatch(app, /backup_latest_shared/);
+  assert.match(app, /'users', currentUser\.uid, 'backups', 'latest'/);
+  assert.match(app, /musicConnections: safeMusicPreferences\(updatedData\.musicConnections\)/);
+  assert.match(settings, /musicConnections: safeMusicPreferences\(updatedConfig\)/);
+});
