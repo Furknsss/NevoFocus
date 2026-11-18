@@ -51,6 +51,7 @@ import {
   getDeletedSessionIds,
   getDeletedTaskIds,
   resolveSyncIdentity,
+  safeMusicPreferences,
 } from './services/syncService';
 import { spotifyService } from './services/spotifyService';
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth';
@@ -1316,6 +1317,7 @@ export default function App() {
           userDocRef,
           {
             ...updatedData,
+            ...(updatedData.musicConnections ? { musicConnections: safeMusicPreferences(updatedData.musicConnections) } : {}),
             updatedAt: Date.now(),
           },
           { merge: true }
