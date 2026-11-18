@@ -6,6 +6,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.provider.Settings;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -407,6 +409,28 @@ public final class FocusTimerService extends Service {
         }
     }
 
+    // Handler delays use uptime, which STOPS during deep sleep. When the
+    // screen wakes, re-evaluate the deadline using elapsedRealtime (which
+    // includes sleep) so the notification never shows a negative countdown.
+    private boolean wakeReceiverRegistered;
+    private final BroadcastReceiver wakeReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            deadlineHandler.removeCallbacks(countdownDeadline);
+            deadlineHandler.post(countdownDeadline);
+        }
+    };
+
+    @Override public void onCreate() {
+        super.onCreate();
+        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(wakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(wakeReceiver, filter);
+        }
+        wakeReceiverRegistered = true;
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -416,6 +440,7 @@ public final class FocusTimerService extends Service {
     public void onDestroy() {
         // SystemUI owns the live clock and stops ticking when the service ends.
         deadlineHandler.removeCallbacksAndMessages(null);
+        if (wakeReceiverRegistered) unregisterReceiver(wakeReceiver);
         pauseActionIntent = null;
         breakActionIntent = null;
         openFocusIntent = null;
