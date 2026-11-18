@@ -117,3 +117,77 @@ html.nevo-oled ::selection {
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* Immersive clock: real viewport geometry, never affected by dashboard zoom.
+   The header and music button live in a separate overlay; the timer and
+   footer must stay inside the same physical viewport in BOTH orientations. */
+.nevo-clock-screen {
+  height: 100%;
+  min-height: 0;
+  isolation: isolate;
+}
+.nevo-clock-stage {
+  min-height: 0;
+  padding-top: clamp(5.25rem, 15dvh, 9.5rem);
+  padding-bottom: 1rem;
+  scrollbar-width: thin;
+  scrollbar-color: #242424 transparent;
+}
+.nevo-clock-timer {
+  white-space: nowrap;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+.nevo-clock-main-digits {
+  font-size: clamp(5.5rem, min(22vw, 27dvh), 16.5rem);
+}
+.nevo-clock-colon {
+  font-size: clamp(2.8rem, min(11vw, 15dvh), 10rem);
+}
+.nevo-clock-seconds-digits {
+  font-size: clamp(3rem, min(12.5vw, 17dvh), 10.5rem);
+}
+/* 00:00:00 requires room for three pairs of digits. */
+.nevo-clock-has-hours .nevo-clock-main-digits {
+  font-size: clamp(3.5rem, min(13vw, 20dvh), 13rem);
+}
+.nevo-clock-has-hours .nevo-clock-colon {
+  font-size: clamp(2rem, min(7vw, 11dvh), 7rem);
+}
+.nevo-clock-has-hours .nevo-clock-seconds-digits {
+  font-size: clamp(2.5rem, min(8vw, 13dvh), 8rem);
+}
+.nevo-clock-actions {
+  padding-top: 0.75rem;
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+.nevo-clock-button-row {
+  min-width: 0;
+}
+.nevo-clock-primary-buttons {
+  min-width: 0;
+}
+/* Narrow portrait phones: never let three control groups overlap or clip. */
+@media (max-width: 520px) {
+  .nevo-clock-button-row { gap: clamp(0.25rem, 2vw, 0.75rem); }
+  .nevo-clock-primary-buttons { gap: clamp(0.25rem, 1.5vw, 0.75rem); }
+  .nevo-clock-circle {
+    width: clamp(2.9rem, 13vw, 4rem);
+    height: clamp(2.9rem, 13vw, 4rem);
+    flex-shrink: 0;
+  }
+  .nevo-clock-center-button {
+    padding: 0.6rem clamp(0.45rem, 2vw, 1rem);
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+  .nevo-clock-actions { padding-left: 0.75rem; padding-right: 0.75rem; }
+}
+/* Short tablet landscape: keep the timer below the header and the footer on
+   the bottom edge; the break history scrolls within the center stage. */
+@media (orientation: landscape) and (max-height: 580px) {
+  .nevo-clock-stage { padding-top: clamp(4.5rem, 15dvh, 6.25rem); }
+  .nevo-clock-actions { padding-bottom: max(0.8rem, env(safe-area-inset-bottom, 0px)); }
+  .nevo-clock-circle { width: 3.5rem; height: 3.5rem; }
+}

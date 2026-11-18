@@ -16,6 +16,9 @@ export const DISPLAY_LIMITS = {
   textScale: { min: 80, max: 150, step: 5 },
 } as const;
 const KEY = 'nevofocus_display_preferences_v1';
+// Global browser zoom changes CSS viewport calculations. Focus is an immersive
+// edge-to-edge screen, so never inherit the dashboard's document zoom.
+let activeFocusViews = 0;
 
 function within(value: unknown, name: keyof DisplayPreferences): number {
   const { min, max, step } = DISPLAY_LIMITS[name];
@@ -41,9 +44,10 @@ function applyToDocument(values: DisplayPreferences): void {
   if (typeof document === 'undefined') return;
   // CSS zoom changes all elements (including px-sized controls) in Chromium/WebView.
   // Rem-based Tailwind type sizes also respond to the root font-size.
-  document.documentElement.style.zoom = `${values.uiScale}%`;
-  document.documentElement.style.fontSize = `${16 * values.textScale / 100}px`;
-  document.documentElement.style.setProperty('--nevo-text-scale', String(values.textScale / 100));
+  const inFocus = activeFocusViews > 0;
+  document.documentElement.style.zoom = inFocus ? '100%' : `${values.uiScale}%`;
+  document.documentElement.style.fontSize = inFocus ? '16px' : `${16 * values.textScale / 100}px`;
+  document.documentElement.style.setProperty('--nevo-text-scale', inFocus ? '1' : String(values.textScale / 100));
 }
 
 /** Apply persisted preferences before React renders, avoiding a size flash. */
@@ -67,4 +71,21 @@ export function saveDisplayPreferences(update: Partial<DisplayPreferences>): Dis
     // Still apply the scale even if the browser disallows localStorage.
   }
   return values;
+}
+
+/** Lock the entire document to its actual viewport size while a focus overlay is mounted.
+ * Keeps 100dvh/100vw, fixed layers, the bottom action row and timer aligned
+ * even when the student has set dashboard zoom to 70% or 140%.
+ * The user's display preferences remain saved and are restored on exit.
+ */
+export function enterImmersiveFocusDisplay(): () => void {
+  activeFocusViews += 1;
+  applyToDocument(readDisplayPreferences());
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeFocusViews = Math.max(0, activeFocusViews - 1);
+    applyToDocument(readDisplayPreferences());
+  };
 }
