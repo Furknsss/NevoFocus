@@ -51,6 +51,7 @@ import {
   getDeletedSessionIds,
   getDeletedTaskIds,
   resolveSyncIdentity,
+  safeMusicPreferences,
 } from './services/syncService';
 import { spotifyService } from './services/spotifyService';
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth';
@@ -323,9 +324,10 @@ export default function App() {
     };
   }, []);
 
-  // Real-time cross-device sync listener on shared backup envelope (Tablet <-> Phone <-> PC)
+  // Real-time cross-device sync listener restricted to the signed-in user (Tablet <-> Phone <-> PC)
   useEffect(() => {
-    const sharedBackupDoc = doc(db, 'test', 'backup_latest_shared');
+    if (!currentUser?.uid) return;
+    const sharedBackupDoc = doc(db, 'users', currentUser.uid, 'backups', 'latest');
     const unsubShared = onSnapshot(
       sharedBackupDoc,
       (snap) => {
@@ -333,15 +335,8 @@ export default function App() {
         const data = snap.data();
         if (!data) return;
 
-        const { uid: myUid, email: myEmail } = resolveSyncIdentity(currentUser, profile);
-        const sharedEmail = (data.email || '').trim().toLowerCase();
-        const isSameAccount =
-          !myEmail ||
-          !sharedEmail ||
-          sharedEmail === myEmail ||
-          data.uid === myUid;
-
-        if (!isSameAccount) return;
+        // Firestore rules enforce the UID path; do not trust email or globally shared data.
+        if (data.uid !== currentUser.uid) return;
 
         const delSessions = new Set<string>([
           ...getDeletedSessionIds(),
@@ -407,7 +402,7 @@ export default function App() {
     );
 
     return () => unsubShared();
-  }, [currentUser?.uid, profile.email, profile.userId]);
+  }, [currentUser?.uid]);
 
   // Update selected subject when profile's track changes (NEVER overwrite active session or Serbest Çalışma)
   useEffect(() => {
@@ -1322,6 +1317,7 @@ export default function App() {
           userDocRef,
           {
             ...updatedData,
+            ...(updatedData.musicConnections ? { musicConnections: safeMusicPreferences(updatedData.musicConnections) } : {}),
             updatedAt: Date.now(),
           },
           { merge: true }

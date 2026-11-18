@@ -1,58 +1,54 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
+    function signedIn() {
       return request.auth != null;
     }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128;
-    }
+    // Owner-only profile, private focus history and tasks.
+    // The users document contains detailed study snapshots and must NOT
+    // be publicly readable.
+    match /users/{uid} {
+      allow read, create, update, delete: if isOwner(uid);
 
-    // Test connection doc
-    match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    // User profile documents - public read allows students list & community showcase without auth error
-    match /users/{userId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isSignedIn() && request.auth.uid == userId;
-
-      // Private user sessions
       match /sessions/{sessionId} {
-        allow read, write: if true;
+        allow read, write: if isOwner(uid);
       }
-
-      // Private user tasks
       match /tasks/{taskId} {
-        allow read, write: if true;
+        allow read, write: if isOwner(uid);
       }
-
-      // Live Cheer notifications
-      match /cheers/{cheerId} {
-        allow read, write: if true;
-      }
-
-      // Live Active Focus Session (cross-device sync tablet <-> phone)
       match /active_focus/{docId} {
-        allow read, write: if true;
+        allow read, write: if isOwner(uid);
+      }
+      match /backups/{backupId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /cheers/{cheerId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if signedIn()
+          && request.resource.data.fromUserId == request.auth.uid
+          && request.resource.data.toUserId == uid;
+        allow update: if isOwner(uid);
       }
     }
 
-    // Collaborative Study Rooms & Messages - public read, open write so all students can create, join, chat
-    match /study_rooms/{roomId} {
-      allow read, write: if true;
+    // Old shared cross-user backup documents were public. Never re-enable.
+    match /test/{docId} {
+      allow read, write: if false;
+    }
 
+    // The community data model requires a separate access-control review.
+    // Protect it during migration rather than granting cross-user write.
+    match /study_rooms/{roomId} {
+      allow read: if signedIn();
+      allow write: if false;
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow read: if signedIn();
+        allow write: if false;
       }
     }
   }
 }
-

@@ -97,6 +97,24 @@ function sanitizeEmailKey(email: string): string {
   return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
 }
 
+/** Cloud backups must never include OAuth access/refresh tokens or client credentials. */
+export function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
+  if (!raw) return undefined;
+  const platform = (id: 'spotify' | 'youtube_music' | 'apple_music') => ({
+    connected: false,
+    accountName: '',
+    customPlaylistUrl: String(raw[id]?.customPlaylistUrl || ''),
+    customTrackTitle: String(raw[id]?.customTrackTitle || ''),
+    customArtistName: String(raw[id]?.customArtistName || ''),
+  });
+  return {
+    activePlatform: raw.activePlatform || 'spotify',
+    spotify: platform('spotify'),
+    youtube_music: platform('youtube_music'),
+    apple_music: platform('apple_music'),
+  };
+}
+
 export function resolveSyncIdentity(user?: User | null, profile?: UserProfile): {
   uid: string;
   email: string;
@@ -177,8 +195,13 @@ export async function syncAllToFirestore(
   profile?: UserProfile,
   options?: { allowEmptyOverwrite?: boolean }
 ): Promise<SyncResult> {
+  const activeUser = auth.currentUser || user;
+  if (!activeUser?.uid) {
+    return { success: false, sessionsUploaded: 0, tasksUploaded: 0,
+      message: 'Bulut eşitlemesi için giriş yapmalısınız.', timestamp: Date.now() };
+  }
   const currentProfile = profile || getStoredProfile();
-  const { uid, email } = resolveSyncIdentity(user, currentProfile);
+  const { uid, email } = resolveSyncIdentity(activeUser, currentProfile);
 
   try {
     const deletedSessionSet = new Set(getDeletedSessionIds());
@@ -203,26 +226,18 @@ export async function syncAllToFirestore(
       if (t && t.id && !deletedTaskSet.has(t.id)) taskMap.set(t.id, t);
     }
 
-    // Protection: If this device currently has 0 sessions and 0 tasks (e.g. brand new tablet login),
-    // pull existing cloud sessions first so we don't overwrite cloud stats with 0!
+    // A new device must only restore from its authenticated user's private
+    // documents. Never read the globally shared backup of another student.
     if (sessionMap.size === 0 && taskMap.size === 0 && !options?.allowEmptyOverwrite) {
-      try {
-        const sharedSnap = await fetchDocFresh(doc(db, 'test', 'backup_latest_shared'));
-        if (sharedSnap.exists()) {
-          const sharedData = sharedSnap.data();
-          if (Array.isArray(sharedData?.sessions) && sharedData.sessions.length > 0) {
-            for (const s of sharedData.sessions) {
-              if (s && s.id && !deletedSessionSet.has(s.id)) sessionMap.set(s.id, s);
-            }
-          }
-          if (Array.isArray(sharedData?.tasks) && sharedData.tasks.length > 0) {
-            for (const t of sharedData.tasks) {
-              if (t && t.id && !deletedTaskSet.has(t.id)) taskMap.set(t.id, t);
-            }
-          }
+      const privateSnap = await fetchDocFresh(doc(db, 'users', uid, 'backups', 'latest'));
+      if (privateSnap.exists()) {
+        const ownBackup = privateSnap.data();
+        for (const item of ownBackup?.sessions || []) {
+          if (item?.id && !deletedSessionSet.has(item.id)) sessionMap.set(item.id, item);
         }
-      } catch {
-        // ignore
+        for (const item of ownBackup?.tasks || []) {
+          if (item?.id && !deletedTaskSet.has(item.id)) taskMap.set(item.id, item);
+        }
       }
     }
 
@@ -287,7 +302,7 @@ export async function syncAllToFirestore(
       excludedRestDates: Array.isArray(currentProfile.excludedRestDates)
         ? currentProfile.excludedRestDates
         : [],
-      musicConnections: currentProfile.musicConnections || undefined,
+      musicConnections: safeMusicPreferences(currentProfile.musicConnections),
       todayDateString: todayStr,
       weekDateString: weekStr,
       monthDateString: monthStr,
@@ -376,26 +391,8 @@ export async function syncAllToFirestore(
       updatedAt: Date.now(),
     };
 
-    const envelopePromises: Promise<any>[] = [
-      safeSetDoc(doc(db, 'test', `backup_uid_${uid}`), backupEnvelope, { merge: true }),
-    ];
-
-    if (email) {
-      envelopePromises.push(
-        safeSetDoc(doc(db, 'test', `backup_email_${sanitizeEmailKey(email)}`), backupEnvelope, {
-          merge: true,
-        })
-      );
-    }
-
-    // Always update the shared latest backup if we have data or user explicitly backed up
-    if (mergedSessions.length > 0 || mergedTasks.length > 0 || currentProfile.name !== 'Öğrenci') {
-      envelopePromises.push(
-        safeSetDoc(doc(db, 'test', 'backup_latest_shared'), backupEnvelope, { merge: true })
-      );
-    }
-
-    await Promise.all(envelopePromises);
+    // One private backup per authenticated Firebase UID; no public/email fallback.
+    await safeSetDoc(doc(db, 'users', uid, 'backups', 'latest'), backupEnvelope, { merge: true });
 
     const now = Date.now();
     setLastSyncTime(now);
@@ -471,9 +468,13 @@ export async function restoreAllFromFirestore(
   profile?: UserProfile;
   message: string;
 }> {
+  const activeUser = auth.currentUser || user;
+  if (!activeUser?.uid) {
+    return { success: false, sessions: getStoredSessions(), tasks: getStoredTasks(),
+      profile: getStoredProfile(), message: 'Buluttan geri yüklemek için giriş yapmalısınız.' };
+  }
   const currentProfile = getStoredProfile();
-  const { uid, email: resolvedEmail } = resolveSyncIdentity(user, currentProfile);
-  const targetEmail = (overrideEmail || resolvedEmail || '').trim().toLowerCase();
+  const { uid } = resolveSyncIdentity(activeUser, currentProfile);
 
   try {
     const cloudSessions: FocusSession[] = [];
@@ -566,92 +567,13 @@ export async function restoreAllFromFirestore(
       }
     };
 
-    // 1. Pull from primary UID and its backup envelope
-    const checkedUids = new Set<string>();
-    if (uid) {
-      checkedUids.add(uid);
-      await pullUserSubcollections(uid);
-      try {
-        const uidEnvSnap = await fetchDocFresh(doc(db, 'test', `backup_uid_${uid}`));
-        if (uidEnvSnap.exists()) {
-          absorbBackupEnvelope(uidEnvSnap.data());
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // 2. Pull from email backup envelope if email is available
-    if (targetEmail) {
-      try {
-        const emailEnvSnap = await fetchDocFresh(
-          doc(db, 'test', `backup_email_${sanitizeEmailKey(targetEmail)}`)
-        );
-        if (emailEnvSnap.exists()) {
-          const envData = emailEnvSnap.data();
-          absorbBackupEnvelope(envData);
-          if (envData?.uid && !checkedUids.has(envData.uid)) {
-            checkedUids.add(envData.uid);
-            await pullUserSubcollections(envData.uid);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // 3. Pull from shared cross-device backup envelope (`test/backup_latest_shared`)
+    // Restore only this authenticated user's profile, history and private backup.
+    await pullUserSubcollections(uid);
     try {
-      const sharedSnap = await fetchDocFresh(doc(db, 'test', 'backup_latest_shared'));
-      if (sharedSnap.exists()) {
-        const sharedData = sharedSnap.data();
-        const sharedEmail = (sharedData?.email || '').trim().toLowerCase();
-        // Absorb if same email, same uid, or if this tablet/device has not found any sessions yet
-        if (
-          !targetEmail ||
-          !sharedEmail ||
-          sharedEmail === targetEmail ||
-          sharedData?.uid === uid ||
-          cloudSessions.length === 0
-        ) {
-          absorbBackupEnvelope(sharedData);
-          if (sharedData?.uid && !checkedUids.has(sharedData.uid)) {
-            checkedUids.add(sharedData.uid);
-            await pullUserSubcollections(sharedData.uid);
-          }
-        }
-      }
+      const privateSnap = await fetchDocFresh(doc(db, 'users', uid, 'backups', 'latest'));
+      if (privateSnap.exists()) absorbBackupEnvelope(privateSnap.data());
     } catch {
-      // ignore
-    }
-
-    // 4. Scan `users` collection for any other user docs matching email (e.g. Google login vs Email login)
-    // or fallback if cloudSessions is still empty
-    try {
-      const allUsersSnap = await fetchDocsFresh(collection(db, 'users'));
-      const candidateUids: string[] = [];
-      allUsersSnap.forEach((uDoc: any) => {
-        const uData = uDoc.data() as Record<string, any>;
-        const docEmail = (uData?.email || '').trim().toLowerCase();
-        const isEmailMatch = Boolean(targetEmail && docEmail && docEmail === targetEmail);
-        const hasSessions =
-          (Array.isArray(uData?.cloudSessionsSnapshot) && uData.cloudSessionsSnapshot.length > 0) ||
-          parseNumericField(uData?.totalFocusMinutes, 0) > 0;
-
-        if (isEmailMatch || (cloudSessions.length === 0 && hasSessions)) {
-          absorbBackupEnvelope(uData);
-          if (!checkedUids.has(uDoc.id)) {
-            candidateUids.push(uDoc.id);
-          }
-        }
-      });
-
-      for (const cUid of candidateUids) {
-        checkedUids.add(cUid);
-        await pullUserSubcollections(cUid);
-      }
-    } catch {
-      // ignore
+      // An offline cache may still be available; keep local records.
     }
 
     // Persist deleted IDs locally
@@ -742,7 +664,7 @@ export async function restoreAllFromFirestore(
         patch.excludedRestDates = cloudProfile.excludedRestDates;
       }
       if (cloudProfile.musicConnections) {
-        patch.musicConnections = cloudProfile.musicConnections;
+        patch.musicConnections = safeMusicPreferences(cloudProfile.musicConnections);
       }
     }
 
@@ -752,6 +674,8 @@ export async function restoreAllFromFirestore(
     patch.todayTotalMinutes = calculateTodayMinutes(mergedSessions);
     patch.hasCompletedOnboarding = true;
 
+    patch.userId = uid;
+    patch.email = activeUser.email || patch.email || mergedProfile.email;
     mergedProfile = updateStoredProfile(patch);
 
     try {
@@ -803,7 +727,7 @@ export function exportLocalBackup(
     app: 'Fokus Premium',
     version: '4.0.0',
     exportedAt: new Date().toISOString(),
-    profile,
+    profile: { ...profile, musicConnections: safeMusicPreferences(profile.musicConnections) },
     sessions,
     tasks,
   };
@@ -837,14 +761,27 @@ export async function importLocalBackup(
   mergedProfile?: UserProfile;
 }> {
   try {
+    const activeUser = auth.currentUser || user;
+    if (!activeUser?.uid) throw new Error('Yedekten buluta aktarmak için önce giriş yapın.');
     const parsed = JSON.parse(jsonString);
     if (!parsed || (!parsed.sessions && !parsed.tasks && !parsed.profile)) {
       throw new Error('Geçersiz yedek dosyası formatı.');
     }
 
-    const importedSessions: FocusSession[] = Array.isArray(parsed.sessions) ? parsed.sessions : [];
-    const importedTasks: FocusTask[] = Array.isArray(parsed.tasks) ? parsed.tasks : [];
-    const importedProfile: Partial<UserProfile> = parsed.profile || {};
+    // Keep original record IDs, dates and durations, but associate the new
+    // Firebase account and never re-import credentials from a legacy JSON.
+    const importedSessions: FocusSession[] = Array.isArray(parsed.sessions)
+      ? parsed.sessions.map((item: FocusSession) => ({ ...item, userId: activeUser.uid }))
+      : [];
+    const importedTasks: FocusTask[] = Array.isArray(parsed.tasks)
+      ? parsed.tasks.map((item: FocusTask) => ({ ...item, userId: activeUser.uid }))
+      : [];
+    const importedProfile: Partial<UserProfile> = {
+      ...(parsed.profile || {}),
+      userId: activeUser.uid,
+      email: activeUser.email || parsed.profile?.email || '',
+      musicConnections: safeMusicPreferences(parsed.profile?.musicConnections),
+    };
 
     // Merge sessions
     const currentSessions = getStoredSessions();
@@ -887,7 +824,8 @@ export async function importLocalBackup(
     notifyCloudRestored(mergedSessions, mergedTasks, mergedProfile);
 
     // Always sync merged data to Firestore as well!
-    await syncAllToFirestore(user, mergedSessions, mergedTasks, mergedProfile);
+    const result = await syncAllToFirestore(activeUser, mergedSessions, mergedTasks, mergedProfile);
+    if (!result.success) throw new Error(result.message || 'Bulut eşitlemesi başarısız oldu.');
 
     return {
       success: true,
