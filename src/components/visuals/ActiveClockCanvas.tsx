@@ -119,10 +119,10 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
   const hoursPadded = pad(hours);
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-[#000000] text-white flex flex-col justify-between select-none overflow-hidden font-sans">
+    <div className="nevo-clock-screen relative w-full h-full min-h-0 bg-[#000000] text-white flex flex-col justify-between select-none overflow-hidden font-sans">
 
       {/* Center Stage: Saati çok ufak aşşağıya alıp (pt-20 sm:pt-28 md:pt-32 lg:pt-36) birazcık büyüt ve tam sağdan ve soldan ortala */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-start pt-20 sm:pt-28 md:pt-32 lg:pt-36 px-4 w-full max-w-7xl mx-auto">
+      <div className="nevo-clock-stage relative z-10 flex-1 min-h-0 flex flex-col items-center justify-start px-4 w-full max-w-7xl mx-auto overflow-y-auto">
         {clockStyle === 'ipad' ? (
           /* IPAD STOPWATCH STYLE (PURE SİPSİYAH, ZERO GLOW, BÜYÜTÜLMÜŞ PREMIUM APPLE TYPOGRAPHY, ROCK-SOLID CENTERING) */
           <div className="flex flex-col items-center justify-center w-full">
@@ -132,7 +132,7 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
               saat milimetrik bile sağa/sola oynamaz; tam sağdan ve soldan ekranın ortasında kalır!
             */}
             <div
-              className="flex items-baseline justify-center tracking-tight select-none tabular-nums text-center"
+              className={`nevo-clock-timer flex items-baseline justify-center tracking-tight select-none tabular-nums text-center ${hours > 0 ? 'nevo-clock-has-hours' : ''}`}
               style={{
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif',
@@ -142,29 +142,29 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
             >
               {hours > 0 && (
                 <>
-                  <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
+                  <div className="nevo-clock-main-digits inline-flex items-baseline leading-none text-white font-extralight">
                     <span className="inline-block w-[0.6em] text-center">{hoursPadded[0]}</span>
                     <span className="inline-block w-[0.6em] text-center">{hoursPadded[1]}</span>
                   </div>
-                  <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
+                  <span className="nevo-clock-colon inline-block w-[0.35em] text-center leading-none text-neutral-600 font-thin select-none">
                     :
                   </span>
                 </>
               )}
 
               {/* Dakika: Büyütülmüş ve her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-8xl sm:text-[11rem] md:text-[13rem] lg:text-[15rem] xl:text-[16.5rem] leading-none text-white font-extralight">
+              <div className="nevo-clock-main-digits inline-flex items-baseline leading-none text-white font-extralight">
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{minutesPadded[1]}</span>
               </div>
 
               {/* İki nokta ayırıcı */}
-              <span className="inline-block w-[0.35em] text-center text-5xl sm:text-7xl md:text-9xl lg:text-[10rem] leading-none text-neutral-600 font-thin select-none">
+              <span className="nevo-clock-colon inline-block w-[0.35em] text-center leading-none text-neutral-600 font-thin select-none">
                 :
               </span>
 
               {/* Saniye: Büyütülmüş ama saat/dakikadan sakin ve dengeli, her basamak sabit genişlikte */}
-              <div className="inline-flex items-baseline text-5xl sm:text-7xl md:text-8xl lg:text-9xl xl:text-[10.5rem] leading-none text-neutral-300 font-light">
+              <div className="nevo-clock-seconds-digits inline-flex items-baseline leading-none text-neutral-300 font-light">
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[0]}</span>
                 <span className="inline-block w-[0.6em] text-center">{secondsPadded[1]}</span>
               </div>
@@ -238,14 +238,14 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
           - Sol Yuvarlak: Turuncu Mola Tuşu (☕ Emojisi)
           - Orta İkili: Vazgeç & Seansı Bitir
           - Sağ Yuvarlak: Durdur / Devam Et */}
-      <div className="relative z-10 w-full px-4 sm:px-8 pb-8 sm:pb-12 max-w-3xl mx-auto">
-        <div className="flex items-center justify-between gap-4 sm:gap-8">
+      <div className="nevo-clock-actions relative z-10 w-full px-4 sm:px-8 max-w-3xl mx-auto shrink-0">
+        <div className="nevo-clock-button-row flex items-center justify-between gap-4 sm:gap-8">
           {/* Sol Dairesel Buton: TURUNCU MOLA BUTONU */}
           <div className="flex flex-col items-center gap-1.5">
             <button
               type="button"
               onClick={handleToggleMola}
-              className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer shadow-lg shadow-black ${
+              className={`nevo-clock-circle w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer shadow-lg shadow-black ${
                 isBreakRunning
                   ? 'bg-[#3b1c00] border-[#ff9f0a] text-[#ff9f0a] hover:bg-[#4d2500] ring-2 ring-[#ff9f0a]/30'
                   : 'bg-[#2b1704] border-[#ff9f0a] text-[#ff9f0a] hover:bg-[#3d2005]'
@@ -261,14 +261,14 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
           </div>
 
           {/* Orta İkili Butonlar: Vazgeç ve Bitir */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="nevo-clock-primary-buttons flex items-center gap-3 sm:gap-4">
             <button
               type="button"
               onClick={() => {
                 soundEngine.playClick();
                 onAbandon();
               }}
-              className="px-4 sm:px-5 py-2.5 rounded-full bg-neutral-900/90 border border-neutral-800 hover:border-rose-900/60 text-neutral-400 hover:text-rose-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              className="nevo-clock-center-button px-4 sm:px-5 py-2.5 rounded-full bg-neutral-900/90 border border-neutral-800 hover:border-rose-900/60 text-neutral-400 hover:text-rose-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
             >
               <X className="w-3.5 h-3.5" />
               <span>Vazgeç</span>
@@ -280,7 +280,7 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
                 soundEngine.playClick();
                 onFinish();
               }}
-              className="px-5 sm:px-7 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-bold transition-all shadow-lg shadow-emerald-950/40 cursor-pointer flex items-center gap-2 active:scale-95"
+              className="nevo-clock-center-button px-5 sm:px-7 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-bold transition-all shadow-lg shadow-emerald-950/40 cursor-pointer flex items-center gap-2 active:scale-95"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>Seansı Bitir</span>
@@ -292,7 +292,7 @@ export const ActiveClockCanvas: React.FC<ActiveClockCanvasProps> = ({
             <button
               type="button"
               onClick={handleTogglePlayPause}
-              className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer shadow-lg shadow-black ${
+              className={`nevo-clock-circle w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer shadow-lg shadow-black ${
                 isPaused || isBreakRunning
                   ? 'bg-[#122b17] border-[#30d158] text-[#30d158] hover:bg-[#193a20]'
                   : 'bg-[#301616] border-[#ff453a] text-[#ff453a] hover:bg-[#421f1f]'
