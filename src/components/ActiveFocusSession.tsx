@@ -738,7 +738,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       // Update MediaSession & Service Worker notification
       if (!isNativeFocusAvailable && !isTwaFocusPage) backgroundFocus.syncLiveNotification(buildNotificationPayload(false));
 
-      if (currentTimerType === 'countdown' && currentRem <= 0 && !isPausedRef.current && !isCampActiveRef.current) {
+      if (currentTimerType === 'countdown' && currentRem <= 0 && !isCampActiveRef.current) {
         handleFinish(true);
         return;
       }
