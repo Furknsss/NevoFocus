@@ -98,6 +98,8 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
         return <Plane className="w-4 h-4 text-sky-400" />;
       case 'dive':
         return <Waves className="w-4 h-4 text-teal-400" />;
+      case 'exam':
+        return <Clock className="w-4 h-4 text-amber-300" />;
       case 'clock':
         return <Clock className="w-4 h-4 text-white" />;
     }
@@ -130,8 +132,8 @@ export const FocusSetup: React.FC<FocusSetupProps> = ({
         </h1>
       </div>
 
-      {/* 5 Focus Mode Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
+      {/* Focus Mode Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-8">
         {FOCUS_MODES.map((mode) => {
           const isSelected = selectedMode === mode.id;
 
