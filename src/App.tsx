@@ -1702,6 +1702,7 @@ export default function App() {
       {/* Global Modals */}
       <AudioPlayerModal
         isOpen={isAudioModalOpen}
+        examMode={currentActiveMode === 'exam' || localMinimizedSession?.mode === 'exam' || cloudActiveSession?.mode === 'exam'}
         onClose={() => setIsAudioModalOpen(false)}
         currentTrack={currentAmbientTrack}
         onSelectTrack={(track: 'rain' | 'forest' | 'white_noise' | 'airplane' | 'ocean' | 'campfire' | 'off') => {
