@@ -38,6 +38,15 @@ export const FOCUS_MODES: FocusModeConfig[] = [
     iconName: 'Waves',
   },
   {
+    id: 'exam',
+    title: 'ÖSYM Saat',
+    subtitle: 'Gerçek deneme sınavı ortamı',
+    accentColor: '#f6c567',
+    glowColor: 'rgba(246, 197, 103, 0.35)',
+    description: 'Sınıf arka planı, gerçek analog duvar saati ve kendi yüklediğin 165 dakikalık sınav sesi.',
+    iconName: 'Clock',
+  },
+  {
     id: 'clock',
     title: 'Dijital Saat',
     subtitle: 'Kronometre & Flip Clock',
