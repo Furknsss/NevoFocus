@@ -1,10 +1,12 @@
 import React from 'react';
 import { X, Volume2, CloudRain, Trees, Wind, Plane, Waves, Flame, BellRing } from 'lucide-react';
 import { soundEngine } from '../utils/audio';
+import { ExamMediaSettings } from './ExamMediaSettings';
 
 interface AudioPlayerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  examMode?: boolean;
   currentTrack: string | null;
   onSelectTrack: (track: 'rain' | 'forest' | 'white_noise' | 'airplane' | 'ocean' | 'campfire' | 'off') => void;
   volume: number;
@@ -14,6 +16,7 @@ interface AudioPlayerModalProps {
 export const AudioPlayerModal: React.FC<AudioPlayerModalProps> = ({
   isOpen,
   onClose,
+  examMode = false,
   currentTrack,
   onSelectTrack,
   volume,
@@ -33,7 +36,7 @@ export const AudioPlayerModal: React.FC<AudioPlayerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md rounded-2xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl">
+      <div className="relative w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl border border-neutral-800 bg-[#12141a] p-6 shadow-2xl">
         <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-[#ff5500]/15 flex items-center justify-center text-[#ff5500]">
@@ -51,6 +54,8 @@ export const AudioPlayerModal: React.FC<AudioPlayerModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {examMode && <div className="mt-4"><ExamMediaSettings /></div>}
 
         {/* Volume slider */}
         <div className="py-4 border-b border-neutral-800">

@@ -1,4 +1,4 @@
-export type FocusModeType = 'forest' | 'climb' | 'flight' | 'dive' | 'clock';
+export type FocusModeType = 'forest' | 'climb' | 'flight' | 'dive' | 'clock' | 'exam';
 
 export interface FocusModeConfig {
   id: FocusModeType;

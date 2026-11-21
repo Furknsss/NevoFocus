@@ -3,6 +3,7 @@ import { Check, ChevronRight, Clock3, Coffee, Layers3, Mountain, Plane, Trees, W
 import { FocusModeType } from '../types';
 import { FOCUS_MODES } from '../utils/storage';
 import { soundEngine } from '../utils/audio';
+import { ExamMediaSettings } from './ExamMediaSettings';
 
 interface FocusModeSettingsProps {
   selectedMode: FocusModeType;
@@ -12,6 +13,7 @@ interface FocusModeSettingsProps {
 }
 
 const MODE_PRESENTATION = {
+  exam: { icon: Clock3, color: 'text-amber-300', ring: 'border-amber-400/70 bg-amber-500/10', tag: 'Deneme' },
   clock: { icon: Clock3, color: 'text-white', ring: 'border-[#ff5500]/70 bg-[#ff5500]/10', tag: 'Önerilen' },
   forest: { icon: Trees, color: 'text-emerald-400', ring: 'border-emerald-500/60 bg-emerald-500/10', tag: 'Doğa' },
   climb: { icon: Mountain, color: 'text-orange-400', ring: 'border-orange-500/60 bg-orange-500/10', tag: 'Hedef' },
@@ -93,6 +95,7 @@ export const FocusModeSettings: React.FC<FocusModeSettingsProps> = ({
           );
         })}
       </div>
+      {selectedMode === 'exam' && <ExamMediaSettings />}
       <div className="pt-1 border-t border-white/10">
         <button
           type="button"

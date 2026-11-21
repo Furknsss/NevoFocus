@@ -283,7 +283,7 @@ export default function App() {
         const startedAt = saved?.startTime || saved?.anchorTimestamp || 0;
         if (!startedAt || saved?.isFinished || saved?.isActive === false ||
             Date.now() - startedAt > 24 * 3600 * 1000 || isSessionTerminated(startedAt) ||
-            !['clock', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
+            !['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
 
         setCurrentActiveMode(saved.mode);
         setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
@@ -467,7 +467,7 @@ export default function App() {
               targetUniversity: typeof data.targetUniversity === 'string' ? data.targetUniversity : '',
               targetDepartment: typeof data.targetDepartment === 'string' ? data.targetDepartment : '',
               targetExam: typeof data.targetExam === 'string' ? data.targetExam : 'YKS 2026 Sayısal',
-              preferredFocusMode: ['clock', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
+              preferredFocusMode: ['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
               studyTrack: typeof data.studyTrack === 'string' ? data.studyTrack : 'Sayısal',
               dailyGoalHours: parseNumericField(data.dailyGoalHours, 6),
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
@@ -1702,6 +1702,7 @@ export default function App() {
       {/* Global Modals */}
       <AudioPlayerModal
         isOpen={isAudioModalOpen}
+        examMode={currentActiveMode === 'exam' || localMinimizedSession?.mode === 'exam' || cloudActiveSession?.mode === 'exam'}
         onClose={() => setIsAudioModalOpen(false)}
         currentTrack={currentAmbientTrack}
         onSelectTrack={(track: 'rain' | 'forest' | 'white_noise' | 'airplane' | 'ocean' | 'campfire' | 'off') => {
@@ -1743,10 +1744,19 @@ export default function App() {
         onSelectFocusMode={(mode) => {
           if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
           setCurrentActiveMode(mode);
-          if (mode === 'clock') setTimerType('stopwatch');
+          if (mode === 'exam') {
+            // Do not mix the old Zen ambience into a realistic exam environment.
+            soundEngine.stopAmbient();
+            setCurrentAmbientTrack(null);
+          }
+          if (mode === 'clock' || mode === 'exam') setTimerType('stopwatch');
           void handleUpdateProfile({ preferredFocusMode: mode });
-          setIsSettingsModalOpen(false);
-          setCurrentTab('focus');
+          // Keep ÖSYM settings open so the student can import personal photo
+          // and 165-minute recording immediately after selecting this mode.
+          if (mode !== 'exam') {
+            setIsSettingsModalOpen(false);
+            setCurrentTab('focus');
+          }
         }}
         onAccountDeleted={handleAccountDeleted}
         onSyncComplete={(newSessions, newTasks, newProfile) => {

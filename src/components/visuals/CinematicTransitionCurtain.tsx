@@ -52,6 +52,14 @@ const MODE_META: Record<
     borderGlow: 'rgba(20, 184, 166, 0.5)',
     badge: 'HİDROFON BASINÇ ODASI',
   },
+  exam: {
+    title: 'ÖSYM Sınav Salonu',
+    sub: 'Gerçek sınıf atmosferi ve analog duvar saati hazırlanıyor',
+    icon: Clock,
+    accent: '#f4ca76',
+    borderGlow: 'rgba(244, 202, 118, 0.48)',
+    badge: 'SINAV SİMÜLASYONU',
+  },
   clock: {
     title: 'Dijital Saat',
     sub: 'Kesintisiz Canlı Müzik & Sade Odak',

@@ -22,6 +22,8 @@ import { ActiveClimbCanvas } from './visuals/ActiveClimbCanvas';
 import { ActiveDiveCanvas } from './visuals/ActiveDiveCanvas';
 import { WorldMap2DFlight } from './visuals/WorldMap2DFlight';
 import { ActiveClockCanvas } from './visuals/ActiveClockCanvas';
+import { ExamClockCanvas } from './ExamClockCanvas';
+import { stopExamAudio } from '../services/examExperience';
 import { enterImmersiveFocusDisplay } from '../services/displayPreferences';
 import { isNativeFocusAvailable, nativeFocus } from '../services/nativeFocus';
 import { isTwaFocusPage } from '../services/twaFocusBridge';
@@ -90,6 +92,7 @@ const MODE_LABELS: Record<FocusModeType, string> = {
   flight: 'Focus Flight',
   dive: 'Derin Dalış',
   clock: 'Dijital Saat',
+  exam: 'ÖSYM Saat',
 };
 
 export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
@@ -347,7 +350,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
         const liveSubjectLabel = selectedTaskTitle
           ? `${subject.name} · ${selectedTaskTitle}`
-          : mode === 'clock' && !selectedTaskId
+          : (mode === 'clock' || mode === 'exam') && !selectedTaskId
           ? 'Serbest Çalışma'
           : subject.name;
 
@@ -622,7 +625,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     (forceShow = false): LiveNotificationPayload => ({
       mode,
       modeLabel: MODE_LABELS[mode] || 'Odak Modu',
-      subjectName: selectedTaskTitle ? subject.name : (mode === 'clock' && !selectedTaskId ? 'Serbest Çalışma' : subject.name),
+      subjectName: selectedTaskTitle ? subject.name : ((mode === 'clock' || mode === 'exam') && !selectedTaskId ? 'Serbest Çalışma' : subject.name),
       taskTitle: selectedTaskTitle,
       timerType: currentTimerType,
       plannedMinutes,
@@ -800,6 +803,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
 
     soundEngine.playCompletionBell();
     backgroundFocus.stopAll();
+    if (mode === 'exam') stopExamAudio();
     if (isNativeFocusAvailable) void nativeFocus.stop();
 
     // A countdown must record no more than its planned focus time even if
@@ -952,6 +956,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
+    if (mode === 'exam') stopExamAudio();
     if (isNativeFocusAvailable) void nativeFocus.stop();
 
     try {
@@ -989,7 +994,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
         </div>
       )}
       {/* Sol Üstte Zarif Müzik Widget (Spotify / YouTube Music / Apple Music) */}
-      <SpotifyFocusWidget onOpenSettingsConnections={onOpenSettingsConnections} />
+      {mode !== 'exam' && <SpotifyFocusWidget onOpenSettingsConnections={onOpenSettingsConnections} />}
 
       {/* Visual Canvas Backdrop - Fullscreen edge-to-edge */}
       <div className="absolute inset-0 z-0 w-full h-full overflow-hidden">
@@ -1028,6 +1033,20 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             elapsedSeconds={elapsedSeconds}
           />
         )}
+        {mode === 'exam' && (
+          <ExamClockCanvas
+            elapsedSeconds={elapsedCountUp}
+            remainingSeconds={secondsRemaining}
+            timerType={currentTimerType}
+            isPaused={isPaused}
+            isBreakActive={isCampActive}
+            onTogglePause={handleTogglePause}
+            onTakeBreak={toggleThematicBreak}
+            onFinish={() => handleFinish(true)}
+            onAbandon={() => setShowAbandonModal(true)}
+            onOpenAudio={onToggleAudioModal}
+          />
+        )}
         {mode === 'clock' && (
           <ActiveClockCanvas
             elapsedSeconds={elapsedSeconds}
@@ -1047,7 +1066,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       </div>
 
       {/* Top Floating Info Bar (Clean Non-Overlapping Header) */}
-      <div className="relative z-30 w-full px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:pt-[max(1.5rem,env(safe-area-inset-top,0px))] flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+      {mode !== 'exam' && <div className="relative z-30 w-full px-4 sm:px-8 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:pt-[max(1.5rem,env(safe-area-inset-top,0px))] flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
         {/* Left: Mode Title & Subject Badge OR Clean Date for Clock Mode */}
         <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${mode === 'clock' ? 'pl-14 sm:pl-16' : ''}`}>
           {mode === 'clock' ? (
@@ -1151,10 +1170,10 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Center Focus Timer Display */}
-      {mode !== 'clock' && (
+      {mode !== 'clock' && mode !== 'exam' && (
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 pointer-events-none">
           <div className="pointer-events-auto flex flex-col items-center">
             <div className="relative flex items-center justify-center p-6 sm:p-10 rounded-full">
@@ -1252,7 +1271,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
       )}
 
       {/* Bottom Floating Action Bar */}
-      {mode !== 'clock' && (
+      {mode !== 'clock' && mode !== 'exam' && (
         <div className="relative z-10 w-full px-4 sm:px-8 pb-6 sm:pb-8 flex items-center justify-center gap-3 sm:gap-4 pointer-events-auto flex-wrap pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           {/* 1. Mola Ver / Devam Et */}
           <button
@@ -1305,6 +1324,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'flight' && 'Uçuş rotası tamamlanmadan iniş yapmak üzeresin.'}
               {mode === 'dive' && "Balık Şehri'ne ulaşmadan su yüzeyine dönmek istediğine emin misin?"}
               {mode === 'clock' && 'Kronometre çalışma seansını sonlandırmak istediğine emin misin?'}
+              {mode === 'exam' && 'Sınav simülasyonunu sonlandırmak istediğine emin misin?'}
             </p>
 
             <div className="flex gap-2">
@@ -1342,6 +1362,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
               {mode === 'flight' && `🛬 ${destAirport.city} (${destAirport.code}) Havalimanına başarıyla inildi!`}
               {mode === 'dive' && "🏰 Balık Şehri'ne ulaşıldı ve sualtı sarayına giriş yapıldı!"}
               {mode === 'clock' && '⏱️ Dijital saat çalışma seansın başarıyla kaydedildi!'}
+              {mode === 'exam' && '🕰️ ÖSYM Saat denemen başarıyla kaydedildi!'}
             </p>
 
             {/* Recap */}
