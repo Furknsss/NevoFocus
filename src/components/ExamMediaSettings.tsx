@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FileAudio2, Image as ImageIcon, Pause, Play, Volume2 } from 'lucide-react';
 import {
-  EXAM_AUDIO_EVENT, getExamAsset, isExamAudioPlaying, pauseExamAudio,
+  EXAM_AUDIO_EVENT, getExamAsset, isExamAudioPlaying, pauseExamAudio, prepareExamAudio,
   readExamPreferences, startExamAudio, storeExamAsset,
   updateExamPreferences, type ExamPreferences,
 } from '../services/examExperience';
@@ -18,6 +18,7 @@ export function ExamMediaSettings() {
     let mounted = true;
     async function refresh() {
       const [audio, image] = await Promise.all([getExamAsset('examAudio'), getExamAsset('classroomImage')]);
+      if (audio) void prepareExamAudio().catch(() => {});
       if (mounted) {
         setHasAudio(Boolean(audio));
         setHasImage(Boolean(image));
