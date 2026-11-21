@@ -12,6 +12,7 @@ const DB_NAME = 'nevofocus_exam_media_v1';
 const PREF_KEY = 'nevofocus_exam_preferences_v1';
 const STORE_NAME = 'assets';
 export const EXAM_AUDIO_EVENT = 'nevofocus:exam-audio-changed';
+export const EXAM_MEDIA_EVENT = 'nevofocus:exam-media-updated';
 export const DEFAULT_EXAM_PREFERENCES: ExamPreferences = {
   volume: 0.65,
   pauseOnBreak: true,
@@ -53,6 +54,10 @@ async function withStore<T>(mode: IDBTransactionMode, work: (store: IDBObjectSto
 function notify(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(EXAM_AUDIO_EVENT));
 }
+function notifyMedia(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(EXAM_MEDIA_EVENT));
+  notify();
+}
 
 export async function getExamAsset(kind: ExamAssetKind): Promise<Blob | null> {
   return withStore('readonly', (store, resolve, reject) => {
@@ -80,7 +85,7 @@ export async function storeExamAsset(kind: ExamAssetKind, file: File): Promise<v
     stopExamAudio();
     void prepareExamAudio().catch(() => {});
   }
-  notify();
+  notifyMedia();
 }
 
 export async function removeExamAsset(kind: ExamAssetKind): Promise<void> {
@@ -90,7 +95,7 @@ export async function removeExamAsset(kind: ExamAssetKind): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error || new Error('Dosya silinemedi.'));
   });
-  notify();
+  notifyMedia();
 }
 
 export function readExamPreferences(): ExamPreferences {
@@ -119,6 +124,7 @@ export function updateExamPreferences(update: Partial<ExamPreferences>): ExamPre
 let audioElement: HTMLAudioElement | null = null;
 let ownedUrl: string | null = null;
 let pendingStart: Promise<boolean> | null = null;
+let pendingPreparation: Promise<boolean> | null = null;
 
 export function isExamAudioPlaying(): boolean {
   return Boolean(audioElement && !audioElement.paused);
@@ -131,17 +137,23 @@ export function isExamAudioPlaying(): boolean {
  */
 export async function prepareExamAudio(): Promise<boolean> {
   if (audioElement) return true;
-  const media = await getExamAsset('examAudio');
-  if (!media) return false;
-  ownedUrl = URL.createObjectURL(media);
-  audioElement = new Audio(ownedUrl);
-  audioElement.loop = true;
-  audioElement.preload = 'metadata';
-  audioElement.volume = readExamPreferences().volume;
-  audioElement.addEventListener('pause', notify);
-  audioElement.addEventListener('play', notify);
-  audioElement.addEventListener('ended', notify);
-  return true;
+  if (pendingPreparation) return pendingPreparation;
+  pendingPreparation = (async () => {
+    const media = await getExamAsset('examAudio');
+    if (!media) return false;
+    if (audioElement) return true;
+    ownedUrl = URL.createObjectURL(media);
+    audioElement = new Audio(ownedUrl);
+    audioElement.loop = true;
+    audioElement.preload = 'metadata';
+    audioElement.volume = readExamPreferences().volume;
+    audioElement.addEventListener('pause', notify);
+    audioElement.addEventListener('play', notify);
+    audioElement.addEventListener('ended', notify);
+    return true;
+  })();
+  try { return await pendingPreparation; }
+  finally { pendingPreparation = null; }
 }
 
 export async function startExamAudio(): Promise<boolean> {
