@@ -412,6 +412,33 @@ export const ModeCardPreview = React.memo<ModeCardPreviewProps>(({ mode, isActiv
           ctx.fill();
           ctx.stroke();
         });
+      } else if (mode === 'exam') {
+        const wall = ctx.createLinearGradient(0, 0, 0, ch);
+        wall.addColorStop(0, '#d5c6a9');
+        wall.addColorStop(1, '#8d897d');
+        ctx.fillStyle = wall;
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.fillStyle = '#31564c';
+        ctx.fillRect(cw * 0.08, ch * 0.28, cw * 0.84, ch * 0.48);
+        ctx.fillStyle = '#ebe9dc';
+        ctx.fillRect(cw * 0.34, ch * 0.28, cw * 0.36, ch * 0.48);
+        const rx = cw * 0.5, ry = ch * 0.29, rr = Math.min(cw, ch) * 0.22;
+        ctx.fillStyle = '#e5e7e6';
+        ctx.beginPath(); ctx.arc(rx, ry, rr + 4 * cdpr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fafaf4';
+        ctx.beginPath(); ctx.arc(rx, ry, rr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#1c2529'; ctx.lineWidth = 2 * cdpr;
+        for (let i = 0; i < 12; i++) {
+          const ang = i * Math.PI / 6;
+          ctx.beginPath();
+          ctx.moveTo(rx + Math.cos(ang) * rr * 0.77, ry + Math.sin(ang) * rr * 0.77);
+          ctx.lineTo(rx + Math.cos(ang) * rr * 0.91, ry + Math.sin(ang) * rr * 0.91);
+          ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx, ry - rr * 0.66); ctx.stroke();
+        ctx.lineWidth = cdpr; ctx.strokeStyle = '#b93b2f';
+        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + rr * Math.sin(time * 0.15), ry - rr * Math.cos(time * 0.15)); ctx.stroke();
+        ctx.fillStyle = '#222b2d'; ctx.beginPath(); ctx.arc(rx, ry, 2.5 * cdpr, 0, Math.PI * 2); ctx.fill();
       } else if (mode === 'clock') {
         // PURE AMOLED BLACK IPAD DIGITAL STOPWATCH PREVIEW
         ctx.fillStyle = '#000000';
