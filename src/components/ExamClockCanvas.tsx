@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Coffee, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import {
   EXAM_AUDIO_EVENT,
+  EXAM_MEDIA_EVENT,
   getExamAsset,
   isExamAudioPlaying,
   pauseExamAudio,
@@ -108,10 +109,14 @@ export const ExamClockCanvas: React.FC<ExamClockCanvasProps> = ({
     const onChange = () => {
       setPrefs(readExamPreferences());
       setAudioActive(isExamAudioPlaying());
-      setMediaRevision(v => v + 1);
     };
+    const onMedia = () => setMediaRevision(v => v + 1);
     window.addEventListener(EXAM_AUDIO_EVENT, onChange);
-    return () => window.removeEventListener(EXAM_AUDIO_EVENT, onChange);
+    window.addEventListener(EXAM_MEDIA_EVENT, onMedia);
+    return () => {
+      window.removeEventListener(EXAM_AUDIO_EVENT, onChange);
+      window.removeEventListener(EXAM_MEDIA_EVENT, onMedia);
+    };
   }, []);
 
   useEffect(() => {
