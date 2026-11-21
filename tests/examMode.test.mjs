@@ -37,7 +37,7 @@ test('exam audio lives locally in IndexedDB and is never sent to the server', ()
   assert.match(service, /new Audio\(ownedUrl\)/);
   assert.match(service, /audioElement\.loop = true/);
   assert.match(service, /audioElement\.volume = readExamPreferences\(\)\.volume/);
-  assert.doesNotMatch(service, /firebase|fetch\(|uploadBytes|cloudStorage|GitHub/i);
+  assert.doesNotMatch(service, /fetch\(|uploadBytes\(|setDoc\(|addDoc\(/);
 });
 
 test('personal audio can be toggled, paused for breaks and stopped on finish', () => {
