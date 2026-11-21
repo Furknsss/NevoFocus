@@ -76,7 +76,10 @@ export async function storeExamAsset(kind: ExamAssetKind, file: File): Promise<v
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error || new Error('Cihazın saklama alanı dolu olabilir.'));
   });
-  if (kind === 'examAudio') stopExamAudio();
+  if (kind === 'examAudio') {
+    stopExamAudio();
+    void prepareExamAudio().catch(() => {});
+  }
   notify();
 }
 
@@ -121,25 +124,43 @@ export function isExamAudioPlaying(): boolean {
   return Boolean(audioElement && !audioElement.paused);
 }
 
+/**
+ * Prepare the Blob while the mode/settings UI is mounted, before the user
+ * taps Sesi Aç. Calling play() only after an IndexedDB await can lose
+ * Android WebView's transient user gesture and trigger NotAllowedError.
+ */
+export async function prepareExamAudio(): Promise<boolean> {
+  if (audioElement) return true;
+  const media = await getExamAsset('examAudio');
+  if (!media) return false;
+  ownedUrl = URL.createObjectURL(media);
+  audioElement = new Audio(ownedUrl);
+  audioElement.loop = true;
+  audioElement.preload = 'metadata';
+  audioElement.volume = readExamPreferences().volume;
+  audioElement.addEventListener('pause', notify);
+  audioElement.addEventListener('play', notify);
+  audioElement.addEventListener('ended', notify);
+  return true;
+}
+
 export async function startExamAudio(): Promise<boolean> {
   if (pendingStart) return pendingStart;
-  pendingStart = (async () => {
-    const media = await getExamAsset('examAudio');
-    if (!media) throw new Error('Önce sınav sesi dosyasını bu cihaza yükle.');
-    if (!audioElement) {
-      ownedUrl = URL.createObjectURL(media);
-      audioElement = new Audio(ownedUrl);
-      audioElement.loop = true;
-      audioElement.preload = 'auto';
-      audioElement.addEventListener('pause', notify);
-      audioElement.addEventListener('play', notify);
-      audioElement.addEventListener('ended', notify);
-    }
+  // In the usual case the player was preloaded on mount; play() is called
+  // synchronously inside the user's click handler.
+  if (audioElement) {
     audioElement.volume = readExamPreferences().volume;
+    await audioElement.play();
+    notify();
+    return true;
+  }
+  pendingStart = (async () => {
+    if (!(await prepareExamAudio()) || !audioElement)
+      throw new Error('Önce sınav sesi dosyasını bu cihaza yükle.');
     try {
       await audioElement.play();
     } catch {
-      throw new Error('Ses açılamadı. NevoFocus ekranında Sesi Aç düğmesine dokunarak tekrar dene.');
+      throw new Error('Cihaz otomatik ses açmayı engelledi. Sesi Aç düğmesine tekrar dokun.');
     }
     notify();
     return true;
