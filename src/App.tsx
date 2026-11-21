@@ -283,7 +283,7 @@ export default function App() {
         const startedAt = saved?.startTime || saved?.anchorTimestamp || 0;
         if (!startedAt || saved?.isFinished || saved?.isActive === false ||
             Date.now() - startedAt > 24 * 3600 * 1000 || isSessionTerminated(startedAt) ||
-            !['clock', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
+            !['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(saved?.mode)) return;
 
         setCurrentActiveMode(saved.mode);
         setSelectedSubject(saved.subject || SERBEST_CALISMA_SUBJECT);
@@ -467,7 +467,7 @@ export default function App() {
               targetUniversity: typeof data.targetUniversity === 'string' ? data.targetUniversity : '',
               targetDepartment: typeof data.targetDepartment === 'string' ? data.targetDepartment : '',
               targetExam: typeof data.targetExam === 'string' ? data.targetExam : 'YKS 2026 Sayısal',
-              preferredFocusMode: ['clock', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
+              preferredFocusMode: ['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(data.preferredFocusMode) ? data.preferredFocusMode : (immediateProfile.preferredFocusMode || 'clock'),
               studyTrack: typeof data.studyTrack === 'string' ? data.studyTrack : 'Sayısal',
               dailyGoalHours: parseNumericField(data.dailyGoalHours, 6),
               currentStreakDays: parseNumericField(data.streakDays ?? data.currentStreakDays, 0),
@@ -1743,7 +1743,7 @@ export default function App() {
         onSelectFocusMode={(mode) => {
           if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
           setCurrentActiveMode(mode);
-          if (mode === 'clock') setTimerType('stopwatch');
+          if (mode === 'clock' || mode === 'exam') setTimerType('stopwatch');
           void handleUpdateProfile({ preferredFocusMode: mode });
           setIsSettingsModalOpen(false);
           setCurrentTab('focus');
