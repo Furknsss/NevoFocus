@@ -167,10 +167,12 @@ export async function startExamAudio(): Promise<boolean> {
     return true;
   }
   pendingStart = (async () => {
-    if (!(await prepareExamAudio()) || !audioElement)
+    if (!(await prepareExamAudio()))
       throw new Error('Önce sınav sesi dosyasını bu cihaza yükle.');
+    const player: HTMLAudioElement | null = audioElement as HTMLAudioElement | null;
+    if (!player) throw new Error('Ses oynatıcısı hazırlanamadı.');
     try {
-      await audioElement.play();
+      await player.play();
     } catch {
       throw new Error('Cihaz otomatik ses açmayı engelledi. Sesi Aç düğmesine tekrar dokun.');
     }
