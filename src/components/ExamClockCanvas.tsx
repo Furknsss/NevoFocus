@@ -5,6 +5,7 @@ import {
   getExamAsset,
   isExamAudioPlaying,
   pauseExamAudio,
+  prepareExamAudio,
   readExamPreferences,
   resumeExamAudioIfLoaded,
   startExamAudio,
@@ -93,6 +94,8 @@ export const ExamClockCanvas: React.FC<ExamClockCanvasProps> = ({
   const [prefs, setPrefs] = useState(() => readExamPreferences());
   const [mediaRevision, setMediaRevision] = useState(0);
   const shouldPauseAudio = prefs.pauseOnBreak && (isBreakActive || isPaused);
+
+  useEffect(() => { void prepareExamAudio().catch(() => {}); }, []);
 
   useEffect(() => {
     const onTick = () => setNow(new Date());
