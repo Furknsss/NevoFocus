@@ -1746,8 +1746,12 @@ export default function App() {
           setCurrentActiveMode(mode);
           if (mode === 'clock' || mode === 'exam') setTimerType('stopwatch');
           void handleUpdateProfile({ preferredFocusMode: mode });
-          setIsSettingsModalOpen(false);
-          setCurrentTab('focus');
+          // Keep ÖSYM settings open so the student can import personal photo
+          // and 165-minute recording immediately after selecting this mode.
+          if (mode !== 'exam') {
+            setIsSettingsModalOpen(false);
+            setCurrentTab('focus');
+          }
         }}
         onAccountDeleted={handleAccountDeleted}
         onSyncComplete={(newSessions, newTasks, newProfile) => {
