@@ -1744,6 +1744,11 @@ export default function App() {
         onSelectFocusMode={(mode) => {
           if (isSessionActive || localMinimizedSession || cloudActiveSession) return;
           setCurrentActiveMode(mode);
+          if (mode === 'exam') {
+            // Do not mix the old Zen ambience into a realistic exam environment.
+            soundEngine.stopAmbient();
+            setCurrentAmbientTrack(null);
+          }
           if (mode === 'clock' || mode === 'exam') setTimerType('stopwatch');
           void handleUpdateProfile({ preferredFocusMode: mode });
           // Keep ÖSYM settings open so the student can import personal photo
