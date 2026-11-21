@@ -3,6 +3,7 @@ import { Check, ChevronRight, Clock3, Coffee, Layers3, Mountain, Plane, Trees, W
 import { FocusModeType } from '../types';
 import { FOCUS_MODES } from '../utils/storage';
 import { soundEngine } from '../utils/audio';
+import { ExamMediaSettings } from './ExamMediaSettings';
 
 interface FocusModeSettingsProps {
   selectedMode: FocusModeType;
@@ -94,6 +95,7 @@ export const FocusModeSettings: React.FC<FocusModeSettingsProps> = ({
           );
         })}
       </div>
+      {selectedMode === 'exam' && <ExamMediaSettings />}
       <div className="pt-1 border-t border-white/10">
         <button
           type="button"
