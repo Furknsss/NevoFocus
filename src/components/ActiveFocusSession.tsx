@@ -956,6 +956,7 @@ export const ActiveFocusSession: React.FC<ActiveFocusSessionProps> = ({
     soundEngine.playClick();
     setShowAbandonModal(false);
     backgroundFocus.stopAll();
+    if (mode === 'exam') stopExamAudio();
     if (isNativeFocusAvailable) void nativeFocus.stop();
 
     try {
