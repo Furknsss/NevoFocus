@@ -631,11 +631,30 @@ export async function importLocalBackup(
 }> {
   try {
     const activeUser = auth.currentUser || user;
-    if (!activeUser?.uid) throw new Error('Yedekten buluta aktarmak için önce giriş yapın.');
+    if (!activeUser?.uid || (user?.uid && activeUser.uid !== user.uid) ||
+        !accountCacheIsBound(activeUser.uid)) {
+      throw new Error('Yedeği aktarmak için doğru Firebase hesabıyla giriş yapmalısın.');
+    }
+    if (jsonString.length > 24 * 1024 * 1024)
+      throw new Error('Yedek JSON dosyası 24 MB sınırını aşıyor. İçeriği önce kontrol et.');
     const parsed = JSON.parse(jsonString);
     if (!parsed || (!parsed.sessions && !parsed.tasks && !parsed.profile)) {
       throw new Error('Geçersiz yedek dosyası formatı.');
     }
+
+    const safeArray = (input: unknown, label: string): any[] => {
+      if (input === undefined) return [];
+      if (!Array.isArray(input) || input.length > 15000)
+        throw new Error(`${label} verisi geçersiz veya aşırı büyük.`);
+      for (const row of input) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' ||
+          !row.id.trim() || row.id.length > 500 || row.id.includes('/'))
+          throw new Error(`${label} içinde hatalı kayıt kimliği var; hiçbir değişiklik yapılmadı.`);
+      }
+      return input;
+    };
+    safeArray(parsed.sessions, 'Seans');
+    safeArray(parsed.tasks, 'Görev');
 
     // Keep original record IDs, dates and durations, but associate the new
     // Firebase account and never re-import credentials from a legacy JSON.
@@ -645,12 +664,35 @@ export async function importLocalBackup(
     const importedTasks: FocusTask[] = Array.isArray(parsed.tasks)
       ? parsed.tasks.map((item: FocusTask) => ({ ...item, userId: activeUser.uid }))
       : [];
+    const rawProfile = parsed.profile && typeof parsed.profile === 'object' && !Array.isArray(parsed.profile)
+      ? parsed.profile as Record<string, any> : {};
     const importedProfile: Partial<UserProfile> = {
-      ...(parsed.profile || {}),
       userId: activeUser.uid,
-      email: activeUser.email || parsed.profile?.email || '',
-      musicConnections: safeMusicPreferences(parsed.profile?.musicConnections),
+      email: activeUser.email || '',
+      musicConnections: safeMusicPreferences(rawProfile.musicConnections),
     };
+    // Strict whitelist; unexpected fields, old UID, passwords, tokens and
+    // backend-only metadata can never be imported to the new profile.
+    for (const key of ['name','initials','avatarColor','avatarUrl',
+      'targetUniversity','targetDepartment','targetExam','studyTrack','theme'] as const) {
+      if (typeof rawProfile[key] === 'string') (importedProfile as any)[key] = rawProfile[key];
+    }
+    if (Number.isFinite(Number(rawProfile.dailyGoalHours)))
+      importedProfile.dailyGoalHours = Math.max(1, Math.min(24, Number(rawProfile.dailyGoalHours)));
+    for (const key of ['soundNotifications','breakReminders','desktopNotifications',
+      'liveNotifications','hasCompletedOnboarding'] as const) {
+      if (typeof rawProfile[key] === 'boolean') (importedProfile as any)[key] = rawProfile[key];
+    }
+    if (['auto','mobile','tablet','desktop'].includes(rawProfile.deviceModePreference))
+      importedProfile.deviceModePreference = rawProfile.deviceModePreference;
+    if (['clock','exam','forest','climb','flight','dive'].includes(rawProfile.preferredFocusMode))
+      importedProfile.preferredFocusMode = rawProfile.preferredFocusMode;
+    if (rawProfile.restDaySelectionMode === 'dates' || rawProfile.restDaySelectionMode === 'weekly')
+      importedProfile.restDaySelectionMode = rawProfile.restDaySelectionMode;
+    for (const key of ['weeklyRestDays','customRestDates','excludedRestDates'] as const) {
+      if (Array.isArray(rawProfile[key]) && rawProfile[key].length <= 366)
+        (importedProfile as any)[key] = rawProfile[key];
+    }
 
     // Merge sessions
     const currentSessions = getStoredSessions();
