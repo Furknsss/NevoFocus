@@ -169,6 +169,8 @@ export async function syncAllToFirestore(
     return failed('Bulut eşitlemesi için doğru Google/Firebase hesabıyla giriş yapmalısın.');
   if (!accountCacheIsBound(uid))
     return failed('Hesap önbelleği doğrulanamadı. Yanlış hesaba veri yazmamak için eşitleme durduruldu.');
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('fokus_deleting_account_uid') === uid)
+    return failed('Hesap silme işlemi sürerken otomatik bulut kaydı kapalı.');
   if (typeof navigator !== 'undefined' && !navigator.onLine)
     return failed('İnternet bağlantısı yok. Kayıtların cihazında korundu, çevrimiçi olunca tekrar denenecek.');
 
@@ -178,6 +180,8 @@ export async function syncAllToFirestore(
   const run = async (): Promise<SyncResult> => {
     if (auth.currentUser?.uid !== uid)
       return failed('Hesap değiştiği için eski eşitleme güvenli biçimde iptal edildi.');
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('fokus_deleting_account_uid') === uid)
+      return failed('Hesap siliniyor; buluta kayıt yapılmadı.');
     try {
       const currentProfile = profile || getStoredProfile();
       const sessionsRef = collection(db, 'users', uid, 'sessions');
