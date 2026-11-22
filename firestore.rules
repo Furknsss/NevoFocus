@@ -8,6 +8,29 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // Validate document identity even when old or compromised clients attempt
+    // to write into their own per-user collection. Firestore enforces document
+    // size separately; app backups are sharded into source collections.
+    function validOwnerRecord(uid, recordId) {
+      return request.resource.data.keys().hasAll(['id', 'userId'])
+        && request.resource.data.id == recordId
+        && request.resource.data.userId == uid
+        && request.resource.data.keys().size() <= 60
+        && request.resource.data.get('deleted', false) is bool;
+    }
+    function validBackupManifest(uid, backupId) {
+      return backupId != 'latest_v2' || (
+        request.resource.data.uid == uid
+        && request.resource.data.version == 2
+        && request.resource.data.kind == 'indexed-subcollections'
+        && request.resource.data.sessionCount is int
+        && request.resource.data.taskCount is int
+        && request.resource.data.sessionCount >= 0
+        && request.resource.data.taskCount >= 0
+        && request.resource.data.keys().size() <= 20
+      );
+    }
+
     // Owner-only profile, private focus history and tasks.
     // The users document contains detailed study snapshots and must NOT
     // be publicly readable.
@@ -15,16 +38,19 @@ service cloud.firestore {
       allow read, create, update, delete: if isOwner(uid);
 
       match /sessions/{sessionId} {
-        allow read, write: if isOwner(uid);
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validOwnerRecord(uid, sessionId);
       }
       match /tasks/{taskId} {
-        allow read, write: if isOwner(uid);
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validOwnerRecord(uid, taskId);
       }
       match /active_focus/{docId} {
         allow read, write: if isOwner(uid);
       }
       match /backups/{backupId} {
-        allow read, write: if isOwner(uid);
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validBackupManifest(uid, backupId);
       }
       match /cheers/{cheerId} {
         allow read, delete: if isOwner(uid);
