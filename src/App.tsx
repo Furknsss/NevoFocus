@@ -95,7 +95,7 @@ import {
 import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
 import { isAndroidNativeAuth, signOutNativeGoogle } from './services/nativeGoogleAuth';
-import { bindAccountCache, parkAccountCache } from './services/accountCache';
+import { bindAccountCache, parkAccountCache, accountCacheIsBound } from './services/accountCache';
 import { mergeSyncedRecords, collectDeletedIds } from './services/syncIntegrity';
 
 export default function App() {
@@ -715,6 +715,48 @@ export default function App() {
     totalFocusHours: realTotalHours,
     todayTotalMinutes: todayMinutes,
   }), [profile, realStreak, realTotalHours, todayMinutes]);
+
+  // Automatic cloud backup: debounce local edits (including tasks, sessions
+  // and profile settings), retry on reconnect/return to the tab, and verify
+  // the remote reconciliation every 3 minutes. Never run for guest mode.
+  useEffect(() => {
+    const uid = currentUser?.uid;
+    if (!uid || isAuthChecking || !accountCacheIsBound(uid)) return;
+    let running = false;
+    let cancelled = false;
+    const attempt = async () => {
+      if (cancelled || running || !navigator.onLine ||
+        auth.currentUser?.uid !== uid || !accountCacheIsBound(uid)) return;
+      running = true;
+      try {
+        const result = await syncAllToFirestore(
+          auth.currentUser, getStoredSessions(), getStoredTasks(), getStoredProfile()
+        );
+        if (!result.success && !cancelled) {
+          console.warn('Automatic Firebase backup will retry:', result.message);
+        }
+      } catch (error) {
+        console.warn('Automatic Firebase backup retry:', error);
+      } finally { running = false; }
+    };
+    const onOnline = () => { void attempt(); };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void attempt();
+    };
+    // A newly logged-in account has already been server-restored before
+    // uploading. During the first login, short debounce absorbs auth updates.
+    const debounce = window.setTimeout(() => { void attempt(); }, 8000);
+    const retry = window.setInterval(() => { void attempt(); }, 3 * 60 * 1000);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(debounce);
+      window.clearInterval(retry);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [currentUser?.uid, isAuthChecking, sessions, tasks, profile]);
 
   // Tab switches never return the focus page to the old mode-selection hub.
   const handleSelectTab = useCallback((tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => {
