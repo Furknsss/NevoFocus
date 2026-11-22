@@ -54,3 +54,12 @@ test('success requires a second, authoritative Firestore server read-back',()=>{
   assert.match(code,/if \(!matchingRecords\)\s*return failed/);
   assert.ok(code.indexOf('if (!matchingRecords)') < code.indexOf('const stats = canonicalStatsFromSessions(confirmedSessions)'));
 });
+
+test('in-flight backup never overwrites a newly finished local session',()=>{
+  const code = readFileSync('src/services/syncService.ts','utf8');
+  assert.match(code,/const baselineLocalSessions = JSON\.stringify\(getStoredSessions\(\)\)/);
+  assert.match(code,/const baselineLocalTasks = JSON\.stringify\(getStoredTasks\(\)\)/);
+  assert.match(code,/JSON\.stringify\(getStoredSessions\(\)\) !== baselineLocalSessions/);
+  assert.match(code,/JSON\.stringify\(getStoredTasks\(\)\) !== baselineLocalTasks/);
+  assert.ok(code.indexOf('!== baselineLocalSessions') < code.indexOf('await safeSetDoc(userRef,statsPatch'));
+});
