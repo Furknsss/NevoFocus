@@ -45,3 +45,12 @@ test('sync uses Firestore transactions so stale upload cannot resurrect deleted 
   assert.match(code,/!accountCacheIsBound\(uid\)/);
   assert.match(code,/transaction\.set\(path,/);
 });
+
+test('success requires a second, authoritative Firestore server read-back',()=>{
+  const code = readFileSync('src/services/syncService.ts','utf8');
+  assert.match(code,/const \[confirmedSessionSnap, confirmedTaskSnap\] = await Promise\.all/);
+  assert.match(code,/const matchingRecords =/);
+  assert.match(code,/contentFingerprint\(actual\) === contentFingerprint\(item\)/);
+  assert.match(code,/if \(!matchingRecords\)\s*return failed/);
+  assert.ok(code.indexOf('if (!matchingRecords)') < code.indexOf('const stats = canonicalStatsFromSessions(confirmedSessions)'));
+});
