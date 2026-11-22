@@ -232,7 +232,7 @@ export async function syncAllToFirestore(
         const path = doc(db, 'users', uid, kind, record.id);
         await runTransaction(db, async (transaction) => {
           const snap = await transaction.get(path);
-          const remote = snap.exists() ? snap.data() : null;
+          const remote = snap.exists() ? { ...snap.data(), id: record.id } : null;
           const deletedNow = kind === 'sessions'
             ? getDeletedSessionIds().includes(record.id)
             : getDeletedTaskIds().includes(record.id);
