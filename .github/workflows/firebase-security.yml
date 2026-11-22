@@ -35,6 +35,6 @@ jobs:
       - name: Install project dependencies
         run: npm install --no-audit --no-fund
       - name: Install Firebase emulator test tooling
-        run: npm install --no-save --no-audit --no-fund firebase-tools@^15 @firebase/rules-unit-testing@^4
+        run: npm install --no-save --legacy-peer-deps --no-audit --no-fund firebase-tools@^15 @firebase/rules-unit-testing@^4
       - name: Verify real Firestore rules in local emulator
         run: npx firebase emulators:exec --project demo-nevofocus-sync-integrity --only firestore "node --test integration-tests/firebaseRulesEmulator.mjs"
