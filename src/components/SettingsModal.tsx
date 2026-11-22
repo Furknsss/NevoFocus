@@ -43,7 +43,8 @@ import {
   EmailAuthProvider,
   linkWithCredential,
 } from 'firebase/auth';
-import { doc, deleteDoc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { deleteCurrentAccountAndPrivateData } from '../services/accountDeletion';
 import { soundEngine } from '../utils/audio';
 import { isDateRestDay } from '../utils/stats';
 import {
@@ -819,22 +820,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!currentUser) return;
     try {
       setIsDeleting(true);
-      // Remove user doc from firestore
-      try {
-        await deleteDoc(doc(db, 'users', currentUser.uid));
-      } catch (err) {
-        // continue
-      }
-      // Delete user from auth
-      await deleteUser(currentUser);
+      await deleteCurrentAccountAndPrivateData(currentUser);
       onAccountDeleted();
       onClose();
     } catch (err: any) {
-      alert(
-        err.code === 'auth/requires-recent-login'
-          ? 'Hesabınızı silmek için son oturumunuz eski. Lütfen tekrar çıkış yapıp giriş yaptıktan sonra deneyin.'
-          : 'Hesap silinirken hata oluştu: ' + err.message
-      );
+      alert(err?.message || 'Hesap güvenli şekilde silinemedi. Giriş yaparak tekrar dene.');
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
