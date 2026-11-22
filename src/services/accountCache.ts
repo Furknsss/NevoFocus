@@ -13,6 +13,11 @@ const DATA_KEYS = [
   'fokus_sessions_v4',
   'fokus_tasks_v4',
   'fokus_profile_v4',
+  // Personal custom subjects, room membership, and peers are also private.
+  // If left outside UID scope they leak into the next Google account.
+  'fokus_subjects_v4',
+  'fokus_rooms_v4',
+  'fokus_peers_v4',
   'fokus_deleted_session_ids_v4',
   'fokus_deleted_task_ids_v4',
   'fokus_last_sync_timestamp',
@@ -53,7 +58,10 @@ function legacyUid(store: StorageLike): string {
 }
 
 function hasData(state: AccountSnapshot): boolean {
-  for (const key of ['fokus_sessions_v4', 'fokus_tasks_v4']) {
+  for (const key of [
+    'fokus_sessions_v4','fokus_tasks_v4',
+    'fokus_subjects_v4','fokus_rooms_v4','fokus_peers_v4',
+  ]) {
     try { if (JSON.parse(state[key] || '[]').length > 0) return true; }
     catch { return true; }
   }
