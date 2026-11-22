@@ -159,20 +159,12 @@ export function resolveSyncIdentity(user?: User | null, profile?: UserProfile): 
   return { uid, email };
 }
 
-async function fetchDocFresh(docRef: any): Promise<{ exists: () => boolean; id: string; data: () => Record<string, any> | undefined }> {
-  try {
-    return (await getDocFromServer(docRef)) as any;
-  } catch {
-    return (await getDoc(docRef)) as any;
-  }
+async function fetchDocFresh(docRef: any) {
+  return getDocFromServer(docRef);
 }
 
-async function fetchDocsFresh(colRef: any): Promise<{ forEach: (cb: (docSnap: any) => void) => void }> {
-  try {
-    return (await getDocsFromServer(colRef)) as any;
-  } catch {
-    return (await getDocs(colRef)) as any;
-  }
+async function fetchDocsFresh(colRef: any) {
+  return getDocsFromServer(colRef);
 }
 
 export function notifyCloudRestored(sessions: FocusSession[], tasks: FocusTask[], profile: UserProfile) {
@@ -323,7 +315,6 @@ export async function syncAllToFirestore(
         setAllStoredSessions(allSessions);
         setAllStoredTasks(allTasks);
       }
-      const currentLocal = getStoredProfile();
       const updatedLocal = updateStoredProfile({
         userId:uid, totalFocusHours:stats.totalHours,
         currentStreakDays:streak, todayTotalMinutes:computedToday,
@@ -400,7 +391,8 @@ export async function restoreAllFromFirestore(
   message: string;
 }> {
   const activeUser = auth.currentUser || user;
-  if (!activeUser?.uid) {
+  if (!activeUser?.uid || (user?.uid && user.uid !== activeUser.uid) ||
+    !accountCacheIsBound(activeUser.uid)) {
     return { success: false, sessions: getStoredSessions(), tasks: getStoredTasks(),
       profile: getStoredProfile(), message: 'Buluttan geri yüklemek için giriş yapmalısınız.' };
   }
@@ -410,6 +402,8 @@ export async function restoreAllFromFirestore(
   try {
     const cloudSessions: FocusSession[] = [];
     const cloudTasks: FocusTask[] = [];
+    const primarySessions: FocusSession[] = [];
+    const primaryTasks: FocusTask[] = [];
     const deletedSessionIds = new Set<string>(getDeletedSessionIds());
     const deletedTaskIds = new Set<string>(getDeletedTaskIds());
     let cloudProfile: Record<string, any> = {};
@@ -481,7 +475,7 @@ export async function restoreAllFromFirestore(
             return;
           }
           const norm = normalizeCloudSession(s, docSnap.id);
-          if (norm) cloudSessions.push(norm);
+          if (norm) primarySessions.push(norm);
         });
 
         tasksSnap.forEach((docSnap: any) => {
@@ -491,10 +485,11 @@ export async function restoreAllFromFirestore(
             return;
           }
           const norm = normalizeCloudTask(t, docSnap.id);
-          if (norm) cloudTasks.push(norm);
+          if (norm) primaryTasks.push(norm);
         });
-      } catch {
-        // ignore individual path failure
+      } catch (error) {
+        // Incomplete remote history must never be presented as a successful restore.
+        throw error;
       }
     };
 
@@ -519,43 +514,19 @@ export async function restoreAllFromFirestore(
       // ignore
     }
 
-    // 5. Merge Sessions (local + cloud, deduplicated by ID, latest timestamp first)
-    const localSessions = getStoredSessions();
-    const sessionMap = new Map<string, FocusSession>();
-    for (const s of localSessions) {
-      if (s && s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
+    // Merge authoritative per-record documents after legacy snapshots:
+    // on equal timestamps a complete primary document wins.
+    const allCloudSessions = [...cloudSessions, ...primarySessions];
+    const allCloudTasks = [...cloudTasks, ...primaryTasks];
+    for (const item of [...primarySessions, ...primaryTasks]) {
+      // Tombstoned IDs are detected from raw server documents above.
     }
-    for (const s of cloudSessions) {
-      if (s && s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
-    }
-    const mergedSessions = Array.from(sessionMap.values()).sort(
-      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-    );
-    setAllStoredSessions(mergedSessions);
+    // Cloud restore can be requested on an offline device. All mandatory
+    // collection reads succeeded server-side before touching local caches.
+    const mergedSessions = mergeSyncedRecords(getStoredSessions(), allCloudSessions, deletedSessionIds, 'session');
+    const mergedTasks = mergeSyncedRecords(getStoredTasks(), allCloudTasks, deletedTaskIds, 'task');
 
-    // 6. Merge Tasks (local + cloud, keeping latest completion state)
-    const localTasks = getStoredTasks();
-    const taskMap = new Map<string, FocusTask>();
-    for (const t of localTasks) {
-      if (t && t.id && !deletedTaskIds.has(t.id)) taskMap.set(t.id, t);
-    }
-    for (const t of cloudTasks) {
-      if (t && t.id && !deletedTaskIds.has(t.id)) {
-        const existing = taskMap.get(t.id);
-        if (!existing) {
-          taskMap.set(t.id, t);
-        } else {
-          taskMap.set(t.id, {
-            ...existing,
-            ...t,
-            isCompleted: Boolean(existing.isCompleted || t.isCompleted),
-          });
-        }
-      }
-    }
-    const mergedTasks = Array.from(taskMap.values()).sort(
-      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-    );
+    setAllStoredSessions(mergedSessions);
     setAllStoredTasks(mergedTasks);
 
     // 7. Update Profile cleanly and recalculate stats from mergedSessions
@@ -581,7 +552,7 @@ export async function restoreAllFromFirestore(
         patch.dailyGoalHours = parseNumericField(cloudProfile.dailyGoalHours, 6);
       }
       if (cloudProfile.theme) patch.theme = cloudProfile.theme;
-      if (['clock', 'forest', 'climb', 'flight', 'dive'].includes(cloudProfile.preferredFocusMode)) {
+      if (['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(cloudProfile.preferredFocusMode)) {
         patch.preferredFocusMode = cloudProfile.preferredFocusMode;
       }
       patch.restDaySelectionMode = cloudProfile.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates';
