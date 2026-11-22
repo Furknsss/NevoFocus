@@ -552,8 +552,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setBackupNotice({
           type: 'success',
           text: `Sunucu doğrulaması başarılı: ${res.message} Son kontrol ${new Date(res.timestamp).toLocaleTimeString('tr-TR')}.`,
-          void refreshCloudHealth();
-      });
+        });
+        void refreshCloudHealth();
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
       }
