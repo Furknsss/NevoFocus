@@ -40,6 +40,7 @@ import {
 import { doc, getDoc } from 'firebase/firestore';
 import { soundEngine } from '../utils/audio';
 import { isAndroidNativeAuth, signInWithNativeGoogle, signOutNativeGoogle, getNativeGoogleOAuthDiagnosticReport } from '../services/nativeGoogleAuth';
+import { bindAccountCache } from '../services/accountCache';
 import {
   syncAllToFirestore,
   restoreAllFromFirestore,
@@ -155,6 +156,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         ? await signInWithNativeGoogle()
         : await signInWithPopup(auth, googleProvider);
       const user = result.user;
+      bindAccountCache(user.uid);
       const additionalInfo = getAdditionalUserInfo(result);
       const isNewUser = additionalInfo?.isNewUser ?? false;
 
@@ -234,6 +236,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       // 3. Silent bidirectional sync with Firestore (pull & merge first, then push)
       try {
         const restored = await restoreAllFromFirestore(user);
+        if (!restored.success) throw new Error(restored.message || 'Bulut kayıtları doğrulanamadı. Yerel veriler korundu.');
         if (restored.profile && onProfileUpdate) {
           onProfileUpdate(restored.profile);
         }
@@ -325,6 +328,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // Yeni Kullanıcı Kaydı
         const result = await createUserWithEmailAndPassword(auth, cleanEmail, password);
         const user = result.user;
+        bindAccountCache(user.uid);
         const stored = getStoredProfile();
 
         // Cihaz hatırlama / kalıcı giriş anahtarları
@@ -391,6 +395,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // Mevcut Kullanıcı Girişi
         const result = await signInWithEmailAndPassword(auth, cleanEmail, password);
         const user = result.user;
+        bindAccountCache(user.uid);
 
         // Cihaz hatırlama / kalıcı giriş anahtarları
         try {
@@ -419,6 +424,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // Buluttaki verileri yerel ile sessizce birleştir
         try {
           const restored = await restoreAllFromFirestore(user, cleanEmail);
+        if (!restored.success) throw new Error(restored.message || 'Bulut kayıtları doğrulanamadı. Yerel veriler korundu.');
           if (restored.profile && onProfileUpdate) {
             onProfileUpdate(restored.profile);
           }
