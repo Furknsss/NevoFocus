@@ -47,6 +47,7 @@ export function contentFingerprint(item: PersistedRecord): string {
   const raw = { ...item } as Record<string, unknown>;
   delete raw.syncedAt;
   delete raw.userId;
+  if (raw.deleted === false) delete raw.deleted;
   // A server's unrelated metadata should not force an upload every time.
   return JSON.stringify(Object.keys(raw).sort().map(k => [k, raw[k]]));
 }
