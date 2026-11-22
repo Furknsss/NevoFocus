@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload,
   canonicalStatsFromSessions } from '../src/services/syncIntegrity.ts';
 
@@ -34,4 +35,12 @@ test('stats derive from canonical real sessions, not a stale profile maximum',()
 test('record filtering handles invalid paths and duplicate IDs safely',()=>{
   const data=[{id:'valid',createdAt:5},{id:'invalid/path',createdAt:9},{id:'valid',createdAt:5,updatedAt:100}];
   assert.deepEqual(mergeSyncedRecords(data,[],new Set(),'task').map(x=>x.id),['valid']);
+});
+
+test('sync uses Firestore transactions so stale upload cannot resurrect deleted records',()=>{
+  const code=readFileSync('src/services/syncService.ts','utf8');
+  assert.match(code,/runTransaction\(db, async \(transaction\)/);
+  assert.match(code,/deletedNow \|\| remote\?\.deleted/);
+  assert.match(code,/!accountCacheIsBound\(uid\)/);
+  assert.match(code,/transaction\.set\(path,/);
 });
