@@ -22,6 +22,7 @@ test('task completion can be switched back to incomplete when most recent edit w
 test('metadata from sync does not trigger unnecessary upload loops',()=>{
   const local={id:'x',updatedAt:101,createdAt:100,plannedMinutes:30};
   assert.equal(recordNeedsUpload(local,{...local,syncedAt:Date.now(),userId:'another'}),false);
+  assert.equal(recordNeedsUpload({...local, note:undefined},{...local}),false);
   assert.equal(recordNeedsUpload({...local,updatedAt:102},{...local,updatedAt:101}),true);
   assert.equal(recordNeedsUpload({...local,updatedAt:100},{...local,updatedAt:101}),false);
 });
