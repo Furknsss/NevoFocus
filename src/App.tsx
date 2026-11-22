@@ -1030,19 +1030,6 @@ export default function App() {
             userId: currentUser.uid,
           });
 
-          // Update user's aggregate stats in Firestore
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          await safeSetDoc(
-            userDocRef,
-            {
-              status: 'idle',
-              currentSubject: '',
-              todayTotalMinutes: todayMinutes + Math.round(partialSession.completedSeconds / 60),
-              totalFocusMinutes: Math.round(realTotalHours * 60 + partialSession.completedSeconds / 60),
-              lastActiveAt: Date.now(),
-            },
-            { merge: true }
-          );
         } catch (err) {
           console.warn('Abandon save session notice:', err);
         }
@@ -1075,8 +1062,8 @@ export default function App() {
     if (effectiveUid) {
       try {
         const sessRef = doc(db, 'users', effectiveUid, 'sessions', sessionId);
-        await safeSetDoc(sessRef, { id: sessionId, deleted: true, updatedAt: Date.now() }, { merge: true }).catch(() => {});
-        await deleteDoc(sessRef).catch(() => {});
+        await safeSetDoc(sessRef, { id: sessionId, userId: effectiveUid, deleted: true, updatedAt: Date.now() }, { merge: true });
+        // Do not physically delete. The tombstone must reach offline devices.
       } catch (err) {
         console.warn('Error deleting session from Firestore:', err);
       }
@@ -1168,23 +1155,6 @@ export default function App() {
           const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', manualSession.id);
           await safeSetDoc(sessionDocRef, manualSession);
 
-          // Update user cloud stats
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const nextToday = todayMinutes + manualDurationMinutes;
-          const nextTotalMins = Math.round(realTotalHours * 60 + manualDurationMinutes);
-          await safeSetDoc(
-            userDocRef,
-            {
-              todayDateString: getLocalDateString(new Date()),
-              baseTodayMinutes: nextToday,
-              todayTotalMinutes: nextToday,
-              totalFocusMinutes: nextTotalMins,
-              totalFocusHours: Math.round((nextTotalMins / 60) * 10) / 10,
-              streakDays: calculateRealStreak([manualSession, ...sessions], profile),
-              lastActiveAt: Date.now(),
-            },
-            { merge: true }
-          );
         } catch (err) {
           handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/sessions/${manualSession.id}`);
         }
@@ -1209,8 +1179,8 @@ export default function App() {
     if (effectiveUid) {
       try {
         const taskDocRef = doc(db, 'users', effectiveUid, 'tasks', taskId);
-        await safeSetDoc(taskDocRef, { id: taskId, deleted: true, updatedAt: Date.now() }, { merge: true }).catch(() => {});
-        await deleteDoc(taskDocRef).catch(() => {});
+        await safeSetDoc(taskDocRef, { id: taskId, userId: effectiveUid, deleted: true, updatedAt: Date.now() }, { merge: true });
+        // A deletion marker stays in Firestore to stop stale-device resurrection.
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `users/${effectiveUid}/tasks/${taskId}`);
       }
