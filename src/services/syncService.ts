@@ -518,9 +518,6 @@ export async function restoreAllFromFirestore(
     // on equal timestamps a complete primary document wins.
     const allCloudSessions = [...cloudSessions, ...primarySessions];
     const allCloudTasks = [...cloudTasks, ...primaryTasks];
-    for (const item of [...primarySessions, ...primaryTasks]) {
-      // Tombstoned IDs are detected from raw server documents above.
-    }
     // Cloud restore can be requested on an offline device. All mandatory
     // collection reads succeeded server-side before touching local caches.
     const mergedSessions = mergeSyncedRecords(getStoredSessions(), allCloudSessions, deletedSessionIds, 'session');
