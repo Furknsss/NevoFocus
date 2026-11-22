@@ -27,8 +27,8 @@ export function mergeSyncedRecords<T extends PersistedRecord>(
   for (const item of local) absorb(item, false);
   for (const item of cloud) absorb(item, true);
   return [...records.values()].sort((a, b) => {
-    const aa = Number(kind === 'session' ? (a as FocusSession).timestamp : (a as FocusTask).createdAt) || 0;
-    const bb = Number(kind === 'session' ? (b as FocusSession).timestamp : (b as FocusTask).createdAt) || 0;
+    const aa = Number(kind === 'session' ? (a as unknown as FocusSession).timestamp : (a as unknown as FocusTask).createdAt) || 0;
+    const bb = Number(kind === 'session' ? (b as unknown as FocusSession).timestamp : (b as unknown as FocusTask).createdAt) || 0;
     return bb - aa;
   });
 }
