@@ -204,6 +204,11 @@ export async function syncAllToFirestore(
       const deletedSessions = collectDeletedIds(cloudSessions, new Set([...getDeletedSessionIds(), ...legacySessionDeletes]));
       const deletedTasks = collectDeletedIds(cloudTasks, new Set([...getDeletedTaskIds(), ...legacyTaskDeletes]));
 
+      // Capture what was actually in this device at the beginning of the
+      // reconciliation. A newly completed session during the network request
+      // must NEVER be replaced by this older server snapshot.
+      const baselineLocalSessions = JSON.stringify(getStoredSessions());
+      const baselineLocalTasks = JSON.stringify(getStoredTasks());
       const localSessions = [...getStoredSessions(), ...(sessions || [])].filter(item => item && item.id);
       const localTasks = [...getStoredTasks(), ...(tasks || [])].filter(item => item && item.id);
       const allSessions = mergeSyncedRecords(localSessions, cloudSessions, deletedSessions, 'session');
@@ -290,6 +295,10 @@ export async function syncAllToFirestore(
         });
       if (!matchingRecords)
         return failed('Başka cihazda eşzamanlı bir değişiklik algılandı. Veriler korunuyor, birazdan sunucudan tekrar eşitlenecek.');
+      if (JSON.stringify(getStoredSessions()) !== baselineLocalSessions ||
+          JSON.stringify(getStoredTasks()) !== baselineLocalTasks) {
+        return failed('Eşitleme sırasında cihazda yeni kayıt oluştu. Kaydedilen veriler korunuyor; tekrar eşitleme yapılacak.');
+      }
 
       const stats = canonicalStatsFromSessions(confirmedSessions);
       const todayStr = getLocalDateString(new Date());
