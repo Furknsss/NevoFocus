@@ -1,7 +1,7 @@
 import { db, auth, safeSetDoc, cleanFirestoreData, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
 import { doc, getDocFromServer, collection, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
-import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload, canonicalStatsFromSessions } from './syncIntegrity';
+import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload, contentFingerprint, canonicalStatsFromSessions } from './syncIntegrity';
 import { accountCacheIsBound } from './accountCache';
 import { FocusSession, FocusTask, UserProfile } from '../types';
 import {
@@ -262,7 +262,36 @@ export async function syncAllToFirestore(
         {id,userId:uid,deleted:true,updatedAt:Date.now()},{merge:true}
       ));
 
-      const stats = canonicalStatsFromSessions(allSessions);
+      // A Firestore transaction can legitimately skip a record deleted by
+      // another device since the initial read. Never mark the backup complete
+      // before fetching and comparing the actual SERVER-acknowledged records.
+      const [confirmedSessionSnap, confirmedTaskSnap] = await Promise.all([
+        getDocsFromServer(sessionsRef), getDocsFromServer(tasksRef),
+      ]);
+      if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
+        return failed('Hesap değişti; bulut doğrulaması iptal edildi.');
+      const confirmedSessions = confirmedSessionSnap.docs
+        .map(d => ({ ...d.data(), id: d.id }) as FocusSession & { deleted?: boolean })
+        .filter(item => !item.deleted);
+      const confirmedTasks = confirmedTaskSnap.docs
+        .map(d => ({ ...d.data(), id: d.id }) as FocusTask & { deleted?: boolean })
+        .filter(item => !item.deleted);
+      const actualSessions = new Map(confirmedSessions.map(item => [item.id, item]));
+      const actualTasks = new Map(confirmedTasks.map(item => [item.id, item]));
+      const matchingRecords = confirmedSessions.length === allSessions.length
+        && confirmedTasks.length === allTasks.length
+        && allSessions.every(item => {
+          const actual = actualSessions.get(item.id);
+          return actual && contentFingerprint(actual) === contentFingerprint(item);
+        })
+        && allTasks.every(item => {
+          const actual = actualTasks.get(item.id);
+          return actual && contentFingerprint(actual) === contentFingerprint(item);
+        });
+      if (!matchingRecords)
+        return failed('Başka cihazda eşzamanlı bir değişiklik algılandı. Veriler korunuyor, birazdan sunucudan tekrar eşitlenecek.');
+
+      const stats = canonicalStatsFromSessions(confirmedSessions);
       const todayStr = getLocalDateString(new Date());
       const weekStr = getCurrentWeekKey(new Date());
       const monthStr = getCurrentMonthKey(new Date());
