@@ -96,6 +96,7 @@ import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
 import { isAndroidNativeAuth, signOutNativeGoogle } from './services/nativeGoogleAuth';
 import { bindAccountCache, parkAccountCache } from './services/accountCache';
+import { mergeSyncedRecords, collectDeletedIds } from './services/syncIntegrity';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -325,85 +326,9 @@ export default function App() {
     };
   }, []);
 
-  // Real-time cross-device sync listener restricted to the signed-in user (Tablet <-> Phone <-> PC)
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    const sharedBackupDoc = doc(db, 'users', currentUser.uid, 'backups', 'latest');
-    const unsubShared = onSnapshot(
-      sharedBackupDoc,
-      (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        if (!data) return;
-
-        // Firestore rules enforce the UID path; do not trust email or globally shared data.
-        if (data.uid !== currentUser.uid) return;
-
-        const delSessions = new Set<string>([
-          ...getDeletedSessionIds(),
-          ...(Array.isArray(data.deletedSessionIds) ? data.deletedSessionIds : []),
-        ]);
-        const delTasks = new Set<string>([
-          ...getDeletedTaskIds(),
-          ...(Array.isArray(data.deletedTaskIds) ? data.deletedTaskIds : []),
-        ]);
-
-        if (Array.isArray(data.sessions) && data.sessions.length > 0) {
-          const local = getStoredSessions();
-          const map = new Map<string, FocusSession>();
-          for (const s of local) {
-            if (s && s.id && !delSessions.has(s.id)) map.set(s.id, s);
-          }
-          let addedOrChanged = false;
-          for (const s of data.sessions) {
-            if (s && s.id && !delSessions.has(s.id)) {
-              if (!map.has(s.id)) addedOrChanged = true;
-              map.set(s.id, s);
-            }
-          }
-          if (addedOrChanged || map.size !== local.length) {
-            const merged = Array.from(map.values()).sort(
-              (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-            );
-            setAllStoredSessions(merged);
-            setSessions(merged);
-          }
-        }
-
-        if (Array.isArray(data.tasks) && data.tasks.length > 0) {
-          const local = getStoredTasks();
-          const map = new Map<string, FocusTask>();
-          for (const t of local) {
-            if (t && t.id && !delTasks.has(t.id)) map.set(t.id, t);
-          }
-          let addedOrChanged = false;
-          for (const t of data.tasks) {
-            if (t && t.id && !delTasks.has(t.id)) {
-              const prev = map.get(t.id);
-              if (!prev || prev.isCompleted !== t.isCompleted) addedOrChanged = true;
-              map.set(t.id, {
-                ...prev,
-                ...t,
-                isCompleted: Boolean(prev?.isCompleted || t.isCompleted),
-              });
-            }
-          }
-          if (addedOrChanged || map.size !== local.length) {
-            const merged = Array.from(map.values()).sort(
-              (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-            );
-            setAllStoredTasks(merged);
-            setTasks(merged);
-          }
-        }
-      },
-      () => {
-        // ignore
-      }
-    );
-
-    return () => unsubShared();
-  }, [currentUser?.uid]);
+  // Primary real-time streams below subscribe to ALL authenticated session
+  // and task documents. Never listen to truncated backup envelopes (400
+  // records) as a source of truth: they can overwrite fresher cloud edits.
 
   // Update selected subject when profile's track changes (NEVER overwrite active session or Serbest Çalışma)
   useEffect(() => {
@@ -480,6 +405,7 @@ export default function App() {
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userDocRef);
+          if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
 
           if (snap.exists()) {
             const data = snap.data();
@@ -595,36 +521,22 @@ export default function App() {
         const unsubSessions = onSnapshot(
           sessionsCol,
           (snapshot) => {
-            const cloudSessions: FocusSession[] = [];
-            const deletedSessionIds = new Set<string>();
-            snapshot.forEach((d) => {
-              const data = d.data() as FocusSession & { deleted?: boolean };
-              if (data && data.deleted && (data.id || d.id)) {
-                deletedSessionIds.add(data.id || d.id);
-                return;
-              }
-              if (data && data.id) {
-                cloudSessions.push(data);
-              }
+            if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
+            const cloud: (FocusSession & {deleted?: boolean;updatedAt?:number})[] = [];
+            snapshot.forEach(d => {
+              const data = {...d.data(), id:d.id} as FocusSession & {deleted?:boolean;updatedAt?:number};
+              cloud.push(data);
+              if (data.deleted) markSessionDeletedId(data.id);
             });
-            if (cloudSessions.length > 0 || deletedSessionIds.size > 0) {
-              // Cihazlar arası eksiksiz birleştirme: Bir cihazda olan seans diğerinde asla kaybolmaz!
-              const local = getStoredSessions();
-              const map = new Map<string, FocusSession>();
-              for (const s of local) {
-                if (s.id && !deletedSessionIds.has(s.id)) map.set(s.id, s);
-              }
-              for (const s of cloudSessions) {
-                if (s.id && !deletedSessionIds.has(s.id)) map.set(s.id, s);
-              }
-              const merged = Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
-              setSessions(merged);
+            const deleted = collectDeletedIds(cloud, new Set(getDeletedSessionIds()));
+            const local = getStoredSessions();
+            const merged = mergeSyncedRecords(local, cloud, deleted, 'session');
+            if (JSON.stringify(merged) !== JSON.stringify(local)) {
               setAllStoredSessions(merged);
+              setSessions(merged);
             }
           },
-          (err) => {
-            handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/sessions`);
-          }
+          (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/sessions`)
         );
 
         // Attach Firestore listener for user's private tasks
@@ -632,33 +544,22 @@ export default function App() {
         const unsubTasks = onSnapshot(
           tasksCol,
           (snapshot) => {
-            const cloudTasks: FocusTask[] = [];
-            const deletedTaskIds = new Set<string>();
-            snapshot.forEach((d) => {
-              const data = d.data() as FocusTask & { deleted?: boolean };
-              if (data && data.deleted && (data.id || d.id)) {
-                deletedTaskIds.add(data.id || d.id);
-                return;
-              }
-              if (data && data.id && !data.deleted) {
-                cloudTasks.push(data);
-              }
+            if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
+            const cloud: (FocusTask & {deleted?:boolean;updatedAt?:number})[] = [];
+            snapshot.forEach(d => {
+              const data = {...d.data(), id:d.id} as FocusTask & {deleted?:boolean;updatedAt?:number};
+              cloud.push(data);
+              if (data.deleted) markTaskDeletedId(data.id);
             });
+            const deleted = collectDeletedIds(cloud,new Set(getDeletedTaskIds()));
             const local = getStoredTasks();
-            const map = new Map<string, FocusTask>();
-            for (const t of local) {
-              if (t.id && !deletedTaskIds.has(t.id)) map.set(t.id, t);
+            const merged = mergeSyncedRecords(local,cloud,deleted,'task');
+            if (JSON.stringify(merged) !== JSON.stringify(local)) {
+              setAllStoredTasks(merged);
+              setTasks(merged);
             }
-            for (const t of cloudTasks) {
-              if (t.id && !deletedTaskIds.has(t.id)) map.set(t.id, t);
-            }
-            const mergedTasks = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-            setTasks(mergedTasks);
-            setAllStoredTasks(mergedTasks);
           },
-          (err) => {
-            handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`);
-          }
+          (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`)
         );
 
         // Attach Firestore listener for incoming cheer/flame notifications
