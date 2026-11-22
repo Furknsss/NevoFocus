@@ -523,13 +523,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Backup & Cloud sync
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [syncEmailInput, setSyncEmailInput] = useState<string>(() => {
-    return (
-      currentUser?.email ||
-      profile.email ||
-      (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '')
-    );
-  });
   const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleBackupNow = async () => {
@@ -538,25 +531,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBackupNotice(null);
       soundEngine.playClick();
 
-      const cleanEmail = syncEmailInput.trim();
-      const updatedProf = cleanEmail && cleanEmail !== profile.email
-        ? { ...profile, email: cleanEmail }
-        : profile;
-      if (cleanEmail) {
-        try {
-          localStorage.setItem('fokus_user_email', cleanEmail);
-        } catch {}
-        onUpdateProfile({ email: cleanEmail });
-      }
-
-      const res = await syncAllToFirestore(currentUser || auth.currentUser, sessions, tasks, updatedProf, {
-        allowEmptyOverwrite: true,
-      });
+      // No editable email key. Firebase Auth UID is the sole owner identity.
+      const res = await syncAllToFirestore(currentUser || auth.currentUser, sessions, tasks, profile);
       if (res.success) {
         soundEngine.playCompletionBell();
         setBackupNotice({
           type: 'success',
-          text: `Başarılı! ${res.sessionsUploaded} çalışma seansı ve ${res.tasksUploaded} görev Firestore bulutuna yedeklendi. Tabletten veya başka cihazdan anında geri yükleyebilirsiniz.`,
+          text: `Sunucu doğrulaması başarılı: ${res.message} Son kontrol ${new Date(res.timestamp).toLocaleTimeString('tr-TR')}.`,
         });
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
@@ -574,14 +555,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBackupNotice(null);
       soundEngine.playClick();
 
-      const cleanEmail = syncEmailInput.trim();
-      if (cleanEmail) {
-        try {
-          localStorage.setItem('fokus_user_email', cleanEmail);
-        } catch {}
-      }
-
-      const res = await restoreAllFromFirestore(currentUser || auth.currentUser, cleanEmail || undefined);
+      const res = await restoreAllFromFirestore(currentUser || auth.currentUser);
       if (res.success) {
         soundEngine.playCompletionBell();
         if (onSyncComplete) {
@@ -2145,8 +2119,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Bulut Aktif
+                    <span className={`w-2 h-2 rounded-full ${!currentUser ? 'bg-neutral-500' : typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                    {!currentUser ? 'Giriş gerekli' : typeof navigator !== 'undefined' && !navigator.onLine ? 'Çevrimdışı · Yerel kayıt' : 'Hesap bağlı'}
                   </span>
                 </div>
               </div>
@@ -2155,29 +2129,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 text-emerald-300 font-semibold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Her Focus Tamamlandığında Otomatik Buluta Yedekleme</span>
+                  <span>Seans, görev ve profil değişikliklerinde otomatik yedekleme</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  AÇIK
+                  {currentUser ? 'ETKİN' : 'GİRİŞ YAP'}
                 </span>
               </div>
 
-              {/* Optional Account Email Sync Key for Instant Cross-Device Restore */}
-              <div className="space-y-1.5 pt-1">
-                <label className="block text-[11px] font-semibold text-neutral-300">
-                  Eşitleme E-postası / Hesap Anahtarı (Tablet & Telefon & PC Ortak Yedek):
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Mail className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      value={syncEmailInput}
-                      onChange={(e) => setSyncEmailInput(e.target.value)}
-                      placeholder="E-posta adresiniz (örn: ogrenci@gmail.com)"
-                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
+              <div className="rounded-xl bg-sky-950/30 border border-sky-800/30 px-3 py-2.5 text-xs text-sky-100">
+                Veriler yalnızca giriş yaptığın Google/Firebase hesabına bağlıdır.
+                E-posta yazarak başka bir hesaptan kayıt çekilemez.
+                <div className="text-[11px] mt-1 text-sky-300 font-mono break-all">
+                  {currentUser?.email || 'Giriş yapılmadı'}
                 </div>
               </div>
 
@@ -2264,7 +2227,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between flex-wrap gap-2">
               <span>Mevcut Cihaz Seansları: <strong className="text-white">{sessions.length}</strong></span>
               <span>Aktif Görevler: <strong className="text-white">{tasks.length}</strong></span>
-              <span>Son Senkronizasyon: <strong className="text-emerald-400">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Hazır'}</strong></span>
+              <span>Son Senkronizasyon: <strong className="text-emerald-400">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Henüz doğrulanmadı'}</strong></span>
             </div>
           </div>
         )}
