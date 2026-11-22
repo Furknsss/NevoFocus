@@ -118,3 +118,17 @@ export function accountCacheIsBound(uid: string, store: StorageLike = localStora
 export function hasUnclaimedLegacyCache(store: StorageLike = localStorage): boolean {
   return Boolean(store.getItem(LEGACY_KEY));
 }
+
+/** Called only after a deliberate, successfully completed account deletion.
+ * Unlike sign out this also removes the UID-specific recovery snapshot. */
+export function destroyAccountCache(uid: string, store: StorageLike = localStorage): void {
+  if (!uid) return;
+  if (store.getItem(OWNER_KEY) === uid) {
+    for (const key of DATA_KEYS) store.removeItem(key);
+    store.removeItem(OWNER_KEY);
+    store.removeItem('fokus_user_uid');
+    store.removeItem('fokus_user_email');
+    store.removeItem('fokus_user_authenticated');
+  }
+  store.removeItem(PREFIX + uid);
+}
