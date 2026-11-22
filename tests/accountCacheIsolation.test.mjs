@@ -64,3 +64,18 @@ test('quota error during account switch preserves previous account data', () => 
   assert.deepEqual(get(s,'fokus_sessions_v4'),[{id:'a'}]);
   assert.ok(accountCacheIsBound('alice',s));
 });
+
+test('custom subject lists, room memberships and peers cannot leak between Google UIDs',()=>{
+  const s=new Store();
+  bindAccountCache('alice',s);
+  put(s,'fokus_subjects_v4',[{id:'private-subject'}]);
+  put(s,'fokus_rooms_v4',[{id:'private-room'}]);
+  put(s,'fokus_peers_v4',[{id:'private-peer'}]);
+  assert.equal(bindAccountCache('bob',s),'new');
+  for(const key of ['fokus_subjects_v4','fokus_rooms_v4','fokus_peers_v4'])
+    assert.equal(s.getItem(key),null);
+  assert.equal(bindAccountCache('alice',s),'resumed');
+  assert.deepEqual(get(s,'fokus_subjects_v4'),[{id:'private-subject'}]);
+  assert.deepEqual(get(s,'fokus_rooms_v4'),[{id:'private-room'}]);
+  assert.deepEqual(get(s,'fokus_peers_v4'),[{id:'private-peer'}]);
+});
