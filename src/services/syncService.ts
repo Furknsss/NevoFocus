@@ -26,7 +26,6 @@ import {
 const LAST_SYNC_KEY = 'fokus_last_sync_timestamp';
 const DELETED_SESSIONS_KEY = 'fokus_deleted_session_ids_v4';
 const DELETED_TASKS_KEY = 'fokus_deleted_task_ids_v4';
-const FALLBACK_CLOUD_UID_KEY = 'fokus_cloud_backup_uid_v4';
 
 export interface SyncResult {
   success: boolean;
@@ -95,68 +94,16 @@ export function markTaskDeletedId(taskId: string): void {
   }
 }
 
-function sanitizeEmailKey(email: string): string {
-  return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
-}
-
-/** Cloud backups must never include OAuth access/refresh tokens or client credentials. */
-export function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
-  if (!raw) return undefined;
-  const platform = (id: 'spotify' | 'youtube_music' | 'apple_music') => ({
-    connected: false,
-    accountName: '',
-    customPlaylistUrl: String(raw[id]?.customPlaylistUrl || ''),
-    customTrackTitle: String(raw[id]?.customTrackTitle || ''),
-    customArtistName: String(raw[id]?.customArtistName || ''),
-  });
-  return {
-    activePlatform: raw.activePlatform || 'spotify',
-    spotify: platform('spotify'),
-    youtube_music: platform('youtube_music'),
-    apple_music: platform('apple_music'),
-  };
-}
-
-export function resolveSyncIdentity(user?: User | null, profile?: UserProfile): {
+/** Cloud identity is NEVER inferred from localStorage, email, or a
+ * previously signed-in Firebase account. Only the current Auth principal can
+ * authorize a Firestore path. Guest sessions remain offline until sign-in. */
+export function resolveSyncIdentity(user?: User | null, _profile?: UserProfile): {
   uid: string;
   email: string;
 } {
-  const storedProfile = profile || getStoredProfile();
-  const storedUid = typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || '') : '';
-  const storedEmail = typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_email') || '') : '';
-  const fallbackCloudUid = typeof window !== 'undefined' ? (localStorage.getItem(FALLBACK_CLOUD_UID_KEY) || '') : '';
-
-  const email = (
-    user?.email ||
-    auth.currentUser?.email ||
-    storedProfile.email ||
-    storedEmail ||
-    ''
-  ).trim().toLowerCase();
-
-  let uid = (
-    user?.uid ||
-    auth.currentUser?.uid ||
-    storedProfile.userId ||
-    storedUid ||
-    fallbackCloudUid ||
-    ''
-  ).trim();
-
-  if (!uid) {
-    if (email) {
-      uid = `user_${sanitizeEmailKey(email)}`;
-    } else {
-      uid = 'fokus_primary_cloud_user';
-    }
-    try {
-      localStorage.setItem(FALLBACK_CLOUD_UID_KEY, uid);
-    } catch {
-      // ignore
-    }
-  }
-
-  return { uid, email };
+  const current = auth.currentUser;
+  if (!current || (user?.uid && user.uid !== current.uid)) return { uid:'', email:'' };
+  return { uid:current.uid, email:(current.email || '').trim().toLowerCase() };
 }
 
 async function fetchDocFresh(docRef: any) {
