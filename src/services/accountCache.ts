@@ -106,6 +106,9 @@ export function parkAccountCache(store: StorageLike = localStorage): void {
   store.setItem(PREFIX + owner, JSON.stringify(current));
   restore(store, {});
   store.removeItem(OWNER_KEY);
+  store.removeItem('fokus_user_uid');
+  store.removeItem('fokus_user_email');
+  store.removeItem('fokus_user_authenticated');
 }
 
 export function accountCacheIsBound(uid: string, store: StorageLike = localStorage): boolean {
