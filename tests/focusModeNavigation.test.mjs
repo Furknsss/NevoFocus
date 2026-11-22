@@ -26,7 +26,8 @@ test('clock is the persisted default and only settings can change the preferred 
   assert.match(settings, /onSelectMode=\{onSelectFocusMode\}/);
   assert.match(selector, /role="radiogroup"/);
   assert.match(selector, /selectionDisabled/);
-  assert.match(sync, /preferredFocusMode: currentProfile\.preferredFocusMode \|\| 'clock'/);
+  // Stale background sync no longer overwrites the user's selected mode.
+  assert.doesNotMatch(sync, /preferredFocusMode: currentProfile\.preferredFocusMode \|\| 'clock'/);
   assert.match(sync, /patch\.preferredFocusMode = cloudProfile\.preferredFocusMode/);
 });
 
