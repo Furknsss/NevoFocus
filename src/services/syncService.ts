@@ -1,5 +1,5 @@
 import { db, auth, safeSetDoc, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
-import { doc, getDoc, getDocFromServer, collection, getDocs, getDocsFromServer } from 'firebase/firestore';
+import { doc, getDocFromServer, collection, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload, canonicalStatsFromSessions } from './syncIntegrity';
 import { accountCacheIsBound } from './accountCache';
@@ -222,16 +222,33 @@ export async function syncAllToFirestore(
       const saveInChunks = async <T>(items: T[], write: (item:T)=>Promise<unknown>) => {
         for(let i=0;i<items.length;i+=CHUNK) await Promise.all(items.slice(i,i+CHUNK).map(write));
       };
-      await saveInChunks(uploadSessions, session => safeSetDoc(
-        doc(db,'users',uid,'sessions',session.id),
-        {...session,userId:uid,deleted:false,syncedAt:Date.now()},{merge:true}
-      ));
-      await saveInChunks(uploadTasks, task => safeSetDoc(
-        doc(db,'users',uid,'tasks',task.id),
-        {...task,userId:uid,deleted:false,syncedAt:Date.now()},{merge:true}
-      ));
-      // Physical delete is unsafe: the offline tablet would reintroduce it.
-      // Keep small durable tombstones; restores/readers filter deleted:true.
+      // Transactions re-read the individual server record before uploading.
+      // An already-deleted record must NEVER be resurrected even if the
+      // deletion happened after the initial collection snapshot.
+      const upsertIfCurrent = async (
+        kind: 'sessions' | 'tasks',
+        record: FocusSession | FocusTask,
+      ) => {
+        const path = doc(db, 'users', uid, kind, record.id);
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(path);
+          const remote = snap.exists() ? snap.data() : null;
+          const deletedNow = kind === 'sessions'
+            ? getDeletedSessionIds().includes(record.id)
+            : getDeletedTaskIds().includes(record.id);
+          if (deletedNow || remote?.deleted ||
+              (remote && !recordNeedsUpload(record, remote))) return;
+          if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
+            throw new Error('Hesap değişti; kayıt işlemi iptal edildi.');
+          transaction.set(path,{
+            ...record,userId:uid,deleted:false,syncedAt:Date.now(),
+          },{merge:true});
+        });
+      };
+      await saveInChunks(uploadSessions, session => upsertIfCurrent('sessions', session));
+      await saveInChunks(uploadTasks, task => upsertIfCurrent('tasks', task));
+      // Keep deletion markers permanently. Firestore transactions prevent a
+      // delayed upload from turning an existing tombstone back into a session.
       await saveInChunks(pendingDeletedSessions, id => safeSetDoc(
         doc(db,'users',uid,'sessions',id),
         {id,userId:uid,deleted:true,updatedAt:Date.now()},{merge:true}
