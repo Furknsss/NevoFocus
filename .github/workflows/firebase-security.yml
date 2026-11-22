@@ -1,0 +1,40 @@
+name: Firebase Sync and Security Rules
+
+on:
+  pull_request:
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - 'src/services/syncService.ts'
+      - 'src/services/syncIntegrity.ts'
+      - 'src/services/accountCache.ts'
+      - 'src/services/accountDeletion.ts'
+      - 'src/services/syncHealth.ts'
+      - 'integration-tests/**'
+      - '.github/workflows/firebase-security.yml'
+  workflow_dispatch:
+
+jobs:
+  firestore-guardrails:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java 21 for Firestore emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install project dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Firebase emulator test tooling
+        run: npm install --no-save --no-audit --no-fund firebase-tools@^15 @firebase/rules-unit-testing@^4
+      - name: Verify real Firestore rules in local emulator
+        run: npx firebase emulators:exec --project demo-nevofocus-sync-integrity --only firestore "node --test integration-tests/firebaseRulesEmulator.mjs"
