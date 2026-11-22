@@ -95,6 +95,7 @@ import {
 import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
 import { isAndroidNativeAuth, signOutNativeGoogle } from './services/nativeGoogleAuth';
+import { bindAccountCache, parkAccountCache } from './services/accountCache';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -428,7 +429,35 @@ export default function App() {
 
   // Firebase Auth listener and Firestore sync
   useEffect(() => {
+    let alive = true;
+    let authEpoch = 0;
+    let listenerCleanups: Array<() => void> = [];
+    const clearListeners = () => {
+      for (const cleanup of listenerCleanups) cleanup();
+      listenerCleanups = [];
+    };
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const myEpoch = ++authEpoch;
+      clearListeners();
+      if (user) {
+        // Bind and isolate the cache BEFORE writing new user profile fields.
+        // A different Google account must never inherit the previous account's records.
+        try {
+          bindAccountCache(user.uid);
+        } catch (error) {
+          console.error('Account cache isolation blocked unsafe sync:', error);
+          setCloudBackupToast('Hesap önbelleği korunamadı. Senkronizasyon durduruldu; depolama alanını kontrol et.');
+          setIsAuthChecking(false);
+          return;
+        }
+        setSessions(getStoredSessions());
+        setTasks(getStoredTasks());
+        setProfile(getStoredProfile());
+      } else {
+        // Park owner-only records before showing a guest or another sign-in.
+        try { parkAccountCache(); }
+        catch (error) { console.warn('Could not park signed-out account cache:', error); }
+      }
       setCurrentUser(user);
 
       if (user) {
@@ -534,6 +563,7 @@ export default function App() {
 
           // 2. Bidirectional sync: Pull cloud sessions & tasks first, merge with local data
           const restoreResult = await restoreAllFromFirestore(user);
+          if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
           if (restoreResult.success) {
             setSessions(restoreResult.sessions);
             setTasks(restoreResult.tasks);
@@ -543,15 +573,22 @@ export default function App() {
           }
 
           // 3. Upload merged sessions and tasks to Firestore
-          await syncAllToFirestore(
-            user,
-            restoreResult.sessions,
-            restoreResult.tasks,
-            restoreResult.profile || getStoredProfile()
-          );
+          if (restoreResult.success) {
+            const result = await syncAllToFirestore(
+              user,
+              restoreResult.sessions,
+              restoreResult.tasks,
+              restoreResult.profile || getStoredProfile()
+            );
+            if (!result.success) console.warn('Initial cloud upload queued for retry:', result.message);
+          } else {
+            console.warn('Cloud restore incomplete; blocking upload to protect data:', restoreResult.message);
+          }
         } catch (err) {
           console.warn('User profile sync notice:', err);
         }
+
+        if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
 
         // Attach Firestore listener for user's private sessions
         const sessionsCol = collection(db, 'users', user.uid, 'sessions');
@@ -738,12 +775,10 @@ export default function App() {
           setIsGuestMode(false);
         } catch {}
 
-        return () => {
-          unsubSessions();
-          unsubTasks();
-          unsubCheers();
-          unsubActiveFocus();
-        };
+        listenerCleanups = [unsubSessions, unsubTasks, unsubCheers, unsubActiveFocus];
+        if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) {
+          clearListeners();
+        }
       } else {
         // Visitor is not logged in via Firebase Auth popup (e.g. tablet browser or guest mode):
         // Pull cloud sessions & tasks automatically in background if user had an account or empty local storage!
@@ -753,20 +788,18 @@ export default function App() {
         setProfile(getStoredProfile());
         setCloudActiveSession(null);
 
-        restoreAllFromFirestore(null)
-          .then((res) => {
-            if (res.success && (res.sessions.length > 0 || res.tasks.length > 0)) {
-              setSessions(res.sessions);
-              setTasks(res.tasks);
-              if (res.profile) setProfile(res.profile);
-            }
-          })
-          .catch(() => {});
+        // Never restore an account without a real Firebase Auth principal.
+        // Guests can work locally; their data stays separate from owner cloud data.
       }
       setIsAuthChecking(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      alive = false;
+      authEpoch++;
+      clearListeners();
+      unsubscribe();
+    };
   }, []);
 
   // Compute 100% Real Stats & Real Streak (Rest days preserve streak)
@@ -1410,15 +1443,8 @@ export default function App() {
 
   // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
   // Kullanıcı zaten kayıtlıysa veya misafir modundaysa ASLA bekleme ekranında takılı kalmaz, 0ms anında açılır!
-  const isExistingUser = isAndroidNativeAuth
-    ? Boolean(currentUser || isGuestMode)
-    : Boolean(
-        currentUser || isGuestMode || profile.userId ||
-        (typeof window !== 'undefined' && (
-          localStorage.getItem('fokus_user_authenticated') === 'true' ||
-          localStorage.getItem('fokus_user_uid')
-        ))
-      );
+  // A stale localStorage UID is never proof of authentication.
+  const isExistingUser = Boolean(currentUser || isGuestMode);
 
   if (isAndroidNativeAuth && isAuthChecking) {
     return (
