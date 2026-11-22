@@ -15,11 +15,27 @@ import {
   setPersistence,
   type User,
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, collection, setDoc, getDocs, onSnapshot, query, where, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDocFromServer, collection, setDoc, getDocs, onSnapshot, query, where, orderBy, deleteDoc, updateDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Use Firestore's durable local queue across browser restarts and temporary
+// network loss. The app's own UID-scoped cache remains separate (see
+// accountCache.ts), and sensitive records are never available cross-account
+// without Firebase Auth + owner-only Firestore security rules.
+export const db = (() => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch (error) {
+    // Private browsing/locked-down WebViews may reject IndexedDB. Rather than
+    // crashing the app, fall back to Firestore's memory cache; app local data
+    // continues to be saved and retried when connectivity returns.
+    console.warn('Firestore persistence disabled on this device:', error);
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+})();
 // Embedded Android WebViews must never start the browser popup/redirect resolver.
 // The native Google sign-in plugin provides a Google ID token which we exchange
 // with Firebase JS Auth, retaining exactly the same Firestore user identity.

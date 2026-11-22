@@ -43,7 +43,8 @@ import {
   EmailAuthProvider,
   linkWithCredential,
 } from 'firebase/auth';
-import { doc, deleteDoc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { deleteCurrentAccountAndPrivateData } from '../services/accountDeletion';
 import { soundEngine } from '../utils/audio';
 import { isDateRestDay } from '../utils/stats';
 import {
@@ -55,6 +56,7 @@ import {
   safeMusicPreferences,
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
+import { verifyCloudHealth, type CloudHealth } from '../services/syncHealth';
 import { twaYouTubeMusic } from '../services/twaFocusBridge';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 import { FocusModeSettings } from './FocusModeSettings';
@@ -523,14 +525,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Backup & Cloud sync
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [syncEmailInput, setSyncEmailInput] = useState<string>(() => {
-    return (
-      currentUser?.email ||
-      profile.email ||
-      (typeof window !== 'undefined' ? localStorage.getItem('fokus_user_email') || '' : '')
-    );
-  });
   const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [cloudHealth, setCloudHealth] = useState<CloudHealth | null>(null);
+  const [cloudHealthChecking, setCloudHealthChecking] = useState(false);
+  const refreshCloudHealth = async () => {
+    if (!currentUser?.uid) { setCloudHealth(null); return; }
+    setCloudHealthChecking(true);
+    try { setCloudHealth(await verifyCloudHealth(currentUser)); }
+    finally { setCloudHealthChecking(false); }
+  };
+  React.useEffect(() => {
+    if (!isOpen || activeTab !== 'backup') return;
+    void refreshCloudHealth();
+  }, [isOpen, activeTab, currentUser?.uid]);
+
 
   const handleBackupNow = async () => {
     try {
@@ -538,26 +546,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBackupNotice(null);
       soundEngine.playClick();
 
-      const cleanEmail = syncEmailInput.trim();
-      const updatedProf = cleanEmail && cleanEmail !== profile.email
-        ? { ...profile, email: cleanEmail }
-        : profile;
-      if (cleanEmail) {
-        try {
-          localStorage.setItem('fokus_user_email', cleanEmail);
-        } catch {}
-        onUpdateProfile({ email: cleanEmail });
-      }
-
-      const res = await syncAllToFirestore(currentUser || auth.currentUser, sessions, tasks, updatedProf, {
-        allowEmptyOverwrite: true,
-      });
+      // No editable email key. Firebase Auth UID is the sole owner identity.
+      const res = await syncAllToFirestore(currentUser || auth.currentUser, sessions, tasks, profile);
       if (res.success) {
         soundEngine.playCompletionBell();
         setBackupNotice({
           type: 'success',
-          text: `Başarılı! ${res.sessionsUploaded} çalışma seansı ve ${res.tasksUploaded} görev Firestore bulutuna yedeklendi. Tabletten veya başka cihazdan anında geri yükleyebilirsiniz.`,
+          text: `Sunucu doğrulaması başarılı: ${res.message} Son kontrol ${new Date(res.timestamp).toLocaleTimeString('tr-TR')}.`,
         });
+        void refreshCloudHealth();
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
       }
@@ -574,14 +571,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBackupNotice(null);
       soundEngine.playClick();
 
-      const cleanEmail = syncEmailInput.trim();
-      if (cleanEmail) {
-        try {
-          localStorage.setItem('fokus_user_email', cleanEmail);
-        } catch {}
-      }
-
-      const res = await restoreAllFromFirestore(currentUser || auth.currentUser, cleanEmail || undefined);
+      const res = await restoreAllFromFirestore(currentUser || auth.currentUser);
       if (res.success) {
         soundEngine.playCompletionBell();
         if (onSyncComplete) {
@@ -599,6 +589,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           type: 'success',
           text: `Geri yükleme tamamlandı! ${res.sessions.length} çalışma seansı ve ${res.tasks.length} görev buluttan cihazınıza aktarıldı.`,
         });
+        void refreshCloudHealth();
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Geri yükleme yapılamadı.' });
       }
@@ -829,22 +820,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!currentUser) return;
     try {
       setIsDeleting(true);
-      // Remove user doc from firestore
-      try {
-        await deleteDoc(doc(db, 'users', currentUser.uid));
-      } catch (err) {
-        // continue
-      }
-      // Delete user from auth
-      await deleteUser(currentUser);
+      await deleteCurrentAccountAndPrivateData(currentUser);
       onAccountDeleted();
       onClose();
     } catch (err: any) {
-      alert(
-        err.code === 'auth/requires-recent-login'
-          ? 'Hesabınızı silmek için son oturumunuz eski. Lütfen tekrar çıkış yapıp giriş yaptıktan sonra deneyin.'
-          : 'Hesap silinirken hata oluştu: ' + err.message
-      );
+      alert(err?.message || 'Hesap güvenli şekilde silinemedi. Giriş yaparak tekrar dene.');
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -2145,39 +2125,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[11px] font-mono text-emerald-400">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Bulut Aktif
+                    <span className={`w-2 h-2 rounded-full ${!currentUser ? 'bg-neutral-500' : typeof navigator !== 'undefined' && !navigator.onLine ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                    {!currentUser ? 'Giriş gerekli' : typeof navigator !== 'undefined' && !navigator.onLine ? 'Çevrimdışı · Yerel kayıt' : 'Hesap bağlı'}
                   </span>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-2" aria-live="polite">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-white text-xs">Gerçek Firebase Veri Kontrolü</p>
+                  <button type="button" onClick={() => void refreshCloudHealth()}
+                    disabled={cloudHealthChecking || !currentUser}
+                    className="rounded-lg bg-neutral-800 text-neutral-100 border border-white/15 px-3 py-1.5 text-xs disabled:opacity-40">
+                    {cloudHealthChecking ? 'Kontrol ediliyor...' : 'Sunucuda Doğrula'}
+                  </button>
+                </div>
+                <p className={`text-xs leading-relaxed ${cloudHealth?.status === 'verified' ? 'text-emerald-300' : cloudHealth?.status === 'mismatch' ? 'text-amber-300' : 'text-neutral-300'}`}>
+                  {cloudHealth?.message || 'Sunucudaki seans, görev ve çalışma süresi ayrıca doğrulanacak.'}
+                </p>
+                {cloudHealth && cloudHealth.status !== 'unauthorized' && cloudHealth.status !== 'offline' && (
+                  <p className="text-[11px] font-mono text-neutral-400">
+                    Firestore: {cloudHealth.sessions} seans · {cloudHealth.tasks} görev · {(cloudHealth.totalSeconds / 3600).toFixed(2)} saat
+                    {cloudHealth.lastCompleteAt ? ` · Son doğrulanmış yedek: ${new Date(cloudHealth.lastCompleteAt).toLocaleString('tr-TR')}` : ''}
+                  </p>
+                )}
               </div>
 
               {/* Automatic Backup After Focus Session Badge */}
               <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 text-emerald-300 font-semibold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Her Focus Tamamlandığında Otomatik Buluta Yedekleme</span>
+                  <span>Seans, görev ve profil değişikliklerinde otomatik yedekleme</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  AÇIK
+                  {currentUser ? 'ETKİN' : 'GİRİŞ YAP'}
                 </span>
               </div>
 
-              {/* Optional Account Email Sync Key for Instant Cross-Device Restore */}
-              <div className="space-y-1.5 pt-1">
-                <label className="block text-[11px] font-semibold text-neutral-300">
-                  Eşitleme E-postası / Hesap Anahtarı (Tablet & Telefon & PC Ortak Yedek):
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Mail className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      value={syncEmailInput}
-                      onChange={(e) => setSyncEmailInput(e.target.value)}
-                      placeholder="E-posta adresiniz (örn: ogrenci@gmail.com)"
-                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
+              <div className="rounded-xl bg-sky-950/30 border border-sky-800/30 px-3 py-2.5 text-xs text-sky-100">
+                Veriler yalnızca giriş yaptığın Google/Firebase hesabına bağlıdır.
+                E-posta yazarak başka bir hesaptan kayıt çekilemez.
+                <div className="text-[11px] mt-1 text-sky-300 font-mono break-all">
+                  {currentUser?.email || 'Giriş yapılmadı'}
                 </div>
               </div>
 
@@ -2264,7 +2253,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between flex-wrap gap-2">
               <span>Mevcut Cihaz Seansları: <strong className="text-white">{sessions.length}</strong></span>
               <span>Aktif Görevler: <strong className="text-white">{tasks.length}</strong></span>
-              <span>Son Senkronizasyon: <strong className="text-emerald-400">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Hazır'}</strong></span>
+              <span>Son Senkronizasyon: <strong className="text-emerald-400">{getLastSyncTime() ? new Date(getLastSyncTime()!).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'Henüz doğrulanmadı'}</strong></span>
             </div>
           </div>
         )}

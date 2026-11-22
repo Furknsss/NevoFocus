@@ -1,6 +1,8 @@
-import { db, auth, safeSetDoc, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
-import { doc, getDoc, getDocFromServer, collection, getDocs, getDocsFromServer } from 'firebase/firestore';
+import { db, auth, safeSetDoc, cleanFirestoreData, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
+import { doc, getDocFromServer, collection, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload, contentFingerprint, canonicalStatsFromSessions } from './syncIntegrity';
+import { accountCacheIsBound } from './accountCache';
 import { FocusSession, FocusTask, UserProfile } from '../types';
 import {
   getStoredSessions,
@@ -24,7 +26,6 @@ import {
 const LAST_SYNC_KEY = 'fokus_last_sync_timestamp';
 const DELETED_SESSIONS_KEY = 'fokus_deleted_session_ids_v4';
 const DELETED_TASKS_KEY = 'fokus_deleted_task_ids_v4';
-const FALLBACK_CLOUD_UID_KEY = 'fokus_cloud_backup_uid_v4';
 
 export interface SyncResult {
   success: boolean;
@@ -93,11 +94,8 @@ export function markTaskDeletedId(taskId: string): void {
   }
 }
 
-function sanitizeEmailKey(email: string): string {
-  return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
-}
-
-/** Cloud backups must never include OAuth access/refresh tokens or client credentials. */
+/** Remove third-party access/refresh tokens and client secrets from every
+ * user backup and direct profile upload. Only non-sensitive preferences sync. */
 export function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
   if (!raw) return undefined;
   const platform = (id: 'spotify' | 'youtube_music' | 'apple_music') => ({
@@ -115,62 +113,24 @@ export function safeMusicPreferences(raw: UserProfile['musicConnections']): User
   };
 }
 
-export function resolveSyncIdentity(user?: User | null, profile?: UserProfile): {
+/** Cloud identity is NEVER inferred from localStorage, email, or a
+ * previously signed-in Firebase account. Only the current Auth principal can
+ * authorize a Firestore path. Guest sessions remain offline until sign-in. */
+export function resolveSyncIdentity(user?: User | null, _profile?: UserProfile): {
   uid: string;
   email: string;
 } {
-  const storedProfile = profile || getStoredProfile();
-  const storedUid = typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_uid') || '') : '';
-  const storedEmail = typeof window !== 'undefined' ? (localStorage.getItem('fokus_user_email') || '') : '';
-  const fallbackCloudUid = typeof window !== 'undefined' ? (localStorage.getItem(FALLBACK_CLOUD_UID_KEY) || '') : '';
-
-  const email = (
-    user?.email ||
-    auth.currentUser?.email ||
-    storedProfile.email ||
-    storedEmail ||
-    ''
-  ).trim().toLowerCase();
-
-  let uid = (
-    user?.uid ||
-    auth.currentUser?.uid ||
-    storedProfile.userId ||
-    storedUid ||
-    fallbackCloudUid ||
-    ''
-  ).trim();
-
-  if (!uid) {
-    if (email) {
-      uid = `user_${sanitizeEmailKey(email)}`;
-    } else {
-      uid = 'fokus_primary_cloud_user';
-    }
-    try {
-      localStorage.setItem(FALLBACK_CLOUD_UID_KEY, uid);
-    } catch {
-      // ignore
-    }
-  }
-
-  return { uid, email };
+  const current = auth.currentUser;
+  if (!current || (user?.uid && user.uid !== current.uid)) return { uid:'', email:'' };
+  return { uid:current.uid, email:(current.email || '').trim().toLowerCase() };
 }
 
-async function fetchDocFresh(docRef: any): Promise<{ exists: () => boolean; id: string; data: () => Record<string, any> | undefined }> {
-  try {
-    return (await getDocFromServer(docRef)) as any;
-  } catch {
-    return (await getDoc(docRef)) as any;
-  }
+async function fetchDocFresh(docRef: any) {
+  return getDocFromServer(docRef);
 }
 
-async function fetchDocsFresh(colRef: any): Promise<{ forEach: (cb: (docSnap: any) => void) => void }> {
-  try {
-    return (await getDocsFromServer(colRef)) as any;
-  } catch {
-    return (await getDocs(colRef)) as any;
-  }
+async function fetchDocsFresh(colRef: any) {
+  return getDocsFromServer(colRef);
 }
 
 export function notifyCloudRestored(sessions: FocusSession[], tasks: FocusTask[], profile: UserProfile) {
@@ -188,232 +148,223 @@ export function notifyCloudRestored(sessions: FocusSession[], tasks: FocusTask[]
  * Works across authenticated accounts, email-linked accounts, and tablet/mobile browsers.
  * Never overwrites non-empty cloud data with an empty local state on a new device.
  */
+const syncFlights = new Map<string, Promise<SyncResult>>();
+
+/** Full reconciliation is serialized per Firebase account. It ALWAYS reads
+ * server documents first; an offline/stale client must not overwrite another
+ * device's newer records. Failed writes keep local data and retry later. */
 export async function syncAllToFirestore(
   user: User | null,
   sessions?: FocusSession[],
   tasks?: FocusTask[],
   profile?: UserProfile,
-  options?: { allowEmptyOverwrite?: boolean }
+  _options?: { allowEmptyOverwrite?: boolean },
 ): Promise<SyncResult> {
   const activeUser = auth.currentUser || user;
-  if (!activeUser?.uid) {
-    return { success: false, sessionsUploaded: 0, tasksUploaded: 0,
-      message: 'Bulut eşitlemesi için giriş yapmalısınız.', timestamp: Date.now() };
-  }
-  const currentProfile = profile || getStoredProfile();
-  const { uid, email } = resolveSyncIdentity(activeUser, currentProfile);
+  const uid = activeUser?.uid || '';
+  const failed = (message: string): SyncResult => ({
+    success: false, sessionsUploaded: 0, tasksUploaded: 0, message, timestamp: Date.now(),
+  });
+  if (!uid || (user?.uid && user.uid !== uid))
+    return failed('Bulut eşitlemesi için doğru Google/Firebase hesabıyla giriş yapmalısın.');
+  if (!accountCacheIsBound(uid))
+    return failed('Hesap önbelleği doğrulanamadı. Yanlış hesaba veri yazmamak için eşitleme durduruldu.');
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('fokus_deleting_account_uid') === uid)
+    return failed('Hesap silme işlemi sürerken otomatik bulut kaydı kapalı.');
+  if (typeof navigator !== 'undefined' && !navigator.onLine)
+    return failed('İnternet bağlantısı yok. Kayıtların cihazında korundu, çevrimiçi olunca tekrar denenecek.');
 
-  try {
-    const deletedSessionSet = new Set(getDeletedSessionIds());
-    const deletedTaskSet = new Set(getDeletedTaskIds());
+  // Serializing ALL reconciliation calls prevents old uploads finishing after
+  // newer writes (e.g. when user completes a session and immediately deletes one).
+  const previous = syncFlights.get(uid);
+  const run = async (): Promise<SyncResult> => {
+    if (auth.currentUser?.uid !== uid)
+      return failed('Hesap değiştiği için eski eşitleme güvenli biçimde iptal edildi.');
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('fokus_deleting_account_uid') === uid)
+      return failed('Hesap siliniyor; buluta kayıt yapılmadı.');
+    try {
+      const currentProfile = profile || getStoredProfile();
+      const sessionsRef = collection(db, 'users', uid, 'sessions');
+      const tasksRef = collection(db, 'users', uid, 'tasks');
+      const userRef = doc(db, 'users', uid);
 
-    // Combine passed arrays with localStorage so nothing is ever lost
-    const localSessions = getStoredSessions();
-    const sessionMap = new Map<string, FocusSession>();
-    for (const s of localSessions) {
-      if (s && s.id && !deletedSessionSet.has(s.id)) sessionMap.set(s.id, s);
-    }
-    for (const s of sessions || []) {
-      if (s && s.id && !deletedSessionSet.has(s.id)) sessionMap.set(s.id, s);
-    }
+      const [sessionSnap, taskSnap, legacyBackupSnap] = await Promise.all([
+        getDocsFromServer(sessionsRef),
+        getDocsFromServer(tasksRef),
+        getDocFromServer(doc(db, 'users', uid, 'backups', 'latest')),
+      ]);
+      if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
+        return failed('Hesap değişti; başka bir hesabın kayıtlarına dokunulmadı.');
 
-    const localTasks = getStoredTasks();
-    const taskMap = new Map<string, FocusTask>();
-    for (const t of localTasks) {
-      if (t && t.id && !deletedTaskSet.has(t.id)) taskMap.set(t.id, t);
-    }
-    for (const t of tasks || []) {
-      if (t && t.id && !deletedTaskSet.has(t.id)) taskMap.set(t.id, t);
-    }
+      const cloudSessions = sessionSnap.docs.map(d => ({...d.data(), id:d.id}) as FocusSession & {deleted?:boolean;updatedAt?:number});
+      const cloudTasks = taskSnap.docs.map(d => ({...d.data(), id:d.id}) as FocusTask & {deleted?:boolean;updatedAt?:number});
+      const legacy = legacyBackupSnap.exists() ? legacyBackupSnap.data() : {};
+      const legacySessionDeletes = Array.isArray(legacy.deletedSessionIds) ? legacy.deletedSessionIds.filter((v:unknown)=>typeof v==='string') : [];
+      const legacyTaskDeletes = Array.isArray(legacy.deletedTaskIds) ? legacy.deletedTaskIds.filter((v:unknown)=>typeof v==='string') : [];
+      const deletedSessions = collectDeletedIds(cloudSessions, new Set([...getDeletedSessionIds(), ...legacySessionDeletes]));
+      const deletedTasks = collectDeletedIds(cloudTasks, new Set([...getDeletedTaskIds(), ...legacyTaskDeletes]));
 
-    // A new device must only restore from its authenticated user's private
-    // documents. Never read the globally shared backup of another student.
-    if (sessionMap.size === 0 && taskMap.size === 0 && !options?.allowEmptyOverwrite) {
-      const privateSnap = await fetchDocFresh(doc(db, 'users', uid, 'backups', 'latest'));
-      if (privateSnap.exists()) {
-        const ownBackup = privateSnap.data();
-        for (const item of ownBackup?.sessions || []) {
-          if (item?.id && !deletedSessionSet.has(item.id)) sessionMap.set(item.id, item);
-        }
-        for (const item of ownBackup?.tasks || []) {
-          if (item?.id && !deletedTaskSet.has(item.id)) taskMap.set(item.id, item);
-        }
+      // Capture what was actually in this device at the beginning of the
+      // reconciliation. A newly completed session during the network request
+      // must NEVER be replaced by this older server snapshot.
+      const baselineLocalSessions = JSON.stringify(getStoredSessions());
+      const baselineLocalTasks = JSON.stringify(getStoredTasks());
+      const localSessions = [...getStoredSessions(), ...(sessions || [])].filter(item => item && item.id);
+      const localTasks = [...getStoredTasks(), ...(tasks || [])].filter(item => item && item.id);
+      const allSessions = mergeSyncedRecords(localSessions, cloudSessions, deletedSessions, 'session');
+      const allTasks = mergeSyncedRecords(localTasks, cloudTasks, deletedTasks, 'task');
+
+      // A user may intentionally have NO sessions. Empty input is safe because
+      // we already fetched the complete authenticated cloud collection.
+      const cloudSessionMap = new Map(cloudSessions.map(s => [s.id, s]));
+      const cloudTaskMap = new Map(cloudTasks.map(t => [t.id, t]));
+      const uploadSessions = allSessions.filter(s => recordNeedsUpload(s, cloudSessionMap.get(s.id)));
+      const uploadTasks = allTasks.filter(t => recordNeedsUpload(t, cloudTaskMap.get(t.id)));
+      const pendingDeletedSessions = [...deletedSessions].filter(id => !cloudSessionMap.get(id)?.deleted);
+      const pendingDeletedTasks = [...deletedTasks].filter(id => !cloudTaskMap.get(id)?.deleted);
+
+      const CHUNK = 20;
+      const saveInChunks = async <T>(items: T[], write: (item:T)=>Promise<unknown>) => {
+        for(let i=0;i<items.length;i+=CHUNK) await Promise.all(items.slice(i,i+CHUNK).map(write));
+      };
+      // Transactions re-read the individual server record before uploading.
+      // An already-deleted record must NEVER be resurrected even if the
+      // deletion happened after the initial collection snapshot.
+      const upsertIfCurrent = async (
+        kind: 'sessions' | 'tasks',
+        record: FocusSession | FocusTask,
+      ) => {
+        const path = doc(db, 'users', uid, kind, record.id);
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(path);
+          const remote: (Record<string, any> & { id: string }) | null = snap.exists()
+            ? { ...(snap.data() as Record<string, any>), id: record.id }
+            : null;
+          const deletedNow = kind === 'sessions'
+            ? getDeletedSessionIds().includes(record.id)
+            : getDeletedTaskIds().includes(record.id);
+          if (deletedNow || remote?.deleted ||
+              (remote && !recordNeedsUpload(record, remote))) return;
+          if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
+            throw new Error('Hesap değişti; kayıt işlemi iptal edildi.');
+          // Transactions bypass safeSetDoc; remove undefined optional fields
+          // to avoid rejecting legitimate study sessions with no task/note.
+          transaction.set(path,cleanFirestoreData({
+            ...record,userId:uid,deleted:false,syncedAt:Date.now(),
+          }),{merge:true});
+        });
+      };
+      await saveInChunks(uploadSessions, session => upsertIfCurrent('sessions', session));
+      await saveInChunks(uploadTasks, task => upsertIfCurrent('tasks', task));
+      // Keep deletion markers permanently. Firestore transactions prevent a
+      // delayed upload from turning an existing tombstone back into a session.
+      await saveInChunks(pendingDeletedSessions, id => safeSetDoc(
+        doc(db,'users',uid,'sessions',id),
+        {id,userId:uid,deleted:true,updatedAt:Date.now()},{merge:true}
+      ));
+      await saveInChunks(pendingDeletedTasks, id => safeSetDoc(
+        doc(db,'users',uid,'tasks',id),
+        {id,userId:uid,deleted:true,updatedAt:Date.now()},{merge:true}
+      ));
+
+      // A Firestore transaction can legitimately skip a record deleted by
+      // another device since the initial read. Never mark the backup complete
+      // before fetching and comparing the actual SERVER-acknowledged records.
+      const [confirmedSessionSnap, confirmedTaskSnap] = await Promise.all([
+        getDocsFromServer(sessionsRef), getDocsFromServer(tasksRef),
+      ]);
+      if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
+        return failed('Hesap değişti; bulut doğrulaması iptal edildi.');
+      const confirmedSessions = confirmedSessionSnap.docs
+        .map(d => ({ ...d.data(), id: d.id }) as FocusSession & { deleted?: boolean })
+        .filter(item => !item.deleted);
+      const confirmedTasks = confirmedTaskSnap.docs
+        .map(d => ({ ...d.data(), id: d.id }) as FocusTask & { deleted?: boolean })
+        .filter(item => !item.deleted);
+      const actualSessions = new Map(confirmedSessions.map(item => [item.id, item]));
+      const actualTasks = new Map(confirmedTasks.map(item => [item.id, item]));
+      const matchingRecords = confirmedSessions.length === allSessions.length
+        && confirmedTasks.length === allTasks.length
+        && allSessions.every(item => {
+          const actual = actualSessions.get(item.id);
+          return actual && contentFingerprint(actual) === contentFingerprint(item);
+        })
+        && allTasks.every(item => {
+          const actual = actualTasks.get(item.id);
+          return actual && contentFingerprint(actual) === contentFingerprint(item);
+        });
+      if (!matchingRecords)
+        return failed('Başka cihazda eşzamanlı bir değişiklik algılandı. Veriler korunuyor, birazdan sunucudan tekrar eşitlenecek.');
+      if (JSON.stringify(getStoredSessions()) !== baselineLocalSessions ||
+          JSON.stringify(getStoredTasks()) !== baselineLocalTasks) {
+        return failed('Eşitleme sırasında cihazda yeni kayıt oluştu. Kaydedilen veriler korunuyor; tekrar eşitleme yapılacak.');
       }
+
+      const stats = canonicalStatsFromSessions(confirmedSessions);
+      const todayStr = getLocalDateString(new Date());
+      const weekStr = getCurrentWeekKey(new Date());
+      const monthStr = getCurrentMonthKey(new Date());
+      const computedToday = calculateTodayMinutes(allSessions);
+      const computedWeekly = calculateWeeklyMinutes(allSessions);
+      const monthly = calculateMonthlyStatsSummary(allSessions);
+      const streak = calculateRealStreak(allSessions, currentProfile);
+      const now = Date.now();
+
+      // Background sync may update statistics only; it must NEVER overwrite
+      // another device's newly edited profile/preferences with stale copies.
+      const statsPatch = {
+        userId:uid, lastSyncAt:now, updatedStatsAt:now,
+        todayDateString:todayStr, weekDateString:weekStr, monthDateString:monthStr,
+        todayTotalMinutes:computedToday, weeklyTotalMinutes:computedWeekly,
+        monthlyTotalMinutes:monthly.monthlyMinutes,
+        monthlySessionsCount:monthly.monthlySessionsCount,
+        monthlyActiveDays:monthly.monthlyActiveDays,
+        favoriteSubject:monthly.favoriteSubject,
+        totalFocusMinutes:stats.totalMinutes, totalFocusHours:stats.totalHours,
+        currentStreakDays:streak, streakDays:streak,
+      };
+      await safeSetDoc(userRef,statsPatch,{merge:true});
+      // Complete records already live in sessions/tasks collections. Avoid
+      // 400-item truncation and Firestore's 1 MiB document ceiling.
+      // Write NEW metadata only; preserve the old 'latest' backup untouched.
+      await safeSetDoc(doc(db,'users',uid,'backups','latest_v2'),{
+        uid,version:2,kind:'indexed-subcollections',sessionCount:allSessions.length,
+        taskCount:allTasks.length,sessionSeconds:stats.seconds,
+        deletedSessionsCount:deletedSessions.size,deletedTasksCount:deletedTasks.size,
+        completedAt:now,
+      },{merge:true});
+
+      // Local UI follows successful SERVER reconciliation. Never broadcast
+      // an incomplete/failed sync as a finished backup.
+      const oldSessions = getStoredSessions();
+      const oldTasks = getStoredTasks();
+      const dataChanged = JSON.stringify(oldSessions)!==JSON.stringify(allSessions)
+        || JSON.stringify(oldTasks)!==JSON.stringify(allTasks);
+      if(dataChanged){
+        setAllStoredSessions(allSessions);
+        setAllStoredTasks(allTasks);
+      }
+      const updatedLocal = updateStoredProfile({
+        userId:uid, totalFocusHours:stats.totalHours,
+        currentStreakDays:streak, todayTotalMinutes:computedToday,
+      });
+      // Profile preferences remain whatever was modified locally. The
+      // latest cloud preference values are restored separately on login.
+      if(dataChanged) notifyCloudRestored(allSessions,allTasks,updatedLocal);
+      setLastSyncTime(now);
+      return {success:true,sessionsUploaded:uploadSessions.length,
+        tasksUploaded:uploadTasks.length,
+        message:`${allSessions.length} seans ve ${allTasks.length} görev Firebase sunucusunda doğrulandı (yeni yükleme: ${uploadSessions.length} / ${uploadTasks.length}).`,
+        timestamp:now};
+    } catch(error:any) {
+      handleFirestoreError(error, OperationType.WRITE, `users/${uid}/sync`);
+      return failed(error?.message || 'Bulut senkronizasyonu tamamlanamadı. Yerel veriler korundu.');
     }
-
-    const mergedSessions = Array.from(sessionMap.values()).sort(
-      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-    );
-    const mergedTasks = Array.from(taskMap.values()).sort(
-      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-    );
-
-    // Save merged back to localStorage
-    if (mergedSessions.length > 0) setAllStoredSessions(mergedSessions);
-    if (mergedTasks.length > 0) setAllStoredTasks(mergedTasks);
-
-    // 1. Sync User Profile doc
-    const userDocRef = doc(db, 'users', uid);
-    const todayStr = getLocalDateString(new Date());
-    const weekStr = getCurrentWeekKey(new Date());
-    const monthStr = getCurrentMonthKey(new Date());
-    const validCompleted = mergedSessions.filter(
-      (s) => s && s.completed !== false && Number(s.completedSeconds) > 0
-    );
-    const computedTodayMins = calculateTodayMinutes(mergedSessions);
-    const computedWeeklyMins = calculateWeeklyMinutes(mergedSessions);
-    const monthlySummary = calculateMonthlyStatsSummary(mergedSessions);
-    const computedTotalSecs = validCompleted.reduce(
-      (acc, s) => acc + (Number(s.completedSeconds) || 0),
-      0
-    );
-    const computedTotalMins =
-      computedTotalSecs > 0 ? Math.max(1, Math.round(computedTotalSecs / 60)) : 0;
-    const computedTotalHours = calculateTotalFocusHours(mergedSessions);
-    const computedStreak = calculateRealStreak(mergedSessions, currentProfile);
-
-    const profilePayload = {
-      userId: uid,
-      email: email || currentProfile.email || '',
-      name: currentProfile.name || user?.displayName || 'Öğrenci',
-      displayName: currentProfile.name || user?.displayName || 'Öğrenci',
-      initials: currentProfile.initials || 'Ö',
-      avatarUrl: currentProfile.avatarUrl || user?.photoURL || '',
-      targetUniversity: currentProfile.targetUniversity || '',
-      targetDepartment: currentProfile.targetDepartment || '',
-      targetExam: currentProfile.targetExam || 'YKS 2026 Sayısal',
-      studyTrack: currentProfile.studyTrack || 'Sayısal',
-      dailyGoalHours: currentProfile.dailyGoalHours || 6,
-      avatarColor: currentProfile.avatarColor || '#ff5500',
-      soundNotifications: currentProfile.soundNotifications ?? true,
-      breakReminders: currentProfile.breakReminders ?? true,
-      desktopNotifications: currentProfile.desktopNotifications ?? false,
-      liveNotifications: currentProfile.liveNotifications ?? false,
-      theme: currentProfile.theme || 'dark',
-      deviceModePreference: currentProfile.deviceModePreference || 'auto',
-      preferredFocusMode: currentProfile.preferredFocusMode || 'clock',
-      restDaySelectionMode: currentProfile.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates',
-      weeklyRestDays: Array.isArray(currentProfile.weeklyRestDays)
-        ? currentProfile.weeklyRestDays
-        : [],
-      customRestDates: Array.isArray(currentProfile.customRestDates)
-        ? currentProfile.customRestDates
-        : [],
-      excludedRestDates: Array.isArray(currentProfile.excludedRestDates)
-        ? currentProfile.excludedRestDates
-        : [],
-      musicConnections: safeMusicPreferences(currentProfile.musicConnections),
-      todayDateString: todayStr,
-      weekDateString: weekStr,
-      monthDateString: monthStr,
-      baseTodayMinutes: computedTodayMins,
-      todayTotalMinutes: Math.max(computedTodayMins, currentProfile.todayTotalMinutes || 0),
-      baseWeeklyMinutes: computedWeeklyMins,
-      weeklyTotalMinutes: Math.max(computedWeeklyMins, computedTodayMins),
-      baseMonthlyMinutes: monthlySummary.monthlyMinutes,
-      monthlyTotalMinutes: Math.max(
-        monthlySummary.monthlyMinutes,
-        computedWeeklyMins,
-        computedTodayMins
-      ),
-      monthlySessionsCount: monthlySummary.monthlySessionsCount,
-      monthlyActiveDays: monthlySummary.monthlyActiveDays,
-      favoriteSubject: monthlySummary.favoriteSubject,
-      totalFocusMinutes: computedTotalMins,
-      totalFocusHours: Math.max(computedTotalHours, currentProfile.totalFocusHours || 0),
-      streakDays: Math.max(computedStreak, currentProfile.currentStreakDays || 0),
-      currentStreakDays: Math.max(computedStreak, currentProfile.currentStreakDays || 0),
-      cloudSessionsSnapshot: mergedSessions.slice(0, 300),
-      cloudTasksSnapshot: mergedTasks.slice(0, 300),
-      deletedSessionIds: Array.from(deletedSessionSet),
-      deletedTaskIds: Array.from(deletedTaskSet),
-      isOnline: true,
-      lastActiveAt: Date.now(),
-      lastSyncAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    await safeSetDoc(userDocRef, profilePayload, { merge: true });
-
-    // 2. Upload Sessions in parallel chunks of 25 for fast execution
-    const CHUNK_SIZE = 25;
-    for (let i = 0; i < mergedSessions.length; i += CHUNK_SIZE) {
-      const chunk = mergedSessions.slice(i, i + CHUNK_SIZE);
-      await Promise.all(
-        chunk.map((session) => {
-          if (!session.id) return Promise.resolve();
-          const sessionRef = doc(db, 'users', uid, 'sessions', session.id);
-          return safeSetDoc(
-            sessionRef,
-            {
-              ...session,
-              userId: uid,
-              deleted: false,
-              syncedAt: Date.now(),
-            },
-            { merge: true }
-          );
-        })
-      );
-    }
-
-    // 3. Upload Tasks in parallel chunks of 25
-    for (let i = 0; i < mergedTasks.length; i += CHUNK_SIZE) {
-      const chunk = mergedTasks.slice(i, i + CHUNK_SIZE);
-      await Promise.all(
-        chunk.map((task) => {
-          if (!task.id) return Promise.resolve();
-          const taskRef = doc(db, 'users', uid, 'tasks', task.id);
-          return safeSetDoc(
-            taskRef,
-            {
-              ...task,
-              userId: uid,
-              deleted: false,
-              syncedAt: Date.now(),
-            },
-            { merge: true }
-          );
-        })
-      );
-    }
-
-    // 4. Write cross-device backup envelopes so tablet/phone/PC always find the backup
-    // even if logged in via a different provider (Google vs Email) or before auth popup
-    const backupEnvelope = {
-      uid,
-      email,
-      profile: profilePayload,
-      sessions: mergedSessions.slice(0, 400),
-      tasks: mergedTasks.slice(0, 400),
-      deletedSessionIds: Array.from(deletedSessionSet),
-      deletedTaskIds: Array.from(deletedTaskSet),
-      updatedAt: Date.now(),
-    };
-
-    // One private backup per authenticated Firebase UID; no public/email fallback.
-    await safeSetDoc(doc(db, 'users', uid, 'backups', 'latest'), backupEnvelope, { merge: true });
-
-    const now = Date.now();
-    setLastSyncTime(now);
-
-    return {
-      success: true,
-      sessionsUploaded: mergedSessions.length,
-      tasksUploaded: mergedTasks.length,
-      message: `${mergedSessions.length} çalışma seansı ve ${mergedTasks.length} görev Firestore bulutuna başarıyla yedeklendi.`,
-      timestamp: now,
-    };
-  } catch (error: any) {
-    handleFirestoreError(error, OperationType.WRITE, `users/${uid}/sync`);
-    return {
-      success: false,
-      sessionsUploaded: 0,
-      tasksUploaded: 0,
-      message: error?.message || 'Yedekleme sırasında bir hata oluştu.',
-      timestamp: Date.now(),
-    };
-  }
+  };
+  const operation = previous ? previous.catch(()=>undefined).then(run) : run();
+  syncFlights.set(uid, operation);
+  try { return await operation; }
+  finally { if(syncFlights.get(uid)===operation)syncFlights.delete(uid); }
 }
 
 function normalizeCloudSession(s: any, fallbackId?: string): FocusSession | null {
@@ -469,7 +420,8 @@ export async function restoreAllFromFirestore(
   message: string;
 }> {
   const activeUser = auth.currentUser || user;
-  if (!activeUser?.uid) {
+  if (!activeUser?.uid || (user?.uid && user.uid !== activeUser.uid) ||
+    !accountCacheIsBound(activeUser.uid)) {
     return { success: false, sessions: getStoredSessions(), tasks: getStoredTasks(),
       profile: getStoredProfile(), message: 'Buluttan geri yüklemek için giriş yapmalısınız.' };
   }
@@ -479,6 +431,8 @@ export async function restoreAllFromFirestore(
   try {
     const cloudSessions: FocusSession[] = [];
     const cloudTasks: FocusTask[] = [];
+    const primarySessions: FocusSession[] = [];
+    const primaryTasks: FocusTask[] = [];
     const deletedSessionIds = new Set<string>(getDeletedSessionIds());
     const deletedTaskIds = new Set<string>(getDeletedTaskIds());
     let cloudProfile: Record<string, any> = {};
@@ -550,7 +504,7 @@ export async function restoreAllFromFirestore(
             return;
           }
           const norm = normalizeCloudSession(s, docSnap.id);
-          if (norm) cloudSessions.push(norm);
+          if (norm) primarySessions.push(norm);
         });
 
         tasksSnap.forEach((docSnap: any) => {
@@ -560,10 +514,11 @@ export async function restoreAllFromFirestore(
             return;
           }
           const norm = normalizeCloudTask(t, docSnap.id);
-          if (norm) cloudTasks.push(norm);
+          if (norm) primaryTasks.push(norm);
         });
-      } catch {
-        // ignore individual path failure
+      } catch (error) {
+        // Incomplete remote history must never be presented as a successful restore.
+        throw error;
       }
     };
 
@@ -571,7 +526,7 @@ export async function restoreAllFromFirestore(
     await pullUserSubcollections(uid);
     try {
       const privateSnap = await fetchDocFresh(doc(db, 'users', uid, 'backups', 'latest'));
-      if (privateSnap.exists()) absorbBackupEnvelope(privateSnap.data());
+      if (privateSnap.exists()) absorbBackupEnvelope(privateSnap.data() as Record<string, any>);
     } catch {
       // An offline cache may still be available; keep local records.
     }
@@ -588,43 +543,16 @@ export async function restoreAllFromFirestore(
       // ignore
     }
 
-    // 5. Merge Sessions (local + cloud, deduplicated by ID, latest timestamp first)
-    const localSessions = getStoredSessions();
-    const sessionMap = new Map<string, FocusSession>();
-    for (const s of localSessions) {
-      if (s && s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
-    }
-    for (const s of cloudSessions) {
-      if (s && s.id && !deletedSessionIds.has(s.id)) sessionMap.set(s.id, s);
-    }
-    const mergedSessions = Array.from(sessionMap.values()).sort(
-      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-    );
-    setAllStoredSessions(mergedSessions);
+    // Merge authoritative per-record documents after legacy snapshots:
+    // on equal timestamps a complete primary document wins.
+    const allCloudSessions = [...cloudSessions, ...primarySessions];
+    const allCloudTasks = [...cloudTasks, ...primaryTasks];
+    // Cloud restore can be requested on an offline device. All mandatory
+    // collection reads succeeded server-side before touching local caches.
+    const mergedSessions = mergeSyncedRecords(getStoredSessions(), allCloudSessions, deletedSessionIds, 'session');
+    const mergedTasks = mergeSyncedRecords(getStoredTasks(), allCloudTasks, deletedTaskIds, 'task');
 
-    // 6. Merge Tasks (local + cloud, keeping latest completion state)
-    const localTasks = getStoredTasks();
-    const taskMap = new Map<string, FocusTask>();
-    for (const t of localTasks) {
-      if (t && t.id && !deletedTaskIds.has(t.id)) taskMap.set(t.id, t);
-    }
-    for (const t of cloudTasks) {
-      if (t && t.id && !deletedTaskIds.has(t.id)) {
-        const existing = taskMap.get(t.id);
-        if (!existing) {
-          taskMap.set(t.id, t);
-        } else {
-          taskMap.set(t.id, {
-            ...existing,
-            ...t,
-            isCompleted: Boolean(existing.isCompleted || t.isCompleted),
-          });
-        }
-      }
-    }
-    const mergedTasks = Array.from(taskMap.values()).sort(
-      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-    );
+    setAllStoredSessions(mergedSessions);
     setAllStoredTasks(mergedTasks);
 
     // 7. Update Profile cleanly and recalculate stats from mergedSessions
@@ -650,7 +578,7 @@ export async function restoreAllFromFirestore(
         patch.dailyGoalHours = parseNumericField(cloudProfile.dailyGoalHours, 6);
       }
       if (cloudProfile.theme) patch.theme = cloudProfile.theme;
-      if (['clock', 'forest', 'climb', 'flight', 'dive'].includes(cloudProfile.preferredFocusMode)) {
+      if (['clock', 'exam', 'forest', 'climb', 'flight', 'dive'].includes(cloudProfile.preferredFocusMode)) {
         patch.preferredFocusMode = cloudProfile.preferredFocusMode;
       }
       patch.restDaySelectionMode = cloudProfile.restDaySelectionMode === 'weekly' ? 'weekly' : 'dates';
@@ -762,11 +690,30 @@ export async function importLocalBackup(
 }> {
   try {
     const activeUser = auth.currentUser || user;
-    if (!activeUser?.uid) throw new Error('Yedekten buluta aktarmak için önce giriş yapın.');
+    if (!activeUser?.uid || (user?.uid && activeUser.uid !== user.uid) ||
+        !accountCacheIsBound(activeUser.uid)) {
+      throw new Error('Yedeği aktarmak için doğru Firebase hesabıyla giriş yapmalısın.');
+    }
+    if (jsonString.length > 24 * 1024 * 1024)
+      throw new Error('Yedek JSON dosyası 24 MB sınırını aşıyor. İçeriği önce kontrol et.');
     const parsed = JSON.parse(jsonString);
     if (!parsed || (!parsed.sessions && !parsed.tasks && !parsed.profile)) {
       throw new Error('Geçersiz yedek dosyası formatı.');
     }
+
+    const safeArray = (input: unknown, label: string): any[] => {
+      if (input === undefined) return [];
+      if (!Array.isArray(input) || input.length > 15000)
+        throw new Error(`${label} verisi geçersiz veya aşırı büyük.`);
+      for (const row of input) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' ||
+          !row.id.trim() || row.id.length > 500 || row.id.includes('/'))
+          throw new Error(`${label} içinde hatalı kayıt kimliği var; hiçbir değişiklik yapılmadı.`);
+      }
+      return input;
+    };
+    safeArray(parsed.sessions, 'Seans');
+    safeArray(parsed.tasks, 'Görev');
 
     // Keep original record IDs, dates and durations, but associate the new
     // Firebase account and never re-import credentials from a legacy JSON.
@@ -776,12 +723,35 @@ export async function importLocalBackup(
     const importedTasks: FocusTask[] = Array.isArray(parsed.tasks)
       ? parsed.tasks.map((item: FocusTask) => ({ ...item, userId: activeUser.uid }))
       : [];
+    const rawProfile = parsed.profile && typeof parsed.profile === 'object' && !Array.isArray(parsed.profile)
+      ? parsed.profile as Record<string, any> : {};
     const importedProfile: Partial<UserProfile> = {
-      ...(parsed.profile || {}),
       userId: activeUser.uid,
-      email: activeUser.email || parsed.profile?.email || '',
-      musicConnections: safeMusicPreferences(parsed.profile?.musicConnections),
+      email: activeUser.email || '',
+      musicConnections: safeMusicPreferences(rawProfile.musicConnections),
     };
+    // Strict whitelist; unexpected fields, old UID, passwords, tokens and
+    // backend-only metadata can never be imported to the new profile.
+    for (const key of ['name','initials','avatarColor','avatarUrl',
+      'targetUniversity','targetDepartment','targetExam','studyTrack','theme'] as const) {
+      if (typeof rawProfile[key] === 'string') (importedProfile as any)[key] = rawProfile[key];
+    }
+    if (Number.isFinite(Number(rawProfile.dailyGoalHours)))
+      importedProfile.dailyGoalHours = Math.max(1, Math.min(24, Number(rawProfile.dailyGoalHours)));
+    for (const key of ['soundNotifications','breakReminders','desktopNotifications',
+      'liveNotifications','hasCompletedOnboarding'] as const) {
+      if (typeof rawProfile[key] === 'boolean') (importedProfile as any)[key] = rawProfile[key];
+    }
+    if (['auto','mobile','tablet','desktop'].includes(rawProfile.deviceModePreference))
+      importedProfile.deviceModePreference = rawProfile.deviceModePreference;
+    if (['clock','exam','forest','climb','flight','dive'].includes(rawProfile.preferredFocusMode))
+      importedProfile.preferredFocusMode = rawProfile.preferredFocusMode;
+    if (rawProfile.restDaySelectionMode === 'dates' || rawProfile.restDaySelectionMode === 'weekly')
+      importedProfile.restDaySelectionMode = rawProfile.restDaySelectionMode;
+    for (const key of ['weeklyRestDays','customRestDates','excludedRestDates'] as const) {
+      if (Array.isArray(rawProfile[key]) && rawProfile[key].length <= 366)
+        (importedProfile as any)[key] = rawProfile[key];
+    }
 
     // Merge sessions
     const currentSessions = getStoredSessions();

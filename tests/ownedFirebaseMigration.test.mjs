@@ -23,8 +23,9 @@ test('focus sync no longer uses shared cross-account backups or stores music OAu
   const sync = src('src/services/syncService.ts');
   assert.doesNotMatch(sync, /doc\(db, 'test'/);
   assert.doesNotMatch(sync, /collection\(db, 'users'\)/);
-  assert.match(sync, /'users', uid, 'backups', 'latest'/);
-  assert.match(sync, /safeMusicPreferences\(currentProfile\.musicConnections\)/);
+  assert.match(sync, /'users',uid,'backups','latest_v2'/);
+  assert.match(sync, /accountCacheIsBound\(uid\)/);
+  assert.match(sync, /safeMusicPreferences\(profile\.musicConnections\)/);
   assert.match(sync, /musicConnections: safeMusicPreferences\(profile\.musicConnections\)/);
   assert.match(sync, /userId: activeUser\.uid/);
 });
@@ -33,7 +34,8 @@ test('all direct profile and music settings writes redact OAuth tokens', () => {
   const app = src('src/App.tsx');
   const settings = src('src/components/SettingsModal.tsx');
   assert.doesNotMatch(app, /backup_latest_shared/);
-  assert.match(app, /'users', currentUser\.uid, 'backups', 'latest'/);
+  assert.doesNotMatch(app, /'backups', 'latest'/);
+  assert.match(app, /mergeSyncedRecords\(local, cloud, deleted, 'session'\)/);
   assert.match(app, /musicConnections: safeMusicPreferences\(updatedData\.musicConnections\)/);
   assert.match(settings, /musicConnections: safeMusicPreferences\(updatedConfig\)/);
 });

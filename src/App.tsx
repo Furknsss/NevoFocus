@@ -95,6 +95,8 @@ import {
 import { Flame, X, Download } from 'lucide-react';
 import { isNativeFocusAvailable, nativeFocus } from './services/nativeFocus';
 import { isAndroidNativeAuth, signOutNativeGoogle } from './services/nativeGoogleAuth';
+import { bindAccountCache, parkAccountCache, accountCacheIsBound } from './services/accountCache';
+import { mergeSyncedRecords, collectDeletedIds } from './services/syncIntegrity';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'focus' | 'tasks' | 'stats' | 'rooms' | 'students'>('focus');
@@ -324,85 +326,9 @@ export default function App() {
     };
   }, []);
 
-  // Real-time cross-device sync listener restricted to the signed-in user (Tablet <-> Phone <-> PC)
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    const sharedBackupDoc = doc(db, 'users', currentUser.uid, 'backups', 'latest');
-    const unsubShared = onSnapshot(
-      sharedBackupDoc,
-      (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        if (!data) return;
-
-        // Firestore rules enforce the UID path; do not trust email or globally shared data.
-        if (data.uid !== currentUser.uid) return;
-
-        const delSessions = new Set<string>([
-          ...getDeletedSessionIds(),
-          ...(Array.isArray(data.deletedSessionIds) ? data.deletedSessionIds : []),
-        ]);
-        const delTasks = new Set<string>([
-          ...getDeletedTaskIds(),
-          ...(Array.isArray(data.deletedTaskIds) ? data.deletedTaskIds : []),
-        ]);
-
-        if (Array.isArray(data.sessions) && data.sessions.length > 0) {
-          const local = getStoredSessions();
-          const map = new Map<string, FocusSession>();
-          for (const s of local) {
-            if (s && s.id && !delSessions.has(s.id)) map.set(s.id, s);
-          }
-          let addedOrChanged = false;
-          for (const s of data.sessions) {
-            if (s && s.id && !delSessions.has(s.id)) {
-              if (!map.has(s.id)) addedOrChanged = true;
-              map.set(s.id, s);
-            }
-          }
-          if (addedOrChanged || map.size !== local.length) {
-            const merged = Array.from(map.values()).sort(
-              (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-            );
-            setAllStoredSessions(merged);
-            setSessions(merged);
-          }
-        }
-
-        if (Array.isArray(data.tasks) && data.tasks.length > 0) {
-          const local = getStoredTasks();
-          const map = new Map<string, FocusTask>();
-          for (const t of local) {
-            if (t && t.id && !delTasks.has(t.id)) map.set(t.id, t);
-          }
-          let addedOrChanged = false;
-          for (const t of data.tasks) {
-            if (t && t.id && !delTasks.has(t.id)) {
-              const prev = map.get(t.id);
-              if (!prev || prev.isCompleted !== t.isCompleted) addedOrChanged = true;
-              map.set(t.id, {
-                ...prev,
-                ...t,
-                isCompleted: Boolean(prev?.isCompleted || t.isCompleted),
-              });
-            }
-          }
-          if (addedOrChanged || map.size !== local.length) {
-            const merged = Array.from(map.values()).sort(
-              (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-            );
-            setAllStoredTasks(merged);
-            setTasks(merged);
-          }
-        }
-      },
-      () => {
-        // ignore
-      }
-    );
-
-    return () => unsubShared();
-  }, [currentUser?.uid]);
+  // Primary real-time streams below subscribe to ALL authenticated session
+  // and task documents. Never listen to truncated backup envelopes (400
+  // records) as a source of truth: they can overwrite fresher cloud edits.
 
   // Update selected subject when profile's track changes (NEVER overwrite active session or Serbest Çalışma)
   useEffect(() => {
@@ -428,7 +354,35 @@ export default function App() {
 
   // Firebase Auth listener and Firestore sync
   useEffect(() => {
+    let alive = true;
+    let authEpoch = 0;
+    let listenerCleanups: Array<() => void> = [];
+    const clearListeners = () => {
+      for (const cleanup of listenerCleanups) cleanup();
+      listenerCleanups = [];
+    };
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const myEpoch = ++authEpoch;
+      clearListeners();
+      if (user) {
+        // Bind and isolate the cache BEFORE writing new user profile fields.
+        // A different Google account must never inherit the previous account's records.
+        try {
+          bindAccountCache(user.uid);
+        } catch (error) {
+          console.error('Account cache isolation blocked unsafe sync:', error);
+          setCloudBackupToast('Hesap önbelleği korunamadı. Senkronizasyon durduruldu; depolama alanını kontrol et.');
+          setIsAuthChecking(false);
+          return;
+        }
+        setSessions(getStoredSessions());
+        setTasks(getStoredTasks());
+        setProfile(getStoredProfile());
+      } else {
+        // Park owner-only records before showing a guest or another sign-in.
+        try { parkAccountCache(); }
+        catch (error) { console.warn('Could not park signed-out account cache:', error); }
+      }
       setCurrentUser(user);
 
       if (user) {
@@ -451,6 +405,7 @@ export default function App() {
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userDocRef);
+          if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
 
           if (snap.exists()) {
             const data = snap.data();
@@ -534,6 +489,7 @@ export default function App() {
 
           // 2. Bidirectional sync: Pull cloud sessions & tasks first, merge with local data
           const restoreResult = await restoreAllFromFirestore(user);
+          if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
           if (restoreResult.success) {
             setSessions(restoreResult.sessions);
             setTasks(restoreResult.tasks);
@@ -543,51 +499,44 @@ export default function App() {
           }
 
           // 3. Upload merged sessions and tasks to Firestore
-          await syncAllToFirestore(
-            user,
-            restoreResult.sessions,
-            restoreResult.tasks,
-            restoreResult.profile || getStoredProfile()
-          );
+          if (restoreResult.success) {
+            const result = await syncAllToFirestore(
+              user,
+              restoreResult.sessions,
+              restoreResult.tasks,
+              restoreResult.profile || getStoredProfile()
+            );
+            if (!result.success) console.warn('Initial cloud upload queued for retry:', result.message);
+          } else {
+            console.warn('Cloud restore incomplete; blocking upload to protect data:', restoreResult.message);
+          }
         } catch (err) {
           console.warn('User profile sync notice:', err);
         }
+
+        if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
 
         // Attach Firestore listener for user's private sessions
         const sessionsCol = collection(db, 'users', user.uid, 'sessions');
         const unsubSessions = onSnapshot(
           sessionsCol,
           (snapshot) => {
-            const cloudSessions: FocusSession[] = [];
-            const deletedSessionIds = new Set<string>();
-            snapshot.forEach((d) => {
-              const data = d.data() as FocusSession & { deleted?: boolean };
-              if (data && data.deleted && (data.id || d.id)) {
-                deletedSessionIds.add(data.id || d.id);
-                return;
-              }
-              if (data && data.id) {
-                cloudSessions.push(data);
-              }
+            if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
+            const cloud: (FocusSession & {deleted?: boolean;updatedAt?:number})[] = [];
+            snapshot.forEach(d => {
+              const data = {...d.data(), id:d.id} as FocusSession & {deleted?:boolean;updatedAt?:number};
+              cloud.push(data);
+              if (data.deleted) markSessionDeletedId(data.id);
             });
-            if (cloudSessions.length > 0 || deletedSessionIds.size > 0) {
-              // Cihazlar arası eksiksiz birleştirme: Bir cihazda olan seans diğerinde asla kaybolmaz!
-              const local = getStoredSessions();
-              const map = new Map<string, FocusSession>();
-              for (const s of local) {
-                if (s.id && !deletedSessionIds.has(s.id)) map.set(s.id, s);
-              }
-              for (const s of cloudSessions) {
-                if (s.id && !deletedSessionIds.has(s.id)) map.set(s.id, s);
-              }
-              const merged = Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
-              setSessions(merged);
+            const deleted = collectDeletedIds(cloud, new Set(getDeletedSessionIds()));
+            const local = getStoredSessions();
+            const merged = mergeSyncedRecords(local, cloud, deleted, 'session');
+            if (JSON.stringify(merged) !== JSON.stringify(local)) {
               setAllStoredSessions(merged);
+              setSessions(merged);
             }
           },
-          (err) => {
-            handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/sessions`);
-          }
+          (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/sessions`)
         );
 
         // Attach Firestore listener for user's private tasks
@@ -595,33 +544,22 @@ export default function App() {
         const unsubTasks = onSnapshot(
           tasksCol,
           (snapshot) => {
-            const cloudTasks: FocusTask[] = [];
-            const deletedTaskIds = new Set<string>();
-            snapshot.forEach((d) => {
-              const data = d.data() as FocusTask & { deleted?: boolean };
-              if (data && data.deleted && (data.id || d.id)) {
-                deletedTaskIds.add(data.id || d.id);
-                return;
-              }
-              if (data && data.id && !data.deleted) {
-                cloudTasks.push(data);
-              }
+            if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) return;
+            const cloud: (FocusTask & {deleted?:boolean;updatedAt?:number})[] = [];
+            snapshot.forEach(d => {
+              const data = {...d.data(), id:d.id} as FocusTask & {deleted?:boolean;updatedAt?:number};
+              cloud.push(data);
+              if (data.deleted) markTaskDeletedId(data.id);
             });
+            const deleted = collectDeletedIds(cloud,new Set(getDeletedTaskIds()));
             const local = getStoredTasks();
-            const map = new Map<string, FocusTask>();
-            for (const t of local) {
-              if (t.id && !deletedTaskIds.has(t.id)) map.set(t.id, t);
+            const merged = mergeSyncedRecords(local,cloud,deleted,'task');
+            if (JSON.stringify(merged) !== JSON.stringify(local)) {
+              setAllStoredTasks(merged);
+              setTasks(merged);
             }
-            for (const t of cloudTasks) {
-              if (t.id && !deletedTaskIds.has(t.id)) map.set(t.id, t);
-            }
-            const mergedTasks = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-            setTasks(mergedTasks);
-            setAllStoredTasks(mergedTasks);
           },
-          (err) => {
-            handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`);
-          }
+          (err) => handleFirestoreError(err, OperationType.LIST, `users/${user.uid}/tasks`)
         );
 
         // Attach Firestore listener for incoming cheer/flame notifications
@@ -738,12 +676,10 @@ export default function App() {
           setIsGuestMode(false);
         } catch {}
 
-        return () => {
-          unsubSessions();
-          unsubTasks();
-          unsubCheers();
-          unsubActiveFocus();
-        };
+        listenerCleanups = [unsubSessions, unsubTasks, unsubCheers, unsubActiveFocus];
+        if (!alive || myEpoch !== authEpoch || auth.currentUser?.uid !== user.uid) {
+          clearListeners();
+        }
       } else {
         // Visitor is not logged in via Firebase Auth popup (e.g. tablet browser or guest mode):
         // Pull cloud sessions & tasks automatically in background if user had an account or empty local storage!
@@ -753,20 +689,18 @@ export default function App() {
         setProfile(getStoredProfile());
         setCloudActiveSession(null);
 
-        restoreAllFromFirestore(null)
-          .then((res) => {
-            if (res.success && (res.sessions.length > 0 || res.tasks.length > 0)) {
-              setSessions(res.sessions);
-              setTasks(res.tasks);
-              if (res.profile) setProfile(res.profile);
-            }
-          })
-          .catch(() => {});
+        // Never restore an account without a real Firebase Auth principal.
+        // Guests can work locally; their data stays separate from owner cloud data.
       }
       setIsAuthChecking(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      alive = false;
+      authEpoch++;
+      clearListeners();
+      unsubscribe();
+    };
   }, []);
 
   // Compute 100% Real Stats & Real Streak (Rest days preserve streak)
@@ -781,6 +715,48 @@ export default function App() {
     totalFocusHours: realTotalHours,
     todayTotalMinutes: todayMinutes,
   }), [profile, realStreak, realTotalHours, todayMinutes]);
+
+  // Automatic cloud backup: debounce local edits (including tasks, sessions
+  // and profile settings), retry on reconnect/return to the tab, and verify
+  // the remote reconciliation every 3 minutes. Never run for guest mode.
+  useEffect(() => {
+    const uid = currentUser?.uid;
+    if (!uid || isAuthChecking || !accountCacheIsBound(uid)) return;
+    let running = false;
+    let cancelled = false;
+    const attempt = async () => {
+      if (cancelled || running || !navigator.onLine ||
+        auth.currentUser?.uid !== uid || !accountCacheIsBound(uid)) return;
+      running = true;
+      try {
+        const result = await syncAllToFirestore(
+          auth.currentUser, getStoredSessions(), getStoredTasks(), getStoredProfile()
+        );
+        if (!result.success && !cancelled) {
+          console.warn('Automatic Firebase backup will retry:', result.message);
+        }
+      } catch (error) {
+        console.warn('Automatic Firebase backup retry:', error);
+      } finally { running = false; }
+    };
+    const onOnline = () => { void attempt(); };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void attempt();
+    };
+    // A newly logged-in account has already been server-restored before
+    // uploading. During the first login, short debounce absorbs auth updates.
+    const debounce = window.setTimeout(() => { void attempt(); }, 8000);
+    const retry = window.setInterval(() => { void attempt(); }, 3 * 60 * 1000);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(debounce);
+      window.clearInterval(retry);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [currentUser?.uid, isAuthChecking, sessions, tasks, profile]);
 
   // Tab switches never return the focus page to the old mode-selection hub.
   const handleSelectTab = useCallback((tab: 'focus' | 'tasks' | 'stats' | 'rooms' | 'students') => {
@@ -1096,19 +1072,6 @@ export default function App() {
             userId: currentUser.uid,
           });
 
-          // Update user's aggregate stats in Firestore
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          await safeSetDoc(
-            userDocRef,
-            {
-              status: 'idle',
-              currentSubject: '',
-              todayTotalMinutes: todayMinutes + Math.round(partialSession.completedSeconds / 60),
-              totalFocusMinutes: Math.round(realTotalHours * 60 + partialSession.completedSeconds / 60),
-              lastActiveAt: Date.now(),
-            },
-            { merge: true }
-          );
         } catch (err) {
           console.warn('Abandon save session notice:', err);
         }
@@ -1141,8 +1104,8 @@ export default function App() {
     if (effectiveUid) {
       try {
         const sessRef = doc(db, 'users', effectiveUid, 'sessions', sessionId);
-        await safeSetDoc(sessRef, { id: sessionId, deleted: true, updatedAt: Date.now() }, { merge: true }).catch(() => {});
-        await deleteDoc(sessRef).catch(() => {});
+        await safeSetDoc(sessRef, { id: sessionId, userId: effectiveUid, deleted: true, updatedAt: Date.now() }, { merge: true });
+        // Do not physically delete. The tombstone must reach offline devices.
       } catch (err) {
         console.warn('Error deleting session from Firestore:', err);
       }
@@ -1234,23 +1197,6 @@ export default function App() {
           const sessionDocRef = doc(db, 'users', currentUser.uid, 'sessions', manualSession.id);
           await safeSetDoc(sessionDocRef, manualSession);
 
-          // Update user cloud stats
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const nextToday = todayMinutes + manualDurationMinutes;
-          const nextTotalMins = Math.round(realTotalHours * 60 + manualDurationMinutes);
-          await safeSetDoc(
-            userDocRef,
-            {
-              todayDateString: getLocalDateString(new Date()),
-              baseTodayMinutes: nextToday,
-              todayTotalMinutes: nextToday,
-              totalFocusMinutes: nextTotalMins,
-              totalFocusHours: Math.round((nextTotalMins / 60) * 10) / 10,
-              streakDays: calculateRealStreak([manualSession, ...sessions], profile),
-              lastActiveAt: Date.now(),
-            },
-            { merge: true }
-          );
         } catch (err) {
           handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/sessions/${manualSession.id}`);
         }
@@ -1275,8 +1221,8 @@ export default function App() {
     if (effectiveUid) {
       try {
         const taskDocRef = doc(db, 'users', effectiveUid, 'tasks', taskId);
-        await safeSetDoc(taskDocRef, { id: taskId, deleted: true, updatedAt: Date.now() }, { merge: true }).catch(() => {});
-        await deleteDoc(taskDocRef).catch(() => {});
+        await safeSetDoc(taskDocRef, { id: taskId, userId: effectiveUid, deleted: true, updatedAt: Date.now() }, { merge: true });
+        // A deletion marker stays in Firestore to stop stale-device resurrection.
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `users/${effectiveUid}/tasks/${taskId}`);
       }
@@ -1410,15 +1356,8 @@ export default function App() {
 
   // 1. Tablet & Telefondan her giriş-çıkışta oturum durumunu doğrula (Kalıcı Giriş):
   // Kullanıcı zaten kayıtlıysa veya misafir modundaysa ASLA bekleme ekranında takılı kalmaz, 0ms anında açılır!
-  const isExistingUser = isAndroidNativeAuth
-    ? Boolean(currentUser || isGuestMode)
-    : Boolean(
-        currentUser || isGuestMode || profile.userId ||
-        (typeof window !== 'undefined' && (
-          localStorage.getItem('fokus_user_authenticated') === 'true' ||
-          localStorage.getItem('fokus_user_uid')
-        ))
-      );
+  // A stale localStorage UID is never proof of authentication.
+  const isExistingUser = Boolean(currentUser || isGuestMode);
 
   if (isAndroidNativeAuth && isAuthChecking) {
     return (
