@@ -94,6 +94,25 @@ export function markTaskDeletedId(taskId: string): void {
   }
 }
 
+/** Remove third-party access/refresh tokens and client secrets from every
+ * user backup and direct profile upload. Only non-sensitive preferences sync. */
+export function safeMusicPreferences(raw: UserProfile['musicConnections']): UserProfile['musicConnections'] {
+  if (!raw) return undefined;
+  const platform = (id: 'spotify' | 'youtube_music' | 'apple_music') => ({
+    connected: false,
+    accountName: '',
+    customPlaylistUrl: String(raw[id]?.customPlaylistUrl || ''),
+    customTrackTitle: String(raw[id]?.customTrackTitle || ''),
+    customArtistName: String(raw[id]?.customArtistName || ''),
+  });
+  return {
+    activePlatform: raw.activePlatform || 'spotify',
+    spotify: platform('spotify'),
+    youtube_music: platform('youtube_music'),
+    apple_music: platform('apple_music'),
+  };
+}
+
 /** Cloud identity is NEVER inferred from localStorage, email, or a
  * previously signed-in Firebase account. Only the current Auth principal can
  * authorize a Firestore path. Guest sessions remain offline until sign-in. */
@@ -444,7 +463,7 @@ export async function restoreAllFromFirestore(
     await pullUserSubcollections(uid);
     try {
       const privateSnap = await fetchDocFresh(doc(db, 'users', uid, 'backups', 'latest'));
-      if (privateSnap.exists()) absorbBackupEnvelope(privateSnap.data());
+      if (privateSnap.exists()) absorbBackupEnvelope(privateSnap.data() as Record<string, any>);
     } catch {
       // An offline cache may still be available; keep local records.
     }
