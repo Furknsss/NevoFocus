@@ -55,6 +55,7 @@ import {
   safeMusicPreferences,
 } from '../services/syncService';
 import { spotifyService, PLATFORM_METADATA, UNIVERSAL_SAFE_REDIRECT_URI } from '../services/spotifyService';
+import { verifyCloudHealth, type CloudHealth } from '../services/syncHealth';
 import { twaYouTubeMusic } from '../services/twaFocusBridge';
 import { PlatformIcon } from './visuals/SpotifyFocusWidget';
 import { FocusModeSettings } from './FocusModeSettings';
@@ -524,6 +525,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [cloudHealth, setCloudHealth] = useState<CloudHealth | null>(null);
+  const [cloudHealthChecking, setCloudHealthChecking] = useState(false);
+  const refreshCloudHealth = async () => {
+    if (!currentUser?.uid) { setCloudHealth(null); return; }
+    setCloudHealthChecking(true);
+    try { setCloudHealth(await verifyCloudHealth(currentUser)); }
+    finally { setCloudHealthChecking(false); }
+  };
+  React.useEffect(() => {
+    if (!isOpen || activeTab !== 'backup') return;
+    void refreshCloudHealth();
+  }, [isOpen, activeTab, currentUser?.uid]);
+
 
   const handleBackupNow = async () => {
     try {
@@ -538,7 +552,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setBackupNotice({
           type: 'success',
           text: `Sunucu doğrulaması başarılı: ${res.message} Son kontrol ${new Date(res.timestamp).toLocaleTimeString('tr-TR')}.`,
-        });
+          void refreshCloudHealth();
+      });
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Yedekleme yapılamadı.' });
       }
@@ -573,6 +588,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           type: 'success',
           text: `Geri yükleme tamamlandı! ${res.sessions.length} çalışma seansı ve ${res.tasks.length} görev buluttan cihazınıza aktarıldı.`,
         });
+        void refreshCloudHealth();
       } else {
         setBackupNotice({ type: 'error', text: res.message || 'Geri yükleme yapılamadı.' });
       }
@@ -2123,6 +2139,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {!currentUser ? 'Giriş gerekli' : typeof navigator !== 'undefined' && !navigator.onLine ? 'Çevrimdışı · Yerel kayıt' : 'Hesap bağlı'}
                   </span>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-2" aria-live="polite">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-white text-xs">Gerçek Firebase Veri Kontrolü</p>
+                  <button type="button" onClick={() => void refreshCloudHealth()}
+                    disabled={cloudHealthChecking || !currentUser}
+                    className="rounded-lg bg-neutral-800 text-neutral-100 border border-white/15 px-3 py-1.5 text-xs disabled:opacity-40">
+                    {cloudHealthChecking ? 'Kontrol ediliyor...' : 'Sunucuda Doğrula'}
+                  </button>
+                </div>
+                <p className={`text-xs leading-relaxed ${cloudHealth?.status === 'verified' ? 'text-emerald-300' : cloudHealth?.status === 'mismatch' ? 'text-amber-300' : 'text-neutral-300'}`}>
+                  {cloudHealth?.message || 'Sunucudaki seans, görev ve çalışma süresi ayrıca doğrulanacak.'}
+                </p>
+                {cloudHealth && cloudHealth.status !== 'unauthorized' && cloudHealth.status !== 'offline' && (
+                  <p className="text-[11px] font-mono text-neutral-400">
+                    Firestore: {cloudHealth.sessions} seans · {cloudHealth.tasks} görev · {(cloudHealth.totalSeconds / 3600).toFixed(2)} saat
+                    {cloudHealth.lastCompleteAt ? ` · Son doğrulanmış yedek: ${new Date(cloudHealth.lastCompleteAt).toLocaleString('tr-TR')}` : ''}
+                  </p>
+                )}
               </div>
 
               {/* Automatic Backup After Focus Session Badge */}
