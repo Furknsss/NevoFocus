@@ -1,4 +1,4 @@
-import { db, auth, safeSetDoc, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
+import { db, auth, safeSetDoc, cleanFirestoreData, handleFirestoreError, OperationType, parseNumericField } from '../firebase';
 import { doc, getDocFromServer, collection, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { mergeSyncedRecords, collectDeletedIds, recordNeedsUpload, canonicalStatsFromSessions } from './syncIntegrity';
@@ -242,9 +242,11 @@ export async function syncAllToFirestore(
               (remote && !recordNeedsUpload(record, remote))) return;
           if (auth.currentUser?.uid !== uid || !accountCacheIsBound(uid))
             throw new Error('Hesap değişti; kayıt işlemi iptal edildi.');
-          transaction.set(path,{
+          // Transactions bypass safeSetDoc; remove undefined optional fields
+          // to avoid rejecting legitimate study sessions with no task/note.
+          transaction.set(path,cleanFirestoreData({
             ...record,userId:uid,deleted:false,syncedAt:Date.now(),
-          },{merge:true});
+          }),{merge:true});
         });
       };
       await saveInChunks(uploadSessions, session => upsertIfCurrent('sessions', session));
