@@ -98,7 +98,7 @@ export function getStoredSessions(): FocusSession[] {
 
 export function saveSession(session: FocusSession): FocusSession[] {
   const current = getStoredSessions();
-  const updated = [session, ...current.filter((s) => s.id !== session.id)];
+  const updated = [{ ...session, updatedAt: (session as FocusSession & { updatedAt?: number }).updatedAt || Date.now() }, ...current.filter((s) => s.id !== session.id)];
   try {
     localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(updated));
   } catch (err) {
@@ -128,7 +128,7 @@ export function getStoredTasks(): FocusTask[] {
 
 export function saveTask(task: FocusTask): FocusTask[] {
   const current = getStoredTasks();
-  const updated = [task, ...current];
+  const updated = [{ ...task, updatedAt: (task as FocusTask & { updatedAt?: number }).updatedAt || Date.now() }, ...current];
   try {
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
   } catch {
@@ -147,7 +147,7 @@ export function setAllStoredTasks(tasks: FocusTask[]): void {
 
 export function toggleTaskDone(taskId: string): FocusTask[] {
   const current = getStoredTasks();
-  const updated = current.map((t) => (t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t));
+  const updated = current.map((t) => (t.id === taskId ? { ...t, isCompleted: !t.isCompleted, updatedAt: Date.now() } : t));
   try {
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(updated));
   } catch {
